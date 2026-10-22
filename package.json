@@ -1,0 +1,20 @@
+{
+  "name": "dsh-desktop-plus",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.28.5",
+  "engines": {
+    "node": "^22.19.0 || >=24"
+  },
+  "scripts": {
+    "gen:workspace": "node scripts/plus/gen-workspace.mjs",
+    "gen:workspace:check": "node scripts/plus/gen-workspace.mjs --check",
+    "sync:upstream": "node scripts/plus/sync-upstream.mjs",
+    "typecheck": "pnpm -C upstream run typecheck",
+    "typecheck:plus": "tsc -b packages/plus/*/tsconfig.json"
+  },
+  "devDependencies": {
+    "typescript": "^6.0.3"
+  }
+}

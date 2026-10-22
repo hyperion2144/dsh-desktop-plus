@@ -1,0 +1,12 @@
+# Git hooks (lefthook) — intentionally empty.
+#
+# The official root project carries a `postinstall` that runs
+# `upstream/scripts/install-lefthook.mjs`, so every install points
+# `core.hooksPath` at `.git/dsh-hooks`. Those hooks read this file.
+#
+# The official hook jobs address paths that only exist at the official
+# repository root (`scripts/run-oxlint.ts`, `node_modules/.bin/tsx`,
+# `scripts/check-vendor-manifest.sh`). After the move into `upstream/` they would
+# resolve against this root and fail, so this file declares no jobs instead of
+# carrying a broken copy of them. Our own gates belong in the packages that own
+# them, not in a hook that fires on every commit.
