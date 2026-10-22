@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.28.5
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install
+
+      # The root pnpm-workspace.yaml is generated from upstream/pnpm-workspace.yaml.
+      # A hand edit here silently diverges the two trees, so the gate is exact.
+      - name: Generated workspace config is current
+        run: pnpm run gen:workspace:check
+
+      - name: Upstream typecheck gates
+        run: pnpm run typecheck
+
+      - name: Plus typecheck
+        run: pnpm run typecheck:plus
