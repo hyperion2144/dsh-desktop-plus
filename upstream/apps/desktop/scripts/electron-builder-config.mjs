@@ -178,6 +178,14 @@ export function createElectronBuilderConfig(
       sign: !unsigned,
       writeUpdateInfo: false,
     },
+    // Linux has no signing or notarization path, so the same targets serve signed and unsigned runs.
+    linux: {
+      icon: fileURLToPath(new URL('../resources/icon-windows.png', import.meta.url)),
+      category: 'Development',
+      executableName: 'deepseek-harness',
+      synopsis: 'DeepSeek Harness desktop',
+      target: ['AppImage', 'tar.gz'],
+    },
     beforePack: async context => {
       const office = await officePackageDirectories(buildPaths.dsh, { platform: resolvedPlatform, arch: resolvedArch })
       const patterns = office.map(directory => `**/${relative(buildPaths.dsh, directory).split(sep).join('/')}/**/*`)

@@ -167,6 +167,14 @@ if (pins.length > 0) {
   ])
 }
 
+// Electron fetches its platform binary in a postinstall that the official allowlist
+// never enables, because the official workspace consumes a prebuilt Electron. Desktop
+// packaging launches the real binary, so it has to run here.
+appendToSection(out, 'allowBuilds', [
+  '  # Electron downloads its platform binary in a postinstall; packaging runs it.',
+  '  electron: true',
+])
+
 const text = `${HEADER}${out.join('\n').replace(/\n+$/, '')}\n`
 
 if (flags.has('--dry')) {
