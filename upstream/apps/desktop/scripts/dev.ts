@@ -108,7 +108,9 @@ async function main(): Promise<void> {
     schemaVersion: 1,
     version,
     hostProtocolVersion: DESKTOP_HOST_PROTOCOL_VERSION,
-    nodeVersion: execFileSync(createRequire(import.meta.url)('electron') as string, ['-p', 'process.versions.node'],
+    // Electron's RUN_AS_NODE probe hangs on some hosts; DSH_DESKTOP_NODE_VERSION lets a
+    // developer supply the bundled Node version instead of probing.
+    nodeVersion: process.env.DSH_DESKTOP_NODE_VERSION ?? execFileSync(createRequire(import.meta.url)('electron') as string, ['-p', 'process.versions.node'],
       { encoding: 'utf8', env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' } }).trim(),
     pnpmVersion,
   }

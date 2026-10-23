@@ -39,7 +39,9 @@ export function prepareDevelopmentApp(options: DevelopmentAppOptions): string {
       CFBundleIdentifier: `com.deepseek.harness.dev.${createHash('sha256').update(options.appRoot).digest('hex').slice(0, 12)}`,
       CFBundleName: 'Harness Dev',
       CFBundleDisplayName: 'Harness Dev',
-      CFBundleExecutable: 'HarnessDev',
+      // 入口必须是 Electron 本体：把 shell 脚本当 CFBundleExecutable 时，LaunchServices 拉起会卡在
+      // 脚本 exec 真正二进制那一步（实测：同一条二进制直接跑正常，经脚本 exec 就挂）。
+      CFBundleExecutable: 'Electron',
       CFBundleURLTypes: [{ CFBundleURLName: 'DeepSeek Harness', CFBundleURLSchemes: ['dsh'], CFBundleTypeRole: 'Viewer' }],
     }
     for (const [key, value] of Object.entries(values)) {

@@ -1,0 +1,8 @@
+- insert:
+    - id: dsh-desktop-plus-mobile-access
+      name: "@deepseek-ai/dsh-desktop-plus-mobile-access"
+      # 服务面要挂路由：没有这个 inject，插件 apply 时取 webServer 会直接报
+      # "cannot get property \"webServer\" without inject"，lane 根本不会起来。
+      inject: [webServer]
+
+# name 必须带引号：@ 开头的裸标量不是合法 YAML，dsh 解析 overlay 时会直接拒装整个包。

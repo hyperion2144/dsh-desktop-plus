@@ -12,7 +12,8 @@
     "gen:workspace:check": "node scripts/plus/gen-workspace.mjs --check",
     "sync:upstream": "node scripts/plus/sync-upstream.mjs",
     "typecheck": "pnpm -C upstream run typecheck",
-    "typecheck:plus": "tsc -b packages/plus/*/tsconfig.json"
+    "typecheck:plus": "tsc -b packages/plus/*/tsconfig.json",
+    "test:plus": "pnpm --filter \"./packages/plus/**\" run test"
   },
   "devDependencies": {
     "typescript": "^6.0.3"

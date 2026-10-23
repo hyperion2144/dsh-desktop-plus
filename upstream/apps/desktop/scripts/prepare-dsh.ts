@@ -3,7 +3,7 @@
 import { resolveMacOSSignatureCacheDirectory } from './macos-signature-cache-directory.mjs'
 import { packagingStep } from './packaging-step.mjs'
 import { spawn } from 'node:child_process'
-import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, lstatSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { delimiter, join, relative, resolve } from 'node:path'
 import { desktopNodeEnvironment } from '../src/node-environment.ts'
@@ -43,7 +43,7 @@ const STORE_ROOT = join(BUILD_ROOT, 'store')
 const RUNTIME_ROOT = BUILD_PATHS.runtime
 const PNPM_BUILD_STATE = BUILD_PATHS.dshPnpm
 const PACKAGE_SET_ROOT = BUILD_PATHS.packageSet
-const NODE = join(BUILD_PATHS.electron, process.platform === 'win32' ? 'electron.exe' : 'Electron.app/Contents/MacOS/Electron')
+const NODE = join(BUILD_PATHS.electron, process.platform === 'darwin' ? 'Electron.app/Contents/MacOS/Electron' : process.platform === 'win32' ? 'electron.exe' : 'electron')
 const PNPM = join(RUNTIME_ROOT, 'primary-runtime', 'dependencies', 'pnpm', 'bin', 'pnpm.mjs')
 
 function manifestVersion(path: string, subject: string): string {
@@ -137,7 +137,8 @@ async function main(): Promise<void> {
     const target = { platform: process.platform, arch: desktopTargetPlatform(targetName).arch }
     const modules = join(BUILD_ROOT, 'node_modules')
     const officeManifest = JSON.parse(readFileSync(join(modules, '@deepseek-ai/libreoffice-kit/package.json'), 'utf8'))
-    const officeEngine = selectOfficeEngine(officeManifest, target)
+    // Linux targets have no native kit distribution; the kit's own resolveEngine falls back to WASM when the native package is absent, so package the WASM engine directly.
+    const officeEngine = target.platform === 'linux' ? 'wasm' : selectOfficeEngine(officeManifest, target)
     mkdirSync(DSH_OUTPUT_ROOT, { recursive: true })
     await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'runtime:materialize-modules', async () => {
       cpSync(modules, join(DSH_OUTPUT_ROOT, 'node_modules'), {
@@ -161,6 +162,32 @@ async function main(): Promise<void> {
       const cacheDirectory = resolveMacOSSignatureCacheDirectory(process.env, BUILD_PATHS.root)
       await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'sign:dsh-native', () => signMacOSRuntime(DSH_OUTPUT_ROOT, resolveDesktopAppId(process.env), resolveMacOSSigningEnvironment(process.env), target.arch, cacheDirectory))
       await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'sign:primary-native', () => signMacOSRuntime(join(RUNTIME_ROOT, 'primary-runtime'), resolveDesktopAppId(process.env), resolveMacOSSigningEnvironment(process.env), target.arch, cacheDirectory, 'primary'))
+    }
+    // The kit's resolver treats a present-but-incomplete native package as fatal instead of
+    // falling back to WASM, so a native kit directory must not survive into the runtime image.
+    if (officeEngine === 'wasm') {
+      await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'runtime:prune-unavailable-kits', async () => {
+        // The resolve chain from the packaged runtime walks up to the build workspace's
+        // own node_modules, where pnpm installs the platform-matching optional kit;
+        // prune it there too so resolveEngine falls back to wasm.
+        const buildWorkspaceRoot = join(import.meta.dirname, '..', '..', '..')
+        const stack = [join(DSH_OUTPUT_ROOT, 'node_modules'), join(RUNTIME_ROOT, 'primary-runtime', 'node_modules'), join(buildWorkspaceRoot, 'node_modules')]
+        while (stack.length > 0) {
+          const directory = stack.pop()!
+          let entries: string[] = []
+          try { entries = readdirSync(directory) } catch { continue }
+          for (const entry of entries) {
+            const path = join(directory, entry)
+              if ((entry.startsWith('libreoffice-kit-linux-') || entry.startsWith('@deepseek-ai+libreoffice-kit-linux-'))) {
+              rmSync(path, { recursive: true, force: true })
+              continue
+            }
+            let stat: import('node:fs').Stats | undefined
+            try { stat = lstatSync(path) } catch { continue }
+            if (stat?.isDirectory()) stack.push(path)
+          }
+        }
+      })
     }
     await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'runtime:manifests', () => prepareRuntimeManifests(DSH_OUTPUT_ROOT))
     await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'runtime:primary-smoke', async () => smokePrimaryRuntime(join(RUNTIME_ROOT, 'primary-runtime')))

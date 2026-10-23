@@ -1,0 +1,118 @@
+name: Release Desktop
+
+# Tag-driven release (ticket #29): a `v<X.Y.Z[-pre].plus.N>` tag is validated against the
+# generated version (ticket #29 #4 — tags are never hand-edited past the generator), then
+# the three-platform unsigned artifacts are packaged and published to a GitHub Release
+# whose notes come from the CHANGELOG 未发布 section.
+on:
+  push:
+    tags:
+      - 'v*.plus.*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-desktop-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Validate tag against generated version
+        run: node scripts/plus/version.mjs --check "${{ github.ref_name }}"
+
+  package:
+    needs: validate
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: mac-arm64
+            os: macos-14
+          - target: win-x64
+            os: windows-latest
+          - target: linux-x64
+            os: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.28.5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Install
+        run: pnpm install
+
+      - name: Build desktop shell
+        working-directory: upstream
+        env:
+          NODE_OPTIONS: --max-old-space-size=8192
+        run: |
+          node ./node_modules/typescript/bin/tsc -b tsconfig.host.json
+          pnpm exec tsdown --config-loader native --env.DSH_BUILD_FACE host
+          pnpm --filter @deepseek-ai/dsh-desktop run bundle
+
+      - name: Install xvfb (Linux headless smoke)
+        if: matrix.target == 'linux-x64'
+        run: sudo apt-get update && sudo apt-get install -y xvfb
+
+      - name: Package ${{ matrix.target }} (unsigned — no signing secrets on this repo)
+        working-directory: upstream/apps/desktop
+        run: >
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            xvfb-run -a pnpm exec tsx scripts/package-target.ts ${{ matrix.target }} --unsigned
+          else
+            pnpm exec tsx scripts/package-target.ts ${{ matrix.target }} --unsigned
+          fi
+        shell: bash
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: desktop-${{ matrix.target }}
+          path: |
+            upstream/apps/desktop/.desktop-build/targets/${{ matrix.target }}/artifacts/**
+            upstream/apps/desktop/.desktop-build/packaging-runs/**
+          if-no-files-found: warn
+
+  release:
+    needs: package
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          pattern: desktop-*
+          merge-multiple: false
+      - name: Create GitHub release with CHANGELOG notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          mkdir -p release-assets
+          find artifacts -type f \( -name '*.dmg' -o -name '*.zip' -o -name '*.exe' -o -name '*.AppImage' -o -name '*.tar.gz' -o -name '*.blockmap' -o -name '*latest*.yml' \) -exec cp {} release-assets/ \; || true
+          {
+            echo "## dsh-desktop-plus ${TAG}"
+            echo
+            echo "> 未签名构建：本仓库未配置 macOS 公证与 Windows 签名凭据。"
+            echo
+            node scripts/plus/notes.mjs >> release-notes.md 2>/dev/null || true
+            [ -s release-notes.md ] || node --input-type=module -e "import { unreleasedNotes } from './scripts/plus/version.mjs'; const n = unreleasedNotes(); console.log(n === '' ? '_（CHANGELOG 未发布段为空）_' : n)" >> release-notes.md
+            cat release-notes.md
+          } > combined-notes.md
+          gh release create "$TAG" --title "dsh-desktop-plus $TAG" --notes-file combined-notes.md release-assets/*

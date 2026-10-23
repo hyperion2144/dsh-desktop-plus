@@ -4,13 +4,22 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    }
   },
-  "dependencies": {
-    "@deepseek-ai/dsh-brand": "workspace:*"
-  },
+  "dependencies": {},
   "devDependencies": {
+    "@deepseek-ai/dsh-desktop-plus-plugin": "workspace:*",
+    "@deepseek-ai/dsh-desktop-plus-runtime-selection": "workspace:*",
     "@types/node": "^22.20.1",
-    "typescript": "^6.0.3"
+    "electron": "^44.7.0",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.11"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "clean": "rm -rf lib"
   }
 }

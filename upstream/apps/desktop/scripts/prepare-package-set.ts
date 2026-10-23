@@ -88,7 +88,9 @@ export function selectDesktopPackageClosure(
 }
 
 function packedManifest(tarball: string): Record<string, unknown> {
-  const value: unknown = JSON.parse(capture('tar', ['-xOzf', tarball, 'package/package.json']))
+  // GNU tar reads a leading D: as a remote host; bsdtar rejects --force-local outright.
+  const tarFlags = process.platform === 'win32' ? ['--force-local', '-xOzf'] : ['-xOzf']
+  const value: unknown = JSON.parse(capture('tar', [...tarFlags, tarball, 'package/package.json']))
   if (value === null || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error(`desktop package set: ${tarball} has no package manifest`)
   }
