@@ -353,8 +353,8 @@ async function main(): Promise<void> {
   if (invocation.skipNotarization) {
     process.stdout.write('desktop package: skipping notarization and stapling; internal debugging only, not qualified for distribution or update publishing\n')
   }
-  // Unsigned builds on any non-Windows host use the local preset instead of a release dotenv.
-  const environment = target.platform !== 'win32' && invocation.unsigned
+  // Unsigned builds use the local preset instead of a release dotenv; it is platform-agnostic.
+  const environment = invocation.unsigned
     ? localMacOSPackageEnvironment()
     : loadDesktopPackageEnvironment(target.platform, process.env, APP_ROOT, {
       unsigned: invocation.unsigned, prepareOnly: invocation.prepareOnly,

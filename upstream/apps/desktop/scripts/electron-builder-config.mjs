@@ -254,8 +254,11 @@ export function createElectronBuilderConfig(
       target: ['nsis'],
     },
     linux: {
+      icon: fileURLToPath(new URL('../resources/icon-windows.png', import.meta.url)),
       category: 'Development',
-      target: ['AppImage'],
+      executableName: 'deepseek-harness',
+      synopsis: 'DeepSeek Harness desktop',
+      target: ['AppImage', 'tar.gz'],
     },
     nsis: {
       installerSidebar: join(buildPaths.root, 'installer-ui', 'uninstaller-sidebar.bmp'),

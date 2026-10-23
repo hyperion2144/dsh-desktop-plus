@@ -16,6 +16,7 @@
 
 - 新增根目录 CI：安装、生成物校验、官方 typecheck、plus typecheck。
 - 新增三平台打包流水线，产出 macOS、Windows、Linux 桌面产物。
+- 修复三平台打包：Linux 按 Electron 发行包选对二进制路径，未签名 Windows 改用平台无关的本地预设，Linux 构建配置去重并补齐图标、可执行名与 tar.gz 产物。
 
 ## 已发布
 
