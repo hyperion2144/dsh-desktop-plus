@@ -107,7 +107,7 @@ index 995c117d..48364bdf 100644
    options?: { unsigned?: boolean, prepareOnly?: boolean, skipNotarization?: boolean },
  ): void
 diff --git a/upstream/apps/desktop/scripts/desktop-package-environment.mjs b/upstream/apps/desktop/scripts/desktop-package-environment.mjs
-index 8116dea2..250666a3 100644
+index 8116dea2..ded227e0 100644
 --- a/upstream/apps/desktop/scripts/desktop-package-environment.mjs
 +++ b/upstream/apps/desktop/scripts/desktop-package-environment.mjs
 @@ -36,7 +36,7 @@ export function localMacOSPackageEnvironment(environment = process.env) {
@@ -130,6 +130,27 @@ index 8116dea2..250666a3 100644
    let path = join(appRoot, platform === 'win32' ? '.env.windows' : '.env.macos')
    if (preset !== undefined) {
      if (preset !== 'test' && preset !== 'production') throw new Error('desktop package: preset must be test or production')
+@@ -129,16 +133,17 @@ function requireReadableFile(environment, name) {
+ /**
+  * Validate the packaging mode before preparation without invoking a token or Apple's services.
+  * @param {NodeJS.ProcessEnv} environment Selected local defaults or file-owned release settings.
+- * @param {{ platform: 'win32' | 'darwin', arch: string }} target Selected release target.
++ * @param {{ platform: 'win32' | 'darwin' | 'linux', arch: string }} target Selected release target.
+  * @param {{ unsigned?: boolean, prepareOnly?: boolean, skipNotarization?: boolean }} options Explicit packaging mode.
+  * @returns {void}
+  */
+ export function validateDesktopPackageEnvironment(environment, target, options = {}) {
+   resolveDesktopAppId(environment)
+   resolveNpmRegistry(environment)
+-  if (target.platform !== 'darwin' || !options.unsigned) resolveDesktopPolicyEnvironment(environment)
++  // Unsigned builds carry no release policy and no platform signing settings.
++  if (!options.unsigned) resolveDesktopPolicyEnvironment(environment)
+   if (target.platform === 'darwin') resolveMacOSPackageSettings(environment)
+-  else resolveWindowsPackageSettings(environment)
++  else if (target.platform === 'win32') resolveWindowsPackageSettings(environment)
+   if (options.unsigned) return
+   if (!options.prepareOnly) resolveDesktopAutoUpdateConfig(environment, target.platform, target.arch)
+   if (target.platform === 'win32') {
 diff --git a/upstream/apps/desktop/scripts/desktop-release-store.ts b/upstream/apps/desktop/scripts/desktop-release-store.ts
 index c080272e..83ec26c4 100644
 --- a/upstream/apps/desktop/scripts/desktop-release-store.ts
@@ -178,9 +199,18 @@ index aa05966c..7d2bca71 100644
    readonly platform: NodeJS.Platform
    readonly arch: string
 diff --git a/upstream/apps/desktop/scripts/electron-builder-config.mjs b/upstream/apps/desktop/scripts/electron-builder-config.mjs
-index 4b9cd27a..3e1937d3 100644
+index 4b9cd27a..d3549808 100644
 --- a/upstream/apps/desktop/scripts/electron-builder-config.mjs
 +++ b/upstream/apps/desktop/scripts/electron-builder-config.mjs
+@@ -65,7 +65,7 @@ export function createElectronBuilderConfig(
+   if (skipNotarization && (unsigned || resolvedPlatform !== 'darwin')) throw new Error('Skipping notarization requires a signed macOS build')
+   const packagesMacOS = targetPlatform === 'darwin' || (targetPlatform === undefined && hostPlatform === 'darwin')
+   const packagesWindows = resolvedPlatform === 'win32'
+-  const policy = packagesMacOS && unsigned ? undefined : resolveDesktopPolicyEnvironment(env)
++  const policy = unsigned ? undefined : resolveDesktopPolicyEnvironment(env)
+   if (resolvedPlatform === 'win32') installWindowsDirectoryInstaller()
+   const macOSSigning = packagesMacOS && !unsigned ? resolveMacOSSigningEnvironment(env) : undefined
+   if (packagesMacOS && !unsigned && !skipNotarization) resolveMacOSNotarizationEnvironment(env)
 @@ -178,6 +178,14 @@ export function createElectronBuilderConfig(
        sign: !unsigned,
        writeUpdateInfo: false,
