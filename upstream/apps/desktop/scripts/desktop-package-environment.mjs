@@ -28,7 +28,8 @@ const FILE_SETTINGS = ['DSH_DESKTOP_WINDOWS_CER_FILE', 'DSH_DESKTOP_WINDOWS_SIGN
 export function localMacOSPackageEnvironment(environment = process.env) {
   return {
     ...Object.fromEntries(Object.entries(environment).filter(([name]) => !AMBIENT_RELEASE_SETTING.test(name))),
-    DSH_DESKTOP_APP_ID: 'com.deepseek.harness',
+    // plus 层自己的 bundle id：与官方 com.deepseek.harness 分开，userData/单实例锁/登录项都不串。
+    DSH_DESKTOP_APP_ID: 'com.deepseek.harness.plus',
     DSH_DESKTOP_UNSIGNED: '1',
   }
 }

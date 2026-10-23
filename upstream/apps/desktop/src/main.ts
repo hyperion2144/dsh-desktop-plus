@@ -17,11 +17,15 @@ import {
   nativeTheme,
   net,
   protocol,
+  Notification,
   session,
   shell,
   type IpcMainInvokeEvent,
   type MenuItemConstructorOptions,
 } from 'electron'
+import { existsSync, readdirSync, writeFileSync } from 'node:fs'
+import { applyLoginItemFromEnv, loadRemoteProfiles, remoteOrigin, createProfilesRpcHandlers, createUpdatesRpcHandlers, applyWindowsAppUserModelId, attachDownloads, attachPackagedDevTools, attachPageConsole, clearSelectedRuntime, collectDiagnostics, createDownloadRpcHandlers, createElectronProfileRuntime, createLoggingRpcHandlers, createProfileTray, createRotatingLogger, createRpcRegistry, createShellKernel, stageDesktopPlugins, DEFAULT_PROFILE, presentRuntimeCandidate, selectRuntimeCandidates, shouldPresentRuntimeCandidate, resolveStartupRuntimeSelection, restartApplicationInPlace, runPlusStartup, loadRuntimeLedger, type RuntimeSourceInput, type RpcRegistry, type ProfileTray } from '@deepseek-ai/dsh-desktop-plus-shell'
+import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
 import { resolveDesktopPaths } from './paths.ts'
 import { DesktopProjectManager } from './project-manager.ts'
 import { DesktopHostFatalError, DesktopHostProcess, DesktopHostUncleanExitError } from './host-process.ts'
@@ -54,7 +58,7 @@ import { DesktopMandatoryUpdateWindow } from './mandatory-update-window.ts'
 import { DesktopPolicyTestAuth } from './policy-test-auth.ts'
 import { readDesktopSettings } from './settings.ts'
 import { DesktopUpdateDialog, type UpdateDialogOptions } from './update-dialog.ts'
-import { readDesktopRuntime } from './runtime-tree.ts'
+import { readDesktopRuntime, verifyDesktopRuntime } from './runtime-tree.ts'
 import { DesktopBrowserGuests } from './browser-guests.ts'
 import { installDesktopShortcuts } from './keyboard.ts'
 import { DesktopUpdateOverlays } from './update-overlay.ts'
@@ -71,6 +75,26 @@ let shuttingDown = false
  */
 let skipQuitConfirmation = false
 let windowsLanguage: string | undefined
+/**
+ * The official main window, resolved live: the plus tray reads it before the window exists.
+ */
+let plusDesktopWindow: () => BrowserWindow | undefined = () => undefined
+/**
+ * Restarts the official backend inside this process: the Host stops and starts again.
+ */
+let plusRestartBackend: (() => Promise<void>) | undefined
+/** The plus profile tray, so profile and window changes can refresh its menu. */
+let plusProfileTray: ProfileTray | undefined
+/** Rebuilds the plus tray menu from the live profile and window state. */
+function refreshPlusTray(): void {
+  if (!plusShell.state.tray) return
+  plusProfileTray?.refresh()
+}
+/** Restarts the official backend in place; the tray's restart entries go through it. */
+async function restartOfficialBackend(): Promise<void> {
+  if (plusRestartBackend === undefined) throw new Error('dsh desktop: the desktop backend is not ready')
+  await plusRestartBackend()
+}
 /**
  * Whether the backend has reached ready: false until the first ready, back to
  * false when a restart returns it to starting, frozen during shutdown so a
@@ -158,7 +182,7 @@ function runtimeResources(): RuntimeResources {
     ?? (development ? join(app.getAppPath(), 'node_modules', 'pnpm', 'bin', 'pnpm.mjs')
       : join(process.resourcesPath, 'runtime', 'primary-runtime', 'dependencies', 'pnpm', 'bin', 'pnpm.mjs'))
   const dsh = (development ? process.env.DSH_DESKTOP_DSH_DIR : undefined)
-    ?? (development ? join(app.getAppPath(), '.desktop-build', 'development', 'project') : join(app.getAppPath(), 'dsh'))
+    ?? (development ? join(app.getAppPath(), '.desktop-build', 'development', 'project') : plusRuntimeDshOverride ?? join(app.getAppPath(), 'dsh'))
   return { node, nodeBin, pnpm, dsh }
 }
 
@@ -319,8 +343,38 @@ async function main(): Promise<void> {
   void pruneCrashReports(app.getPath('logs'))
   const journalDirectory = process.env.DSH_DESKTOP_UPDATE_JOURNAL_DIR
   const updateJournal = journalDirectory === undefined ? undefined : new DesktopUpdateJournal(journalDirectory, app.getVersion())
+  try {
+    const selection = await resolveStartupRuntimeSelection(app.getPath('userData'), {
+      verifyRuntime: async (root, version) => { await verifyDesktopRuntime(root, version) },
+      clearSelected: () => clearSelectedRuntime(app.getPath('userData')),
+    })
+    if (selection.kind === 'selected') plusRuntimeDshOverride = selection.root
+    else if (selection.kind === 'fallback') console.error(`plus runtime ${selection.version} unusable, falling back to builtin: ${selection.reason}`)
+  } catch (error) {
+    console.error('plus runtime selection failed, using builtin', error)
+  }
   const resources = runtimeResources()
+  refreshRuntimeCandidateNotice(app.getVersion())
   const paths = resolveDesktopPaths()
+    // 插件用符号链接挂进 profile：不跑 pnpm、不联网，接入失败也只说一句，桌面照常启动。
+    stageDesktopPlugins({
+        profileDir: paths.profile,
+        plugins: [
+            {
+                name: '@deepseek-ai/dsh-desktop-plus-plugin',
+                dir: app.isPackaged
+                    ? join(process.resourcesPath, 'plus-plugin')
+                    : join(app.getAppPath(), '..', '..', '..', 'packages', 'plus', 'desktop-plugin'),
+            },
+            {
+                name: '@deepseek-ai/dsh-desktop-plus-mobile-access',
+                dir: app.isPackaged
+                    ? join(process.resourcesPath, 'mobile-plugin')
+                    : join(app.getAppPath(), '..', '..', '..', 'packages', 'plus', 'desktop-mobile-access'),
+            },
+        ],
+        log: (line) => plusLogger.append(line),
+    })
   const development = !app.isPackaged
   const primaryRuntime = development
     ? developmentPrimaryRuntime()
@@ -339,10 +393,14 @@ async function main(): Promise<void> {
   })
   let hostEnvironment: NodeJS.ProcessEnv = process.env
   const prepareHostEnvironment = async (): Promise<void> => { hostEnvironment = await loginShell }
+  // The plus profile windows start their own Host runtimes from the official seams.
+  plusProfileHostContext = { resources, primaryRuntime, hostEnvironment: () => hostEnvironment }
   let quitting = false
   let startup: Promise<void> | undefined
   let workspaceRecovery: Promise<void> | undefined
   let mainWindow: BrowserWindow | undefined
+  // The plus tray reads the official window through this getter; the window itself appears later.
+  plusDesktopWindow = () => mainWindow
   let welcomeWindow: BrowserWindow | undefined
   let enteredWorkspace = false
   // NSIS passes --updated when it launches the application after installation.
@@ -444,13 +502,17 @@ async function main(): Promise<void> {
     () => locale.id === 'zh-CN' ? 'zh_CN' : 'en_US', process.platform === 'win32' ? 'win32' : 'darwin')
   const backend = new DesktopBackendController((onFailure) => {
     const hostInspectPort = developmentHostInspectPort(development)
+    plusShell.noteHostPhase('starting')
+    const trackedFailure = (error: Error): void => { plusShell.noteHostPhase('failed', error); onFailure(error) }
     const host = new DesktopHostProcess(resources.node, resources.dsh, activeProject,
-      hostInspectPort, { ...hostEnvironment, DSH_CLIENT_VERSION: desktopClientVersion() }, onFailure,
+      hostInspectPort, { ...hostEnvironment, DSH_CLIENT_VERSION: desktopClientVersion(), DSH_MOBILE_LANE_PORT: '3091', DSH_DESKTOP_PORT_FILE: join(app.getPath('userData'), 'dsh-desktop-port') }, trackedFailure,
       primaryRuntime,
       resources, (next) => { platformView.setSession(next) })
     return {
       start: async () => {
         const ready = await host.start()
+        writeDshPortFileFromUrl(ready.url)
+        plusShell.noteHostPhase('ready')
         hostCookie = await authenticateWebHost(ready.url)
         hostUrl = ready.url
         if (ready.injections === undefined) throw new Error('Desktop Host did not provide boot injections')
@@ -484,7 +546,7 @@ async function main(): Promise<void> {
             }).catch(() => undefined)
           }
           previousAccountStatus = state.status
-        }, () => {
+      }, () => {
           // The stream reconnects; a transport failure does not change account state.
         }, () => {
           void readWelcomeState().then(async (value) => {
@@ -566,6 +628,8 @@ async function main(): Promise<void> {
     return welcomeBackend.read()
   }
   stopForRecovery = () => backend.close()
+  // The plus tray restarts the application in place: the backend stops and starts again in this process.
+  plusRestartBackend = async () => { await backend.close(); await reconcileBackend() }
 
   const reconcileBackend = (): Promise<void> => {
     startup ??= (async () => {
@@ -586,7 +650,7 @@ async function main(): Promise<void> {
 
   const manifest: unknown = JSON.parse(await readFile(join(app.getAppPath(), 'package.json'), 'utf8'))
   const updateChannel = desktopUpdateChannel(manifest)
-  const updates = new DesktopUpdateCoordinator(
+  let updates = new DesktopUpdateCoordinator(
     publishUpdate,
     async () => {
       await commandManager.idle()
@@ -644,6 +708,7 @@ async function main(): Promise<void> {
 
   const updateSchedule = new DesktopUpdateSchedule(updates, resolveDesktopUpdateScheduleConfig(process.env))
 
+  plusUpdates = updates
   const downloadUpdate = async (version: string): Promise<DesktopUpdateState> => {
     void track('desktop_upgrade_click', {})
     updateJournal?.action('download-requested')
@@ -669,6 +734,7 @@ async function main(): Promise<void> {
     // Shell-owned documents live in the application bundle and never pass through the Host.
     if (url.hostname === 'shell') return serveWebDocument(request, join(app.getAppPath(), 'renderer'))
     if (url.hostname === 'app') {
+      if (request.method === 'POST' && url.pathname === '/__shell__/rpc') return servePlusRpc(request)
       if (url.pathname === '/' || url.pathname === '/index.html' || url.pathname.startsWith('/assets/')
         || ['/favicon.svg', '/manifest.webmanifest'].includes(url.pathname)) {
         return serveWebDocument(request, join(resources.dsh, 'node_modules', '@deepseek-ai', 'dsh-web-frontend', 'dist'))
@@ -932,7 +998,7 @@ async function main(): Promise<void> {
   const applicationIconPath = development ? join(app.getAppPath(), 'resources', 'icon-windows.png')
     : join(process.resourcesPath, 'icon.png')
   app.setAboutPanelOptions({
-    applicationName: 'DeepSeek Harness',
+    applicationName: 'DSH Desktop Plus',
     applicationVersion: app.getVersion(),
     // The release has no separate build number; omit Electron's bundle version.
     version: '',
@@ -988,8 +1054,10 @@ async function main(): Promise<void> {
     tray?.relabel()
   }
   refreshApplicationMenu()
-  const trayIconPath = development ? join(app.getAppPath(), 'resources', 'tray-windows.ico') : join(process.resourcesPath, 'tray.ico')
-  if (process.platform === 'win32') {
+  const trayIconPath = process.platform === 'win32'
+    ? (development ? join(app.getAppPath(), 'resources', 'tray-windows.ico') : join(process.resourcesPath, 'tray.ico'))
+    : (development ? join(app.getAppPath(), 'resources', 'tray-16.png') : join(process.resourcesPath, 'tray.png'))
+    if (process.platform === 'win32' && !plusShell.ownsTray()) {
     // The tray is the way back to a hidden window; without it, relaunching the application still focuses it.
     try {
       tray = new DesktopTray({ iconPath: trayIconPath, locale: currentDesktopLocale,
@@ -1072,6 +1140,7 @@ async function main(): Promise<void> {
   const createMainWindow = (): BrowserWindow => {
     const window = createWindow(appPreload, false, true)
     mainWindow = window
+    refreshPlusTray()
     browserGuests.bind(window, (guest, name) => shortcuts.attachGuest(window, guest, name))
     shortcuts.attach(window)
     window.on('focus', automaticCheck)
@@ -1096,7 +1165,7 @@ async function main(): Promise<void> {
       window.on('focus', () => { sessionEnding = false })
       window.on('show', () => { sessionEnding = false })
     }
-    window.on('closed', () => { if (mainWindow === window) mainWindow = undefined })
+    window.on('closed', () => { if (mainWindow === window) mainWindow = undefined; refreshPlusTray() })
     window.webContents.on('console-message', (details) => {
       if (details.level !== 'error') return
       rendererConsole.push(`${details.sourceId}:${String(details.lineNumber)} ${details.message}`)
@@ -1259,6 +1328,8 @@ async function main(): Promise<void> {
     updateDialog.dispose()
     mandatoryUI?.dispose()
     void Promise.all([Promise.resolve(mandatoryPolicy?.dispose()).then(() => policyAuth?.dispose()), backend.close(),
+      // Plus profile hosts are separate child processes; stop them with the rest.
+      plusProfiles.dispose().catch((error: unknown) => { console.error(error) }),
       // A Platform cleanup failure is logged without cutting the remaining Host shutdown short.
       platformView.dispose().catch((error: unknown) => { console.error(error) })])
       .catch((error: unknown) => { console.error(error) }).finally(() => { app.quit() })
@@ -1288,6 +1359,10 @@ async function main(): Promise<void> {
   })
 
   mainWindow = createMainWindow()
+  attachPageConsole(mainWindow.webContents, (line) => plusLogger.append(line))
+  attachPackagedDevTools(mainWindow, app.isPackaged)
+  plusLogger.prune()
+  plusLogger.append(`diagnostics ${JSON.stringify(collectDiagnostics({ logDir: app.getPath('logs'), appVersion: app.getVersion(), profile: 'desktop', deviceInfo: readDeviceInfo() }))}`)
   if (typeof manifest !== 'object' || manifest === null) throw new Error('desktop policy: invalid application manifest')
   const developmentPolicy = app.isPackaged ? undefined : process.env.DSH_DESKTOP_MANDATORY_UPDATE_CONFIG
   const policyInput: unknown = app.isPackaged
@@ -1340,15 +1415,277 @@ async function main(): Promise<void> {
   publishUpdate(updateState)
 }
 
-const ownsDesktopInstance = claimDesktopSingleInstance(app, () => { focusPrimaryWindow() })
+applyWindowsAppUserModelId()
+applyLoginItemFromEnv(app)
+const plusLogger = createRotatingLogger({ dir: app.getPath('logs') })
+const plusShell = createShellKernel({
+  app,
+  claimSingleInstance: (refocus) => claimDesktopSingleInstance(app, refocus),
+  createTray: ({ onQuit }) => {
+    const messages = currentDesktopLocale().messages
+    try {
+      plusProfileTray = createProfileTray({
+        icon: !app.isPackaged
+          ? (process.platform === 'win32' ? join(app.getAppPath(), 'resources', 'tray-windows.ico') : join(app.getAppPath(), 'resources', 'tray-16.png'))
+          : (process.platform === 'win32' ? join(process.resourcesPath, 'tray.ico') : join(process.resourcesPath, 'tray.png')),
+        getStates: () => {
+          const window = plusDesktopWindow()
+          const states = [{ name: DEFAULT_PROFILE, running: window !== undefined && !window.isDestroyed() }]
+          for (const entry of plusProfiles.manager.list()) states.push({ name: entry.name, running: true })
+          return states
+        },
+        getWindowState: (name) => {
+          if (name === DEFAULT_PROFILE) {
+            const window = plusDesktopWindow()
+            if (window === undefined || window.isDestroyed()) return { visible: false, focused: false }
+            return { visible: window.isVisible() && !window.isMinimized(), focused: window.isFocused() }
+          }
+          return plusProfiles.windowState(name) ?? { visible: false, focused: false }
+        },
+        canManage: (name) => name !== DEFAULT_PROFILE,
+        labels: {
+          restartApp: messages.restartAppHostMenu,
+          quitApp: messages.quitApplication,
+          // No locale field names the show-or-hide entry, so it stays English until one exists.
+          showHide: 'Show / Hide',
+          restart: messages.restartApplication,
+          quit: messages.exitApplication,
+        },
+        actions: {
+          showOrFocus: (name) => {
+            if (name === DEFAULT_PROFILE) { focusPrimaryWindow(); return }
+            plusProfiles.showProfile(name)
+          },
+          hide: (name) => {
+            if (name === DEFAULT_PROFILE) { plusDesktopWindow()?.hide(); return }
+            plusProfiles.manager.hideOrClose(name)
+          },
+          quit: (name) => {
+            void plusProfiles.quitProfile(name).then((result) => {
+              if (!result.ok) console.warn(`plus profile ${name} was not quit: ${result.reason}`)
+            })
+          },
+          restart: (name) => {
+            const restart = name === DEFAULT_PROFILE
+              ? restartOfficialBackend
+              : async (): Promise<void> => { await plusProfiles.restartProfile(name) }
+            void restart().catch((error: unknown) => { console.error(error) })
+          },
+          restartApp: () => {
+            void restartApplicationInPlace({
+              official: { restart: restartOfficialBackend },
+              profiles: plusProfiles.manager.list().map((entry) => ({
+                name: entry.name,
+                restart: async (): Promise<void> => { await plusProfiles.restartProfile(entry.name) },
+              })),
+              recreateTray: () => { refreshPlusTray() },
+            }).catch((error: unknown) => { console.error(error) })
+          },
+          quitApp: () => { onQuit() },
+        },
+      })
+      return plusProfileTray
+    } catch (error) {
+      // A tray that cannot be created must not keep the application from starting.
+      console.warn('plus profile tray: unavailable', error)
+      return { destroy: () => {} }
+    }
+  },
+  quit: () => { app.quit() },
+})
 
-if (ownsDesktopInstance) void app.whenReady().then(main).catch(async (error: unknown) => {
+const plusDownloads = attachDownloads({ session: session.defaultSession, profileDir: resolveDesktopPaths().profile })
+app.on('will-quit', () => { plusDownloads.dispose() })
+
+let plusUpdates: InstanceType<typeof DesktopUpdateCoordinator> | undefined
+const plusProfilePorts = new Map<string, number>()
+
+const plusRpcRegistry: RpcRegistry = createRpcRegistry([
+  createUpdatesRpcHandlers({
+    dshHome: () => resolveDshHome(),
+    enabled: () => plusUpdates !== undefined,
+    check: async () => {
+      const coordinator = plusUpdates
+      if (coordinator === undefined) return { update_available: false, version: null }
+      const state = await coordinator.check(true) as { updateAvailable?: boolean, version?: string }
+      return { update_available: state.updateAvailable === true, version: state.version ?? null }
+    },
+    download: async () => plusUpdates === undefined ? { ok: false, reason: 'update coordinator is not ready yet' } : { ok: ((await plusUpdates.download('')) as unknown) !== undefined || true },
+    apply: async () => plusUpdates === undefined ? { ok: false, reason: 'update coordinator is not ready yet' } : { ok: ((await plusUpdates.install('')) as unknown) !== undefined || true },
+  }),
+  createProfilesRpcHandlers({
+    ports: () => [...plusProfilePorts.entries()].map(([profile, port]) => ({ profile, port })),
+    pendingRestore: () => [],
+    confirm: () => { },
+  }),
+  createDownloadRpcHandlers({
+    list: () => plusDownloads.manager.list(),
+    pause: (id) => plusDownloads.manager.pause(id),
+    resume: (id) => plusDownloads.manager.resume(id),
+    cancel: (id) => plusDownloads.manager.cancel(id),
+    clearFinished: () => plusDownloads.manager.clearFinished(),
+    reveal: (id) => {
+      const record = plusDownloads.manager.list().find((entry) => entry.id === id)
+      if (record === undefined || record.savedPath === '') return false
+      shell.showItemInFolder(record.savedPath)
+      return true
+    },
+  }),
+  createLoggingRpcHandlers({
+    append: (line) => plusLogger.append(line),
+    logDir: () => app.getPath('logs'),
+    collectDiagnostics: async () => collectDiagnostics({ logDir: app.getPath('logs'), appVersion: app.getVersion(), profile: 'desktop', deviceInfo: readDeviceInfo() }),
+  }),
+])
+
+/** Runtime-source sightings for the candidate notice: builtin + installed dirs + npm registry. */
+const runtimeSourceSightings = async (builtinVersion: string): Promise<RuntimeSourceInput[]> => {
+  const sightings: RuntimeSourceInput[] = [{ id: 'builtin', kind: 'builtin', version: builtinVersion }]
+  const runtimesRoot = join(app.getPath('userData'), 'runtimes')
+  for (const entry of existsSync(runtimesRoot) ? readdirSync(runtimesRoot) : []) {
+    if (!entry.includes('.staging')) sightings.push({ id: `installed:${entry}`, kind: 'installed', version: entry })
+  }
+  try {
+    const response = await fetch('https://registry.npmjs.org/@deepseek-ai/dsh', { signal: AbortSignal.timeout(15_000) })
+    if (response.ok) {
+      const meta: unknown = await response.json()
+      const versions = typeof meta === 'object' && meta !== null && 'versions' in meta ? Object.keys((meta as { versions: Record<string, unknown> }).versions) : []
+      for (const version of versions) sightings.push({ id: `remote:${version}`, kind: 'remote', version })
+    }
+  } catch { /* offline: the notice is best-effort and simply stays silent */ }
+  return sightings
+}
+
+/** Surfaces the newest downloadable runtime candidate once per version, ignoring/blocked via the ledger. */
+const refreshRuntimeCandidateNotice = (builtinVersion: string): void => {
+  void (async () => {
+    try {
+      const sightings = await runtimeSourceSightings(builtinVersion)
+      const current = plusRuntimeDshOverride === undefined ? builtinVersion : undefined
+      const downloadable = selectRuntimeCandidates(sightings)
+        .filter((candidate) => candidate.disposition === 'downloadable' && candidate.prerelease === false)
+        .map((candidate) => candidate.version)
+      const newest = downloadable[0]
+      if (newest === undefined) return
+      const fingerprint = downloadable.join(',')
+      if (shouldPresentRuntimeCandidate(newest, fingerprint, loadRuntimeLedger(app.getPath('userData')))) {
+        presentRuntimeCandidate({ show: (input) => { new Notification(input).show() } }, newest, current)
+      }
+    } catch (error) { console.error('runtime candidate notice failed', error) }
+  })()
+}
+
+const writeDshPortFileFromUrl = (hostUrl: string): void => {
+    try {
+        const port = Number(new URL(hostUrl).port)
+        if (port > 0) writeFileSync(join(app.getPath('userData'), 'dsh-desktop-port'), String(port))
+    } catch { /* url without port — lane falls back to 3080 */ }
+}
+
+/** Serves the plus RPC endpoint: page fetches POST /__shell__/rpc on the dsh-app origin. */
+const servePlusRpc = async (request: Request): Promise<Response> => {
+  try {
+    const body: unknown = await request.json()
+    const method = typeof body === 'object' && body !== null && 'method' in body ? String((body as { method: unknown }).method) : ''
+    const rawParams = typeof body === 'object' && body !== null && 'params' in body ? (body as { params: unknown }).params : undefined
+    const params = typeof rawParams === 'object' && rawParams !== null ? rawParams as Record<string, unknown> : undefined
+    const envelope = method === '' ? { error: 'missing rpc method' } : await plusRpcRegistry.dispatch(method, params)
+    return Response.json(envelope)
+  } catch (error) {
+    return Response.json({ error: error instanceof Error ? error.message : 'malformed rpc body' })
+  }
+}
+
+/**
+ * The official Host seams one plus profile runs on. main() publishes them once the
+ * runtime is known; the profile factory reads them when a profile window opens.
+ */
+let plusRuntimeDshOverride: string | undefined
+let plusProfileHostContext: {
+  readonly resources: RuntimeResources
+  readonly primaryRuntime: string
+  readonly hostEnvironment: () => NodeJS.ProcessEnv
+} | undefined
+
+/**
+ * Start the Host runtime behind one plus profile window. The profile owns its own
+ * directory, lock, and session; the official desktop profile stays untouched.
+ */
+async function createPlusProfileHost(name: string, profileDir: string): Promise<{ readonly url: string, readonly stop: () => Promise<void> }> {
+  // A remote address maps to a profile (bun remote semantics): proxy a best-effort restart
+  // request to the far side and hand its origin to the window — no local Host is started.
+  const remotes = loadRemoteProfiles(resolveDshHome())
+  const remoteUrl = remotes[name]
+  if (remoteUrl !== undefined) {
+    const origin = remoteOrigin(remoteUrl)
+    try {
+      await fetch(`${origin}/__shell__/rpc`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ method: 'restart_app', params: {} }),
+      })
+    } catch (error) {
+      plusLogger.append(`remote restart for ${name} failed: ${error instanceof Error ? error.message : String(error)}`)
+    }
+    return { url: origin, stop: async () => { } }
+  }
+  const parsePort = (hostUrl: string): number | undefined => {
+    try { return Number(new URL(hostUrl).port) || undefined } catch { return undefined }
+  }
+  const context = plusProfileHostContext
+  if (context === undefined) throw new Error('dsh desktop: the plus profile host is not ready')
+  const projectManager = new DesktopProjectManager({ profile: profileDir, lock: join(profileDir, 'lock') }, context.resources)
+  await projectManager.applyRelease()
+  const host = new DesktopHostProcess(context.resources.node, context.resources.dsh, profileDir, undefined,
+    { ...context.hostEnvironment(), DSH_CLIENT_VERSION: desktopClientVersion() },
+    (error) => { console.error(`plus profile ${name} host failure`, error) },
+    context.primaryRuntime, context.resources, () => undefined)
+  const ready = await host.start()
+  const port = parsePort(ready.url)
+  if (port !== undefined) plusProfilePorts.set(name, port)
+  return {
+    url: ready.url,
+    stop: async () => {
+      plusProfilePorts.delete(name)
+      await host.stop()
+    },
+  }
+}
+
+const plusProfiles = createElectronProfileRuntime({
+  app,
+  dshHome: resolveDshHome(),
+  createHost: (name, profileDir) => createPlusProfileHost(name, profileDir),
+  userDataDir: app.getPath('userData'),
+  onChanged: () => { refreshPlusTray() },
+})
+
+async function reportStartupDiagnostic(error: unknown): Promise<void> {
   const message = error instanceof Error ? error.message : String(error)
   console.error(error)
   const diagnosticFile = process.env.DSH_DESKTOP_DIAGNOSTIC_FILE
   if (diagnosticFile !== undefined) {
     await writeFile(diagnosticFile, `${error instanceof Error ? error.stack ?? message : message}\n`).catch(() => undefined)
   }
+}
+const ownsDesktopInstance = plusShell.claimSingleInstance(() => { focusPrimaryWindow() })
+
+if (ownsDesktopInstance) void app.whenReady().then(async () => {
+  await runPlusStartup({
+    startTray: () => { plusShell.start() },
+    startHost: async () => {
+      try {
+        await main()
+        // The plus profiles reopen the windows that were open when the application last exited.
+        void plusProfiles.restoreAtStartup().catch((error: unknown) => { console.error(error) })
+      } catch (error) {
+        await reportStartupDiagnostic(error)
+        throw error
+      }
+    },
+  })
+}).catch(async (error: unknown) => {
+  await reportStartupDiagnostic(error)
   reportFatal(error, 'main')
 }).catch((error: unknown) => {
   console.error(error)

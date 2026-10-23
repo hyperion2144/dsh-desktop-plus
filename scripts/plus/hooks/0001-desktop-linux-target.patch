@@ -107,10 +107,20 @@ index 995c117d..48364bdf 100644
    options?: { unsigned?: boolean, prepareOnly?: boolean, skipNotarization?: boolean },
  ): void
 diff --git a/upstream/apps/desktop/scripts/desktop-package-environment.mjs b/upstream/apps/desktop/scripts/desktop-package-environment.mjs
-index 8116dea2..ded227e0 100644
+index 8116dea2..3fbc44b7 100644
 --- a/upstream/apps/desktop/scripts/desktop-package-environment.mjs
 +++ b/upstream/apps/desktop/scripts/desktop-package-environment.mjs
-@@ -36,7 +36,7 @@ export function localMacOSPackageEnvironment(environment = process.env) {
+@@ -28,7 +28,8 @@ const FILE_SETTINGS = ['DSH_DESKTOP_WINDOWS_CER_FILE', 'DSH_DESKTOP_WINDOWS_SIGN
+ export function localMacOSPackageEnvironment(environment = process.env) {
+   return {
+     ...Object.fromEntries(Object.entries(environment).filter(([name]) => !AMBIENT_RELEASE_SETTING.test(name))),
+-    DSH_DESKTOP_APP_ID: 'com.deepseek.harness',
++    // plus 层自己的 bundle id：与官方 com.deepseek.harness 分开，userData/单实例锁/登录项都不串。
++    DSH_DESKTOP_APP_ID: 'com.deepseek.harness.plus',
+     DSH_DESKTOP_UNSIGNED: '1',
+   }
+ }
+@@ -36,7 +37,7 @@ export function localMacOSPackageEnvironment(environment = process.env) {
  /**
   * Read a machine preset when selected, otherwise the target's required dotenv; no ambient release fallback.
   * PACKAGE_TEST_RELEASE_ID overrides the test preset only; blank retains its configured ID.
@@ -119,7 +129,7 @@ index 8116dea2..ded227e0 100644
   * @param {NodeJS.ProcessEnv} environment Parent environment, retained only for unrelated build tools.
   * @param {string} appRoot Desktop application directory; relative credential paths resolve here.
   * @param {{ unsigned?: boolean, prepareOnly?: boolean }} options Unsigned presets and Windows preparation-only presets never read signing credentials.
-@@ -44,6 +44,10 @@ export function localMacOSPackageEnvironment(environment = process.env) {
+@@ -44,6 +45,10 @@ export function localMacOSPackageEnvironment(environment = process.env) {
   */
  export function loadDesktopPackageEnvironment(platform, environment = process.env, appRoot = APP_ROOT, options = {}) {
    const preset = environment.DSH_PACKAGING_PRESET
@@ -130,7 +140,7 @@ index 8116dea2..ded227e0 100644
    let path = join(appRoot, platform === 'win32' ? '.env.windows' : '.env.macos')
    if (preset !== undefined) {
      if (preset !== 'test' && preset !== 'production') throw new Error('desktop package: preset must be test or production')
-@@ -129,16 +133,17 @@ function requireReadableFile(environment, name) {
+@@ -129,16 +134,17 @@ function requireReadableFile(environment, name) {
  /**
   * Validate the packaging mode before preparation without invoking a token or Apple's services.
   * @param {NodeJS.ProcessEnv} environment Selected local defaults or file-owned release settings.
@@ -198,8 +208,23 @@ index aa05966c..7d2bca71 100644
  } as const satisfies Record<DesktopPackageTargetName, {
    readonly platform: NodeJS.Platform
    readonly arch: string
+diff --git a/upstream/apps/desktop/scripts/dev.ts b/upstream/apps/desktop/scripts/dev.ts
+index 37515c20..02c1d526 100644
+--- a/upstream/apps/desktop/scripts/dev.ts
++++ b/upstream/apps/desktop/scripts/dev.ts
+@@ -108,7 +108,9 @@ async function main(): Promise<void> {
+     schemaVersion: 1,
+     version,
+     hostProtocolVersion: DESKTOP_HOST_PROTOCOL_VERSION,
+-    nodeVersion: execFileSync(createRequire(import.meta.url)('electron') as string, ['-p', 'process.versions.node'],
++    // Electron's RUN_AS_NODE probe hangs on some hosts; DSH_DESKTOP_NODE_VERSION lets a
++    // developer supply the bundled Node version instead of probing.
++    nodeVersion: process.env.DSH_DESKTOP_NODE_VERSION ?? execFileSync(createRequire(import.meta.url)('electron') as string, ['-p', 'process.versions.node'],
+       { encoding: 'utf8', env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' } }).trim(),
+     pnpmVersion,
+   }
 diff --git a/upstream/apps/desktop/scripts/electron-builder-config.mjs b/upstream/apps/desktop/scripts/electron-builder-config.mjs
-index 4b9cd27a..38f341ea 100644
+index 4b9cd27a..41723f97 100644
 --- a/upstream/apps/desktop/scripts/electron-builder-config.mjs
 +++ b/upstream/apps/desktop/scripts/electron-builder-config.mjs
 @@ -65,7 +65,7 @@ export function createElectronBuilderConfig(
@@ -211,7 +236,46 @@ index 4b9cd27a..38f341ea 100644
    if (resolvedPlatform === 'win32') installWindowsDirectoryInstaller()
    const macOSSigning = packagesMacOS && !unsigned ? resolveMacOSSigningEnvironment(env) : undefined
    if (packagesMacOS && !unsigned && !skipNotarization) resolveMacOSNotarizationEnvironment(env)
-@@ -178,6 +178,14 @@ export function createElectronBuilderConfig(
+@@ -113,9 +113,12 @@ export function createElectronBuilderConfig(
+       ...buildVersion === productVersion ? {} : { version: buildVersion },
+       ...packaged === undefined ? {} : { dshBuildCommit: packaged.commit, dshBuildDirty: packaged.dirty },
+     },
+-    productName: 'DeepSeek Harness',
++    // plus 层自己的产品名：与官方 DeepSeek Harness 区分，装在同一台机器上互不覆盖。
++    productName: 'DSH Desktop Plus',
++    // 固定 linux/win 的可执行名，免得随 productName 变形（冒烟脚本按名字定位二进制）。
++    executableName: 'dsh-desktop-plus',
+     // Unsigned builds carry their own suffix so a shared file can never pass for a release artifact.
+-    artifactName: `deepseek-harness-\${version}-\${os}-\${arch}${output.suffix}.\${ext}`,
++    artifactName: `dsh-desktop-plus-\${version}-\${os}-\${arch}${output.suffix}.\${ext}`,
+     directories: { output: output.directory },
+     asar: true,
+     electronDist: buildPaths.electron,
+@@ -134,6 +137,10 @@ export function createElectronBuilderConfig(
+       return true
+     },
+     files: [
++      // The Linux native LibreOffice kit is unavailable in packaged builds (wasm kit ships instead);
++      // leaving the directory in the asar makes libreoffice-kit report "incomplete" instead of falling back.
++      `!**/node_modules/@deepseek-ai/libreoffice-kit-${resolvedPlatform}-${resolvedArch}/**/*`,
++      "!**/node_modules/@deepseek-ai/libreoffice-kit-linux-*/**/*",
+       'lib/main.js',
+       'lib/welcome/**/*',
+       'lib/preload-app.cjs',
+@@ -155,6 +162,12 @@ export function createElectronBuilderConfig(
+       { from: fileURLToPath(new URL('../resources/icon-windows.png', import.meta.url)), to: 'icon.png' },
+       // Windows tray bitmaps; macOS keeps the Dock and ships no menu bar icon.
+       ...(packagesWindows ? [{ from: fileURLToPath(new URL('../resources/tray-windows.ico', import.meta.url)), to: 'tray.ico' }] : []),
++      // The plus profile tray ships on every platform: PNG for the macOS menu bar and Linux applets.
++      { from: fileURLToPath(new URL('../../../../scripts/plus/assets/tray-16.png', import.meta.url)), to: 'tray.png' },
++      { from: fileURLToPath(new URL('../../../../scripts/plus/assets/tray-16@2x.png', import.meta.url)), to: 'tray.png@2x' },
++      // The plus desktop plugin ships in resources for the startup `dsh plugin add` staging step.
++      { from: fileURLToPath(new URL('../../../../packages/plus/desktop-plugin', import.meta.url)), to: 'plus-plugin' },
++      { from: fileURLToPath(new URL('../../../../packages/plus/desktop-mobile-access', import.meta.url)), to: 'mobile-plugin' },
+     ],
+     mac: {
+       icon: fileURLToPath(new URL('../resources/icon-macos.png', import.meta.url)),
+@@ -178,6 +191,14 @@ export function createElectronBuilderConfig(
        sign: !unsigned,
        writeUpdateInfo: false,
      },
@@ -226,7 +290,7 @@ index 4b9cd27a..38f341ea 100644
      beforePack: async context => {
        const office = await officePackageDirectories(buildPaths.dsh, { platform: resolvedPlatform, arch: resolvedArch })
        const patterns = office.map(directory => `**/${relative(buildPaths.dsh, directory).split(sep).join('/')}/**/*`)
-@@ -246,8 +254,11 @@ export function createElectronBuilderConfig(
+@@ -246,8 +267,11 @@ export function createElectronBuilderConfig(
        target: ['nsis'],
      },
      linux: {
@@ -239,8 +303,21 @@ index 4b9cd27a..38f341ea 100644
      },
      nsis: {
        installerSidebar: join(buildPaths.root, 'installer-ui', 'uninstaller-sidebar.bmp'),
+diff --git a/upstream/apps/desktop/scripts/package-macos.ts b/upstream/apps/desktop/scripts/package-macos.ts
+index 4ba0fd12..0df455da 100644
+--- a/upstream/apps/desktop/scripts/package-macos.ts
++++ b/upstream/apps/desktop/scripts/package-macos.ts
+@@ -78,7 +78,7 @@ export async function packageMacOSArtifacts(
+   const expected = resolveMacOSSigningEnvironment(environment)
+   const credentials = resolveMacOSNotarizationEnvironment(environment)
+   const update = resolveDesktopAutoUpdateConfig(environment, 'darwin', arch)
+-  const appPath = join(artifactsRoot, arch === 'arm64' ? 'mac-arm64' : 'mac', 'DeepSeek Harness.app')
++  const appPath = join(artifactsRoot, arch === 'arm64' ? 'mac-arm64' : 'mac', 'DSH Desktop Plus.app')
+   const root = await mkdtemp(join(dirname(artifactsRoot), 'notarization-'))
+   const zipApp = join(root, 'zip', basename(appPath))
+   const dmgApp = join(root, 'dmg', basename(appPath))
 diff --git a/upstream/apps/desktop/scripts/package-target.ts b/upstream/apps/desktop/scripts/package-target.ts
-index be2f577e..7164baf5 100644
+index be2f577e..f4a1ba4d 100644
 --- a/upstream/apps/desktop/scripts/package-target.ts
 +++ b/upstream/apps/desktop/scripts/package-target.ts
 @@ -47,14 +47,14 @@ const DESKTOP_UPLOAD_CREDENTIAL_ENV_NAMES = new Set([
@@ -295,6 +372,15 @@ index be2f577e..7164baf5 100644
      ? localMacOSPackageEnvironment()
      : loadDesktopPackageEnvironment(target.platform, process.env, APP_ROOT, {
        unsigned: invocation.unsigned, prepareOnly: invocation.prepareOnly,
+@@ -515,7 +526,7 @@ export async function packageTarget(
+   } else if (target.platform === 'darwin' && !invocation.unsigned && !invocation.skipNotarization) {
+     await execute([...desktopElectronBuilderArguments(target, true), '--config.mac.notarize=false'], electronBuilderEnv)
+     await execute(['exec', 'tsx', 'scripts/smoke-packaged-runtime.ts'], targetEnv)
+-    const appPath = join(buildPaths.artifacts, target.arch === 'arm64' ? 'mac-arm64' : 'mac', 'DeepSeek Harness.app')
++    const appPath = join(buildPaths.artifacts, target.arch === 'arm64' ? 'mac-arm64' : 'mac', 'DSH Desktop Plus.app')
+     await withMacOSNotarizationProxy(mac?.notarizationProxy,
+       () => notarizeMacOS({ appPath, ...resolveMacOSNotarizationEnvironment(environment) }), undefined, undefined, proxyEvent)
+   } else {
 diff --git a/upstream/apps/desktop/scripts/prepare-cli.ts b/upstream/apps/desktop/scripts/prepare-cli.ts
 index d2b9e142..50c153b7 100644
 --- a/upstream/apps/desktop/scripts/prepare-cli.ts
@@ -308,6 +394,86 @@ index d2b9e142..50c153b7 100644
    const name = platform === 'win32' ? 'dsh.cmd' : 'dsh'
    const command = join(destination, 'bin', name)
    mkdirSync(join(destination, 'bin'), { recursive: true })
+diff --git a/upstream/apps/desktop/scripts/prepare-dsh.ts b/upstream/apps/desktop/scripts/prepare-dsh.ts
+index 9de39d3f..6461fd4b 100644
+--- a/upstream/apps/desktop/scripts/prepare-dsh.ts
++++ b/upstream/apps/desktop/scripts/prepare-dsh.ts
+@@ -3,7 +3,7 @@
+ import { resolveMacOSSignatureCacheDirectory } from './macos-signature-cache-directory.mjs'
+ import { packagingStep } from './packaging-step.mjs'
+ import { spawn } from 'node:child_process'
+-import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
++import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, lstatSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+ import { tmpdir } from 'node:os'
+ import { delimiter, join, relative, resolve } from 'node:path'
+ import { desktopNodeEnvironment } from '../src/node-environment.ts'
+@@ -43,7 +43,7 @@ const STORE_ROOT = join(BUILD_ROOT, 'store')
+ const RUNTIME_ROOT = BUILD_PATHS.runtime
+ const PNPM_BUILD_STATE = BUILD_PATHS.dshPnpm
+ const PACKAGE_SET_ROOT = BUILD_PATHS.packageSet
+-const NODE = join(BUILD_PATHS.electron, process.platform === 'win32' ? 'electron.exe' : 'Electron.app/Contents/MacOS/Electron')
++const NODE = join(BUILD_PATHS.electron, process.platform === 'darwin' ? 'Electron.app/Contents/MacOS/Electron' : process.platform === 'win32' ? 'electron.exe' : 'electron')
+ const PNPM = join(RUNTIME_ROOT, 'primary-runtime', 'dependencies', 'pnpm', 'bin', 'pnpm.mjs')
+ 
+ function manifestVersion(path: string, subject: string): string {
+@@ -137,7 +137,8 @@ async function main(): Promise<void> {
+     const target = { platform: process.platform, arch: desktopTargetPlatform(targetName).arch }
+     const modules = join(BUILD_ROOT, 'node_modules')
+     const officeManifest = JSON.parse(readFileSync(join(modules, '@deepseek-ai/libreoffice-kit/package.json'), 'utf8'))
+-    const officeEngine = selectOfficeEngine(officeManifest, target)
++    // Linux targets have no native kit distribution; the kit's own resolveEngine falls back to WASM when the native package is absent, so package the WASM engine directly.
++    const officeEngine = target.platform === 'linux' ? 'wasm' : selectOfficeEngine(officeManifest, target)
+     mkdirSync(DSH_OUTPUT_ROOT, { recursive: true })
+     await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'runtime:materialize-modules', async () => {
+       cpSync(modules, join(DSH_OUTPUT_ROOT, 'node_modules'), {
+@@ -162,6 +163,32 @@ async function main(): Promise<void> {
+       await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'sign:dsh-native', () => signMacOSRuntime(DSH_OUTPUT_ROOT, resolveDesktopAppId(process.env), resolveMacOSSigningEnvironment(process.env), target.arch, cacheDirectory))
+       await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'sign:primary-native', () => signMacOSRuntime(join(RUNTIME_ROOT, 'primary-runtime'), resolveDesktopAppId(process.env), resolveMacOSSigningEnvironment(process.env), target.arch, cacheDirectory, 'primary'))
+     }
++    // The kit's resolver treats a present-but-incomplete native package as fatal instead of
++    // falling back to WASM, so a native kit directory must not survive into the runtime image.
++    if (officeEngine === 'wasm') {
++      await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'runtime:prune-unavailable-kits', async () => {
++        // The resolve chain from the packaged runtime walks up to the build workspace's
++        // own node_modules, where pnpm installs the platform-matching optional kit;
++        // prune it there too so resolveEngine falls back to wasm.
++        const buildWorkspaceRoot = join(import.meta.dirname, '..', '..', '..')
++        const stack = [join(DSH_OUTPUT_ROOT, 'node_modules'), join(RUNTIME_ROOT, 'primary-runtime', 'node_modules'), join(buildWorkspaceRoot, 'node_modules')]
++        while (stack.length > 0) {
++          const directory = stack.pop()!
++          let entries: string[] = []
++          try { entries = readdirSync(directory) } catch { continue }
++          for (const entry of entries) {
++            const path = join(directory, entry)
++              if ((entry.startsWith('libreoffice-kit-linux-') || entry.startsWith('@deepseek-ai+libreoffice-kit-linux-'))) {
++              rmSync(path, { recursive: true, force: true })
++              continue
++            }
++            let stat: import('node:fs').Stats | undefined
++            try { stat = lstatSync(path) } catch { continue }
++            if (stat?.isDirectory()) stack.push(path)
++          }
++        }
++      })
++    }
+     await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'runtime:manifests', () => prepareRuntimeManifests(DSH_OUTPUT_ROOT))
+     await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'runtime:primary-smoke', async () => smokePrimaryRuntime(join(RUNTIME_ROOT, 'primary-runtime')))
+     await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'runtime:write-descriptor', async () => writeDesktopRuntime(DSH_OUTPUT_ROOT, release, packageSet.packages.map(entry => entry.name), target))
+diff --git a/upstream/apps/desktop/scripts/prepare-package-set.ts b/upstream/apps/desktop/scripts/prepare-package-set.ts
+index 7e7d62ee..d32ea019 100644
+--- a/upstream/apps/desktop/scripts/prepare-package-set.ts
++++ b/upstream/apps/desktop/scripts/prepare-package-set.ts
+@@ -88,7 +88,9 @@ export function selectDesktopPackageClosure(
+ }
+ 
+ function packedManifest(tarball: string): Record<string, unknown> {
+-  const value: unknown = JSON.parse(capture('tar', ['-xOzf', tarball, 'package/package.json']))
++  // GNU tar reads a leading D: as a remote host; bsdtar rejects --force-local outright.
++  const tarFlags = process.platform === 'win32' ? ['--force-local', '-xOzf'] : ['-xOzf']
++  const value: unknown = JSON.parse(capture('tar', [...tarFlags, tarball, 'package/package.json']))
+   if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+     throw new Error(`desktop package set: ${tarball} has no package manifest`)
+   }
 diff --git a/upstream/apps/desktop/scripts/prepare-runtime.ts b/upstream/apps/desktop/scripts/prepare-runtime.ts
 index ba92fef0..b1097806 100644
 --- a/upstream/apps/desktop/scripts/prepare-runtime.ts
@@ -321,3 +487,201 @@ index ba92fef0..b1097806 100644
    return execFileSync(executable, ['-p', 'process.versions.node'], {
      encoding: 'utf8', env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
    }).trim()
+diff --git a/upstream/apps/desktop/scripts/smoke-packaged-runtime.ts b/upstream/apps/desktop/scripts/smoke-packaged-runtime.ts
+index 6c3c12c8..e6c3e071 100644
+--- a/upstream/apps/desktop/scripts/smoke-packaged-runtime.ts
++++ b/upstream/apps/desktop/scripts/smoke-packaged-runtime.ts
+@@ -1,4 +1,5 @@
+ /** Validate the assembled application, including native Office conversion outside ASAR. */
++import { readdirSync } from 'node:fs'
+ import { join } from 'node:path'
+ import { parseArgs } from 'node:util'
+ import { desktopArtifactOutput, resolveDesktopBuildTarget, resolveDesktopTargetBuildPaths } from './desktop-build-paths.mjs'
+@@ -12,10 +13,29 @@ const { values } = parseArgs({ options: { unsigned: { type: 'boolean', default:
+ const target = resolveDesktopBuildTarget()
+ const windows = target === 'win-x64'
+ const artifacts = desktopArtifactOutput(paths, { unsigned: values.unsigned, skipNotarization: values['skip-notarization'] }).directory
++const linux = target === 'linux-x64'
++const macBundle = (): string => {
++  // electron-builder 的 .app 名跟着 productName / executableName 变，硬编码会在改名时断链。
++  const root = join(artifacts, target === 'mac-arm64' ? 'mac-arm64' : 'mac')
++  const found = readdirSync(root).find((entry) => entry.endsWith('.app'))
++  if (found === undefined) throw new Error(`smoke: no .app bundle under ${root}`)
++  return join(root, found, 'Contents')
++}
+ const application = windows ? join(artifacts, 'win-unpacked')
+-  : join(artifacts, target === 'mac-arm64' ? 'mac-arm64' : 'mac', 'DeepSeek Harness.app', 'Contents')
+-const resources = join(application, windows ? 'resources' : 'Resources')
+-const executable = windows ? join(application, 'DeepSeek Harness.exe') : join(application, 'MacOS', 'DeepSeek Harness')
++  : linux ? join(artifacts, 'linux-unpacked')
++  : macBundle()
++const resources = join(application, windows || linux ? 'resources' : 'Resources')
++// 可执行名随 productName/executableName 变：三个平台都按目录内容发现，改名不断链。
++const firstExecutable = (directory: string, accept: (entry: string) => boolean): string => {
++  const found = readdirSync(directory).find(accept)
++  if (found === undefined) throw new Error(`smoke: no executable in ${directory}`)
++  return join(directory, found)
++}
++const executable = windows
++  ? firstExecutable(application, (entry) => entry.endsWith('.exe') && !/helper|elevate|crashpad/i.test(entry))
++  : linux
++    ? firstExecutable(application, (entry) => /^(dsh|deepseek|harness)/i.test(entry) && !entry.includes('.'))
++    : firstExecutable(join(application, 'MacOS'), (entry) => !entry.endsWith('.dylib'))
+ const descriptor = await verifyDesktopRuntime(paths.dsh, readDesktopRuntime(paths.dsh).release.version,
+   resolveDesktopPackageTarget(target))
+ if (windows && !values.unsigned) await verifyWindowsCode(application)
+diff --git a/upstream/apps/desktop/scripts/verify-retained-desktop.ts b/upstream/apps/desktop/scripts/verify-retained-desktop.ts
+index 613580da..1040e921 100644
+--- a/upstream/apps/desktop/scripts/verify-retained-desktop.ts
++++ b/upstream/apps/desktop/scripts/verify-retained-desktop.ts
+@@ -39,6 +39,6 @@ export async function verifyRetainedDesktopSignatures(
+   const extracted = await mkdtemp(join(tmpdir(), 'desktop-publish-verify-'))
+   try {
+     run('/usr/bin/ditto', ['-x', '-k', zipPath, extracted])
+-    verifyMacOSNotarizedApplication(join(extracted, 'DeepSeek Harness.app'), config.macOS)
++    verifyMacOSNotarizedApplication(join(extracted, 'DSH Desktop Plus.app'), config.macOS)
+   } finally { await rm(extracted, { recursive: true, force: true }) }
+ }
+diff --git a/upstream/apps/desktop/src/locale.ts b/upstream/apps/desktop/src/locale.ts
+index 5d9d4607..cb2c7d31 100644
+--- a/upstream/apps/desktop/src/locale.ts
++++ b/upstream/apps/desktop/src/locale.ts
+@@ -31,17 +31,17 @@ export const en = {
+   application: 'Application',
+   fileMenu: 'File',
+   closePage: 'Close Page or Window',
+-  aboutMenu: 'About DeepSeek Harness',
+-  aboutProduct: 'DeepSeek Harness',
++  aboutMenu: 'About DSH Desktop Plus',
++  aboutProduct: 'DSH Desktop Plus',
+   aboutVersion: 'Version V{version}',
+-  hideApplication: 'Hide DeepSeek Harness',
++  hideApplication: 'Hide DSH Desktop Plus',
+   hideOtherApplications: 'Hide Others',
+   showAllApplications: 'Show All',
+-  quitApplication: 'Quit DeepSeek Harness',
+-  openApplication: 'Open DeepSeek Harness',
++  quitApplication: 'Quit DSH Desktop Plus',
++  openApplication: 'Open DSH Desktop Plus',
+   quit: 'Quit',
+   cancel: 'Cancel',
+-  quitTitle: 'Quit DeepSeek Harness?',
++  quitTitle: 'Quit DSH Desktop Plus?',
+   quitActiveTasks: 'Running tasks will be interrupted.',
+   quitScheduledTasks: 'Scheduled tasks will not run while the app is closed.',
+   quitActiveAndScheduledTasks: 'Running tasks will be interrupted, and scheduled tasks will not run while the app is closed.',
+@@ -56,7 +56,7 @@ export const en = {
+   copy: 'Copy',
+   paste: 'Paste',
+   selectAll: 'Select All',
+-  startupFailed: 'DeepSeek Harness is unavailable',
++  startupFailed: 'DSH Desktop Plus is unavailable',
+   fatalSummary: 'The application could not start or stopped unexpectedly.',
+   startupAddressInUse: 'Another DSH instance (such as dsh web or the desktop app) is running. They cannot start at the same time. Quit the other running DSH instance, then restart.',
+   diagnosticTruncated: '… Error details shortened.',
+@@ -66,10 +66,10 @@ export const en = {
+   restartApplication: 'Restart',
+   recoveryOperationFailed: 'The recovery operation failed',
+   disableThirdPartyPlugins: 'Disable third-party plugins, back up profile patch, and restart',
+-  welcomeTitle: 'DeepSeek Harness',
+-  welcomeBrand: 'DeepSeek Harness',
++  welcomeTitle: 'DSH Desktop Plus',
++  welcomeBrand: 'DSH Desktop Plus',
+   welcomeTaglineBefore: 'Welcome to ',
+-  welcomeTaglineBrand: 'DeepSeek Harness',
++  welcomeTaglineBrand: 'DSH Desktop Plus',
+   welcomeTaglineAfter: '',
+   welcomeDescription: 'Build potential. Explore intelligence.',
+   welcomeAuthStarting: 'Opening sign in…',
+@@ -130,7 +130,7 @@ export const en = {
+   updateTasksUnavailable: 'Task status is unavailable. Try updating again when the workspace is ready.',
+   updateStopFailed: 'Could not safely stop the tasks. The update has not been installed. Please try again later.',
+   updateTechnicalDetails: 'View technical details',
+-  updateTitle: 'DeepSeek Harness Update',
++  updateTitle: 'DSH Desktop Plus Update',
+   updateAvailable: 'New version available: {version}',
+   updateDetail: 'Once the download is complete, you can install the update and restart the app.',
+   installAndRestart: 'Install and Restart',
+@@ -202,17 +202,17 @@ export const zh = {
+   application: '应用',
+   fileMenu: '文件',
+   closePage: '关闭页面或窗口',
+-  aboutMenu: '关于 DeepSeek Harness',
+-  aboutProduct: 'DeepSeek Harness',
++  aboutMenu: '关于 DSH Desktop Plus',
++  aboutProduct: 'DSH Desktop Plus',
+   aboutVersion: '版本 V{version}',
+-  hideApplication: '隐藏 DeepSeek Harness',
++  hideApplication: '隐藏 DSH Desktop Plus',
+   hideOtherApplications: '隐藏其他',
+   showAllApplications: '显示全部',
+-  quitApplication: '退出 DeepSeek Harness',
+-  openApplication: '打开 DeepSeek Harness',
++  quitApplication: '退出 DSH Desktop Plus',
++  openApplication: '打开 DSH Desktop Plus',
+   quit: '退出',
+   cancel: '取消',
+-  quitTitle: '退出 DeepSeek Harness？',
++  quitTitle: '退出 DSH Desktop Plus？',
+   quitActiveTasks: '当前正在运行的任务将会中断',
+   quitScheduledTasks: '应用关闭期间，定时任务不会运行',
+   quitActiveAndScheduledTasks: '当前正在运行的任务将会中断，且应用关闭期间，定时任务不会运行',
+@@ -227,7 +227,7 @@ export const zh = {
+   copy: '复制',
+   paste: '粘贴',
+   selectAll: '全选',
+-  startupFailed: 'DeepSeek Harness 无法使用',
++  startupFailed: 'DSH Desktop Plus 无法使用',
+   fatalSummary: '应用无法启动或已意外停止。',
+   startupAddressInUse: '有其他正在运行的 DSH（如其他 dsh web、桌面端），无法同时启动，请退出其他正在运行的 DSH 后重启。',
+   diagnosticTruncated: '… 错误详情已截短。',
+@@ -237,10 +237,10 @@ export const zh = {
+   restartApplication: '重启',
+   recoveryOperationFailed: '恢复操作失败',
+   disableThirdPartyPlugins: '禁用第三方插件、备份 profile patch 并重启',
+-  welcomeTitle: 'DeepSeek Harness',
+-  welcomeBrand: 'DeepSeek Harness',
++  welcomeTitle: 'DSH Desktop Plus',
++  welcomeBrand: 'DSH Desktop Plus',
+   welcomeTaglineBefore: '欢迎使用 ',
+-  welcomeTaglineBrand: 'DeepSeek Harness',
++  welcomeTaglineBrand: 'DSH Desktop Plus',
+   welcomeTaglineAfter: '',
+   welcomeDescription: '组装无限可能，共探智能上限',
+   welcomeAuthStarting: '正在打开登录…',
+@@ -301,7 +301,7 @@ export const zh = {
+   updateTasksUnavailable: '无法确认任务状态，请在工作区就绪后重试更新。',
+   updateStopFailed: '未能安全停止任务，更新尚未安装，请稍后重试。',
+   updateTechnicalDetails: '查看技术详情',
+-  updateTitle: 'DeepSeek Harness 更新',
++  updateTitle: 'DSH Desktop Plus 更新',
+   updateAvailable: '发现新版本 {version}',
+   updateDetail: '下载完成后，可安装并重启应用。',
+   installAndRestart: '安装并重启',
+diff --git a/upstream/apps/desktop/tsdown.config.ts b/upstream/apps/desktop/tsdown.config.ts
+index d8470bac..c8df01e3 100644
+--- a/upstream/apps/desktop/tsdown.config.ts
++++ b/upstream/apps/desktop/tsdown.config.ts
+@@ -14,6 +14,14 @@ const manifest = JSON.parse(readFileSync(new URL('./package.json', import.meta.u
+ }
+ /** electron-builder ships the manifest `dependencies` next to the main bundle; Electron provides `electron` and Node. */
+ const mainProcessImports = { packages: new Set(['electron', ...Object.keys(manifest.dependencies)]), nodeBuiltins: true }
++
++/**
++ * The plus shell is inlined from its own build output instead of being declared as a
++ * dependency: the official tree stays byte-identical to upstream package manifests, so
++ * no workspace lockfile ever needs to know about it. The alias points at the lib/ output
++ * that `tsc -b` (tsconfig.host.json references) produces immediately before this bundle.
++ */
++const plusShellAlias = { '@deepseek-ai/dsh-desktop-plus-shell': fileURLToPath(new URL('../../../packages/plus/desktop-shell/lib/index.js', import.meta.url)) }
+ /**
+  * The `require` polyfill of a sandboxed preload resolves only these modules
+  * (Electron: Process Sandboxing, "Preload scripts").
+@@ -49,6 +57,7 @@ export default defineConfig([
+   {
+     entry: ['lib/types/main.js'],
+     plugins: [packagedImportsPlugin(mainProcessImports)],
++    alias: plusShellAlias,
+     define: clientVersionDefine,
+     onSuccess: async () => {
+       await build({

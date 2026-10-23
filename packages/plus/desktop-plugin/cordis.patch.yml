@@ -1,0 +1,10 @@
+# dsh-desktop-plus bundle layer：安装时自动挂载插件行（提供「DSH 桌面壳」技能）。
+# 后置层（profile 自身 cordis.patch.yml、--patch 覆盖）可按 id 覆写本行。
+# 只插入自己一行。曾经照 bun 时代的 dsh-mnemon 抄过一段
+#   - id: connection
+#     inject: [webRuntime, webServer]
+# 现在 dsh 0.2 不再暴露名为 webRuntime 的服务：那段补丁会让 required 的 connection
+# 永远等一个不存在的服务，整个 profile 启动直接失败（"1 required plugin did not activate"）。
+- insert:
+    - id: dsh-desktop-plus
+      name: "@deepseek-ai/dsh-desktop-plus-plugin"

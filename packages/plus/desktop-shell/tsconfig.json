@@ -6,5 +6,6 @@
     "tsBuildInfoFile": "./lib/.tsbuildinfo"
   },
   "include": ["src"],
-  "references": [{ "path": "../../../upstream/packages/util/brand" }]
+  "references": [
+    { "path": "../desktop-runtime-selection" },]
 }

@@ -42,15 +42,41 @@ jobs:
       - name: Install
         run: pnpm install
 
+      - name: Build desktop shell
+        working-directory: upstream
+        # The official script caps Node at 4096MB, which a cold full build on CI
+        # runners exceeds; run the same chain with a larger heap.
+        run: |
+          node --max-old-space-size=8192 ./node_modules/typescript/bin/tsc -b tsconfig.host.json
+          pnpm exec tsdown --config-loader native --env.DSH_BUILD_FACE host
+          pnpm --filter @deepseek-ai/dsh-desktop run bundle
+
+      - name: Install xvfb (Linux headless smoke)
+        if: matrix.target == 'linux-x64'
+        run: sudo apt-get update && sudo apt-get install -y xvfb
+
       - name: Package ${{ matrix.target }}
         working-directory: upstream/apps/desktop
-        run: pnpm exec tsx scripts/package-target.ts ${{ matrix.target }} --unsigned
+        # Linux runners have no display server; the packaged smoke launches the
+        # Electron binary, so wrap it in xvfb. The conditional needs an explicit
+        # bash shell: Windows runners default to PowerShell.
+        run: >
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            xvfb-run -a pnpm exec tsx scripts/package-target.ts ${{ matrix.target }} --unsigned
+          else
+            pnpm exec tsx scripts/package-target.ts ${{ matrix.target }} --unsigned
+          fi
+        shell: bash
 
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: desktop-${{ matrix.target }}
+          # Upload the installers only: the unpacked app tree, builder-debug.yml and the
+          # packaging-run logs are build intermediates, not deliverables.
           path: |
-            upstream/apps/desktop/.desktop-build/targets/${{ matrix.target }}/artifacts/**
-            upstream/apps/desktop/.desktop-build/packaging-runs/**
-          if-no-files-found: warn
+            upstream/apps/desktop/.desktop-build/targets/${{ matrix.target }}/unsigned-artifacts/*.dmg
+            upstream/apps/desktop/.desktop-build/targets/${{ matrix.target }}/unsigned-artifacts/*.exe
+            upstream/apps/desktop/.desktop-build/targets/${{ matrix.target }}/unsigned-artifacts/*.AppImage
+            upstream/apps/desktop/.desktop-build/targets/${{ matrix.target }}/unsigned-artifacts/*.tar.gz
+          if-no-files-found: error

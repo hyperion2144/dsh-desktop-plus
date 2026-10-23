@@ -32,6 +32,15 @@ dsh-desktop-plus/
 | `scripts/plus/gen-workspace.mjs` | 从 `upstream/pnpm-workspace.yaml` 生成根 workspace 配置 |
 | `scripts/plus/hooks/` | 对官方代码的改动，以补丁存放，同步时按序重放 |
 
+## 桌面能力
+
+plus 层由两块组成，能力都按 dsh 插件铁律划分：
+
+- `packages/plus/desktop-shell`（壳侧服务）：壳内核与单实例隔离、启动编排与 splash、宿主监督器、托盘（含多 profile 菜单）、下载队列、通知门面、日志与诊断包、运行时发现/切换/安装、多 profile 与远程 profile、移动接入 lane、登录启动与打包态 DevTools。UI 一律不在这里。
+- `packages/plus/desktop-plugin`（桌面插件，dsh 插件形态）：桌面设置面板（下载/通知/运行时/更新等 16 张卡片）与移动接入插件，经官方 `dsh plugin --profile desktop add` 挂载，页面通过同源 `POST /__shell__/rpc` 调壳侧服务。
+
+远程 profile 写入 `<DSH_HOME>/profiles/desktop/remote-profiles.json` 即生效：命中的 profile 直连远端，不在本机起 DSH host。
+
 ## 常用命令
 
 全仓安装、检查、打包都沿用官方工具链：

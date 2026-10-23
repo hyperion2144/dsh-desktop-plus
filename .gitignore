@@ -5,3 +5,10 @@ node_modules/
 .plus/mirror/
 .plus/tmp/
 packages/plus/*/lib/
+
+# Local Electron scratch copies (never committed)
+/dist
+
+# 手机访问插件的源码直接放在 lib/（无构建步骤），必须入库
+!packages/plus/desktop-mobile-access/lib/**
+!packages/plus/desktop-mobile-access/lib/

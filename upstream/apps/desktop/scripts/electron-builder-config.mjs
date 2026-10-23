@@ -113,9 +113,12 @@ export function createElectronBuilderConfig(
       ...buildVersion === productVersion ? {} : { version: buildVersion },
       ...packaged === undefined ? {} : { dshBuildCommit: packaged.commit, dshBuildDirty: packaged.dirty },
     },
-    productName: 'DeepSeek Harness',
+    // plus 层自己的产品名：与官方 DeepSeek Harness 区分，装在同一台机器上互不覆盖。
+    productName: 'DSH Desktop Plus',
+    // 固定 linux/win 的可执行名，免得随 productName 变形（冒烟脚本按名字定位二进制）。
+    executableName: 'dsh-desktop-plus',
     // Unsigned builds carry their own suffix so a shared file can never pass for a release artifact.
-    artifactName: `deepseek-harness-\${version}-\${os}-\${arch}${output.suffix}.\${ext}`,
+    artifactName: `dsh-desktop-plus-\${version}-\${os}-\${arch}${output.suffix}.\${ext}`,
     directories: { output: output.directory },
     asar: true,
     electronDist: buildPaths.electron,
@@ -134,6 +137,10 @@ export function createElectronBuilderConfig(
       return true
     },
     files: [
+      // The Linux native LibreOffice kit is unavailable in packaged builds (wasm kit ships instead);
+      // leaving the directory in the asar makes libreoffice-kit report "incomplete" instead of falling back.
+      `!**/node_modules/@deepseek-ai/libreoffice-kit-${resolvedPlatform}-${resolvedArch}/**/*`,
+      "!**/node_modules/@deepseek-ai/libreoffice-kit-linux-*/**/*",
       'lib/main.js',
       'lib/welcome/**/*',
       'lib/preload-app.cjs',
@@ -155,6 +162,12 @@ export function createElectronBuilderConfig(
       { from: fileURLToPath(new URL('../resources/icon-windows.png', import.meta.url)), to: 'icon.png' },
       // Windows tray bitmaps; macOS keeps the Dock and ships no menu bar icon.
       ...(packagesWindows ? [{ from: fileURLToPath(new URL('../resources/tray-windows.ico', import.meta.url)), to: 'tray.ico' }] : []),
+      // The plus profile tray ships on every platform: PNG for the macOS menu bar and Linux applets.
+      { from: fileURLToPath(new URL('../../../../scripts/plus/assets/tray-16.png', import.meta.url)), to: 'tray.png' },
+      { from: fileURLToPath(new URL('../../../../scripts/plus/assets/tray-16@2x.png', import.meta.url)), to: 'tray.png@2x' },
+      // The plus desktop plugin ships in resources for the startup `dsh plugin add` staging step.
+      { from: fileURLToPath(new URL('../../../../packages/plus/desktop-plugin', import.meta.url)), to: 'plus-plugin' },
+      { from: fileURLToPath(new URL('../../../../packages/plus/desktop-mobile-access', import.meta.url)), to: 'mobile-plugin' },
     ],
     mac: {
       icon: fileURLToPath(new URL('../resources/icon-macos.png', import.meta.url)),

@@ -2,7 +2,12 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "rootDir": "src",
-    "outDir": "lib/types"
+    "outDir": "lib/types",
+    "paths": {
+      "@deepseek-ai/dsh-desktop-plus-shell": [
+        "../../../packages/plus/desktop-shell/src/index.ts"
+      ]
+    }
   },
   "include": [
     "src"
@@ -16,6 +21,9 @@
     },
     {
       "path": "../../packages/credentials/deepseek-account"
+    },
+    {
+      "path": "../../../packages/plus/desktop-shell"
     },
     {
       "path": "../../packages/api/gateway/tsconfig.host.json"
