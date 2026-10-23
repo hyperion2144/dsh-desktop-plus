@@ -199,7 +199,7 @@ index aa05966c..7d2bca71 100644
    readonly platform: NodeJS.Platform
    readonly arch: string
 diff --git a/upstream/apps/desktop/scripts/electron-builder-config.mjs b/upstream/apps/desktop/scripts/electron-builder-config.mjs
-index 4b9cd27a..d3549808 100644
+index 4b9cd27a..38f341ea 100644
 --- a/upstream/apps/desktop/scripts/electron-builder-config.mjs
 +++ b/upstream/apps/desktop/scripts/electron-builder-config.mjs
 @@ -65,7 +65,7 @@ export function createElectronBuilderConfig(
@@ -226,8 +226,21 @@ index 4b9cd27a..d3549808 100644
      beforePack: async context => {
        const office = await officePackageDirectories(buildPaths.dsh, { platform: resolvedPlatform, arch: resolvedArch })
        const patterns = office.map(directory => `**/${relative(buildPaths.dsh, directory).split(sep).join('/')}/**/*`)
+@@ -246,8 +254,11 @@ export function createElectronBuilderConfig(
+       target: ['nsis'],
+     },
+     linux: {
++      icon: fileURLToPath(new URL('../resources/icon-windows.png', import.meta.url)),
+       category: 'Development',
+-      target: ['AppImage'],
++      executableName: 'deepseek-harness',
++      synopsis: 'DeepSeek Harness desktop',
++      target: ['AppImage', 'tar.gz'],
+     },
+     nsis: {
+       installerSidebar: join(buildPaths.root, 'installer-ui', 'uninstaller-sidebar.bmp'),
 diff --git a/upstream/apps/desktop/scripts/package-target.ts b/upstream/apps/desktop/scripts/package-target.ts
-index be2f577e..595249b6 100644
+index be2f577e..7164baf5 100644
 --- a/upstream/apps/desktop/scripts/package-target.ts
 +++ b/upstream/apps/desktop/scripts/package-target.ts
 @@ -47,14 +47,14 @@ const DESKTOP_UPLOAD_CREDENTIAL_ENV_NAMES = new Set([
@@ -277,8 +290,8 @@ index be2f577e..595249b6 100644
      process.stdout.write('desktop package: skipping notarization and stapling; internal debugging only, not qualified for distribution or update publishing\n')
    }
 -  const environment = target.platform === 'darwin' && invocation.unsigned
-+  // Unsigned builds on any non-Windows host use the local preset instead of a release dotenv.
-+  const environment = target.platform !== 'win32' && invocation.unsigned
++  // Unsigned builds use the local preset instead of a release dotenv; it is platform-agnostic.
++  const environment = invocation.unsigned
      ? localMacOSPackageEnvironment()
      : loadDesktopPackageEnvironment(target.platform, process.env, APP_ROOT, {
        unsigned: invocation.unsigned, prepareOnly: invocation.prepareOnly,
@@ -295,3 +308,16 @@ index d2b9e142..50c153b7 100644
    const name = platform === 'win32' ? 'dsh.cmd' : 'dsh'
    const command = join(destination, 'bin', name)
    mkdirSync(join(destination, 'bin'), { recursive: true })
+diff --git a/upstream/apps/desktop/scripts/prepare-runtime.ts b/upstream/apps/desktop/scripts/prepare-runtime.ts
+index ba92fef0..b1097806 100644
+--- a/upstream/apps/desktop/scripts/prepare-runtime.ts
++++ b/upstream/apps/desktop/scripts/prepare-runtime.ts
+@@ -27,7 +27,7 @@ async function prepareElectron({ platform, arch }: DesktopTarget): Promise<strin
+     () => downloadArtifact({ version, platform, arch, artifactName: 'electron', cacheRoot: BUILD_PATHS.downloads }))
+   rmSync(BUILD_PATHS.electron, { recursive: true, force: true })
+   await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'extract:electron', () => extractZip(archive, { dir: BUILD_PATHS.electron }))
+-  const executable = join(BUILD_PATHS.electron, platform === 'win32' ? 'electron.exe' : 'Electron.app/Contents/MacOS/Electron')
++  const executable = join(BUILD_PATHS.electron, platform === 'darwin' ? 'Electron.app/Contents/MacOS/Electron' : platform === 'win32' ? 'electron.exe' : 'electron')
+   return execFileSync(executable, ['-p', 'process.versions.node'], {
+     encoding: 'utf8', env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+   }).trim()
