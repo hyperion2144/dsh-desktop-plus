@@ -1,0 +1,35 @@
+diff --git a/upstream/packages/bundle/web-app/cordis.patch.yml b/upstream/packages/bundle/web-app/cordis.patch.yml
+index c0ae7077..3c141960 100644
+--- a/upstream/packages/bundle/web-app/cordis.patch.yml
++++ b/upstream/packages/bundle/web-app/cordis.patch.yml
+@@ -36,7 +36,8 @@
+ - insert:
+     - id: desktop-product-telemetry
+       name: '@deepseek-ai/dsh-host-product-telemetry-otel'
+-      disabled: !!js "ctx.get('profileContext')?.name !== 'desktop'"
++      # plus：遥测 opt-out——壳按桌面设置注入 DSH_PLUS_DISABLE_TELEMETRY=1 时整行禁用（OTLP 上报不挂载）。
++      disabled: !!js "ctx.get('profileContext')?.name !== 'desktop' || process.env.DSH_PLUS_DISABLE_TELEMETRY === '1'"
+       config:
+         scheduledDelayMillis: 30000
+         timeoutMillis: 15000
+@@ -48,7 +49,8 @@
+ 
+     - id: product-analytics
+       name: '@deepseek-ai/dsh-client-product-analytics'
+-      disabled: !!js "ctx.get('profileContext')?.name !== 'desktop'"
++      # plus：同上——桌面专属采集（环境探测 + 压缩事件上报）一并随 opt-out 禁用。
++      disabled: !!js "ctx.get('profileContext')?.name !== 'desktop' || process.env.DSH_PLUS_DISABLE_TELEMETRY === '1'"
+       config:
+         enabled: true
+         appVersion: !!js process.env.DSH_CLIENT_VERSION
+@@ -331,6 +333,10 @@
+     - id: ui-brand-official
+       name: '@deepseek-ai/dsh-client-ui-brand-official'
+ 
++    # Plus desktop brand: shows DSH Desktop Plus with the plus build version badge.
++    - id: desktop-plus-brand
++      name: '@deepseek-ai/dsh-desktop-plus-brand'
++
+     - id: ui-attachment
+       name: '@deepseek-ai/dsh-client-ui-attachment'
+ 

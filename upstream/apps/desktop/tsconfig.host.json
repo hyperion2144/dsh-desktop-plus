@@ -2,7 +2,12 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "rootDir": "src",
-    "outDir": "lib/types"
+    "outDir": "lib/types",
+    "paths": {
+      "@deepseek-ai/dsh-desktop-plus-shell": [
+        "../../../packages/plus/desktop-shell/src/index.ts"
+      ]
+    }
   },
   "include": [
     "src"
@@ -12,10 +17,16 @@
       "path": "../../packages/boot/app-boot"
     },
     {
+      "path": "../../packages/util/official-bundles"
+    },
+    {
       "path": "../../packages/util/home-paths"
     },
     {
       "path": "../../packages/credentials/deepseek-account"
+    },
+    {
+      "path": "../../../packages/plus/desktop-shell"
     },
     {
       "path": "../../packages/api/gateway/tsconfig.host.json"
@@ -31,6 +42,12 @@
     },
     {
       "path": "../../packages/client/product-analytics/tsconfig.host.json"
+    },
+    {
+      "path": "../../packages/boot/plugin-manager"
+    },
+    {
+      "path": "../../packages/util/file-drag"
     }
   ],
   "exclude": [

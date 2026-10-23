@@ -1,0 +1,6 @@
+# 本包的官方 bundle 组合层：随安装分发（asar 的 dsh/node_modules），
+# 由 profile 的 dsh.profile.bundles 列出后由宿主装载本文件。
+# 只插入自己一行；client 半区走 manifest 的 dsh.client 注入声明，勿在此重复。
+- insert:
+    - id: "@deepseek-ai-dsh-desktop-plus-plugin"
+      name: "@deepseek-ai/dsh-desktop-plus-plugin"

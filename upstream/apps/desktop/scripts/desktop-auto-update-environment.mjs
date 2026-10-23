@@ -36,6 +36,17 @@ const UPDATE_ENVIRONMENTS = {
 const UPDATE_TARGETS = new Set(['mac-arm64', 'mac-x64', 'win-x64', 'linux-x64'])
 
 /**
+ * Name the fixed installer object shared by uploading and cache refresh.
+ * @param {'mac-arm64' | 'mac-x64' | 'win-x64'} target Supported Desktop target.
+ * @returns {string} Fixed download filename.
+ */
+export function desktopLatestInstallerFilename(target) {
+  if (!UPDATE_TARGETS.has(target)) throw new Error(`desktop upload: unsupported target ${target}`)
+  const windows = target === 'win-x64'
+  return `dsh-latest-${windows ? 'windows' : 'macos'}-${target === 'mac-arm64' ? 'arm64' : 'x64'}.${windows ? 'exe' : 'dmg'}`
+}
+
+/**
  * Resolve the update deployment, defaulting local release work to test.
  * @param {NodeJS.ProcessEnv} env - Packaging or upload environment.
  * @returns {'test' | 'production'} Validated deployment name.
@@ -99,7 +110,7 @@ export function desktopUpdateMetadataFilename(version, platform, channel = 'nigh
  * @param {string} name - Environment variable to read.
  * @returns {string} Trimmed setting.
  */
-function requiredEnvironmentValue(env, name) {
+export function requiredEnvironmentValue(env, name) {
   const value = env[name]?.trim()
   if (value === undefined || value === '') {
     throw new Error(`desktop auto-update: ${name} must be set to a non-empty value`)
@@ -130,6 +141,27 @@ function httpsOrigin(value, name) {
     throw new Error(`desktop auto-update: ${name} must be an absolute HTTPS origin without a path, credentials, query, or fragment`)
   }
   return parsed.origin
+}
+
+/**
+ * Resolve an explicitly configured feed URL. A GitHub release download prefix is one,
+ * so the value may carry a path; unset keeps the official COS layout.
+ * @param {NodeJS.ProcessEnv} env - Packaging environment.
+ * @returns {string | undefined} The URL with exactly one trailing slash, or undefined.
+ */
+function explicitFeedUrl(env) {
+  const value = env.DSH_DESKTOP_UPDATE_PUBLIC_URL?.trim()
+  if (value === undefined || value === '') return undefined
+  let parsed
+  try {
+    parsed = new URL(value)
+  } catch {
+    throw new Error('desktop auto-update: DSH_DESKTOP_UPDATE_PUBLIC_URL must be an absolute HTTPS URL')
+  }
+  if (parsed.protocol !== 'https:' || parsed.username !== '' || parsed.password !== '' || parsed.search !== '' || parsed.hash !== '') {
+    throw new Error('desktop auto-update: DSH_DESKTOP_UPDATE_PUBLIC_URL must be an absolute HTTPS URL without credentials, query, or fragment')
+  }
+  return parsed.href.endsWith('/') ? parsed.href : `${parsed.href}/`
 }
 
 /**
@@ -167,7 +199,7 @@ export function resolveDesktopAutoUpdateConfig(env, platform, arch) {
     origin,
     keyPrefix,
     binaryKeyPrefix: `${releasePrefix}/bin/${target}${channel === 'latest' ? '/latest' : ''}`,
-    publicUrl: `${origin}/${keyPrefix}/`,
+    publicUrl: explicitFeedUrl(env) ?? `${origin}/${keyPrefix}/`,
   }
 }
 

@@ -1,0 +1,6 @@
+# dsh-desktop-plus 品牌包的官方 bundle 组合层：随安装分发（asar 的 dsh/node_modules），
+# 由 profile 的 dsh.profile.bundles 列出后由宿主装载本文件。
+# 纯 client 品牌：宿主半区无逻辑，client 半区占据 sidebar.brand.mark / sidebar.brand.name slot。
+- insert:
+    - id: "@deepseek-ai-dsh-desktop-plus-brand"
+      name: "@deepseek-ai/dsh-desktop-plus-brand"

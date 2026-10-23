@@ -29,7 +29,6 @@ jobs:
             os: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: pnpm/action-setup@v4
         with:
           version: 11.28.5
@@ -42,15 +41,95 @@ jobs:
       - name: Install
         run: pnpm install
 
+      # electron-builder 的依赖收集器在 upstream/apps/desktop 里跑 `pnpm list`，pnpm 按
+      # 最近的 pnpm-workspace.yaml 把它归入 vendored upstream workspace，读取的虚拟仓库是
+      # upstream/node_modules/.pnpm。只做 root 安装时该目录不存在，收集器拿到幻影路径后静默
+      # 丢弃全部 registry 传递依赖（fs-extra/lazy-val/argparse 等），打出的 asar 启动即崩。
+      # 此步补全官方 workspace 的安装状态（frozen，lockfile 无需变更）。
+      - name: Install upstream workspace store
+        working-directory: upstream
+        run: pnpm install --frozen-lockfile --prefer-offline
+
+      - name: Resolve plus version
+        id: plusversion
+        # Windows 默认 shell 是 pwsh：$( ) 与 >> "$GITHUB_OUTPUT" 语义不对会让 outputs.version 变空，
+        # 下游 --build-version 缺参直接炸；显式钉 bash。
+        shell: bash
+        run: echo "version=$(node scripts/plus/version.mjs --print)" >> "$GITHUB_OUTPUT"
+      - name: Build desktop shell
+        working-directory: upstream
+        # The official script caps Node at 4096MB, which a cold full build on CI
+        # runners exceeds; run the same chain with a larger heap.
+        run: |
+          node --max-old-space-size=8192 ./node_modules/typescript/bin/tsc -b tsconfig.host.json
+          pnpm exec tsdown --config-loader native --env.DSH_BUILD_FACE host
+          pnpm --filter @deepseek-ai/dsh-desktop run bundle
+
+      # 插件客户端的 lib/client.js 是被 gitignore 的构建产物：打包前必须现场构建，
+      # 否则 extraResources 拷过去的 plus-plugin 里没有它，宿主启动时会因缺 client bundle 整包失败。
+      - name: Build plus plugin client bundle
+        env:
+          DSH_CLIENT_VERSION: ${{ steps.plusversion.outputs.version }}
+        run: |
+          pnpm --filter @deepseek-ai/dsh-desktop-plus-plugin run build:client
+          pnpm --filter @deepseek-ai/dsh-desktop-plus-plugin run build:remote-client
+          pnpm --filter @deepseek-ai/dsh-desktop-plus-brand run build:client
+
+      - name: Install xvfb (Linux headless smoke)
+        if: matrix.target == 'linux-x64'
+        run: sudo apt-get update && sudo apt-get install -y xvfb
+
+      # CUA 原生构建需要 Swift 6（Package.swift tools 6.0）；macOS 镜像默认 Xcode 15（Swift 5.10）。
+      - name: Select latest Xcode (Swift 6 for CUA native)
+        if: runner.os == 'macOS'
+        run: |
+          sudo xcode-select -s "$(ls -d /Applications/Xcode*.app | sort -V | tail -1)"
+          swift --version | head -1
+
+      # CUA（Computer Use）macOS 原生二进制是 gitignore 的构建产物，官方发布流在打包前现场编译；
+      # 不先建出来，npm pack 的 files 白名单收不到 native/bin，装机后 cua 插件报 ENOENT。
+      - name: Build CUA native helper (macOS)
+        if: runner.os == 'macOS'
+        working-directory: upstream/packages/experimental/cua-macos
+        run: |
+          swift build --package-path native --configuration release --product dsh-cua-native
+          arch=$(uname -m | sed 's/x86_64/x64/')
+          mkdir -p "native/bin/darwin-$arch"
+          cp native/.build/release/dsh-cua-native "native/bin/darwin-$arch/dsh-cua-native"
+          "native/bin/darwin-$arch/dsh-cua-native" --help >/dev/null 2>&1 || true
       - name: Package ${{ matrix.target }}
         working-directory: upstream/apps/desktop
-        run: pnpm exec tsx scripts/package-target.ts ${{ matrix.target }} --unsigned
+        # 版本号＝官方版本号 + .plus.N（scripts/plus/version.mjs 推导，禁手改）。
+        # 官方 dev/打包会断言 desktop 版本 == dsh 版本，所以不走 manifest，用官方构建版本入口注入。
+        env:
+          DSH_DESKTOP_BUILD_VERSION: ${{ steps.plusversion.outputs.version }}
+        # Linux runners have no display server; the packaged smoke launches the
+        # Electron binary, so wrap it in xvfb. The conditional needs an explicit
+        # bash shell: Windows runners default to PowerShell.
+        run: >
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            xvfb-run -a pnpm exec tsx scripts/package-target.ts ${{ matrix.target }} --unsigned --build-version ${{ steps.plusversion.outputs.version }}
+          else
+            pnpm exec tsx scripts/package-target.ts ${{ matrix.target }} --unsigned --build-version ${{ steps.plusversion.outputs.version }}
+          fi
+        shell: bash
+
+      # asar 依赖闭包门禁：任一打包产物缺模块/缺子路径（如 fs-extra、jsonfile/utils）
+      # 直接红，不允许坏产物进 Artifacts。
+      - name: Verify asar dependency closure
+        working-directory: upstream
+        run: node ../scripts/plus/check-asar-closure.mjs "apps/desktop/.desktop-build/targets/${{ matrix.target }}"
+        shell: bash
 
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: desktop-${{ matrix.target }}
+          # Upload the installers only: the unpacked app tree, builder-debug.yml and the
+          # packaging-run logs are build intermediates, not deliverables.
           path: |
-            upstream/apps/desktop/.desktop-build/targets/${{ matrix.target }}/artifacts/**
-            upstream/apps/desktop/.desktop-build/packaging-runs/**
-          if-no-files-found: warn
+            upstream/apps/desktop/.desktop-build/targets/${{ matrix.target }}/unsigned-artifacts/*.dmg
+            upstream/apps/desktop/.desktop-build/targets/${{ matrix.target }}/unsigned-artifacts/*.exe
+            upstream/apps/desktop/.desktop-build/targets/${{ matrix.target }}/unsigned-artifacts/*.AppImage
+            upstream/apps/desktop/.desktop-build/targets/${{ matrix.target }}/unsigned-artifacts/*.tar.gz
+          if-no-files-found: error

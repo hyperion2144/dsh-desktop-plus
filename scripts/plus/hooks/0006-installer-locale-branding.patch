@@ -1,0 +1,192 @@
+diff --git a/upstream/apps/desktop/installer/locales/de_DE.json b/upstream/apps/desktop/installer/locales/de_DE.json
+index faf725b8..3bdb1c0d 100644
+--- a/upstream/apps/desktop/installer/locales/de_DE.json
++++ b/upstream/apps/desktop/installer/locales/de_DE.json
+@@ -11,16 +11,16 @@
+     "INSTALLER_CHOOSE_PATH": "Standort wählen",
+     "INSTALLER_BROWSE": "Durchsuchen",
+     "INSTALLER_LAUNCH": "Jetzt starten",
+-    "INSTALLER_LAUNCH_FAILED": "DeepSeek Harness konnte nicht gestartet werden. Versuchen Sie es noch einmal oder deaktivieren Sie „Jetzt starten“ und schließen Sie das Installationsprogramm.",
++    "INSTALLER_LAUNCH_FAILED": "DSH Desktop Plus konnte nicht gestartet werden. Versuchen Sie es noch einmal oder deaktivieren Sie „Jetzt starten“ und schließen Sie das Installationsprogramm.",
+     "INSTALLER_UI_ERROR": "Das Installationsprogramm konnte sein Fenster nicht initialisieren. Schließen Sie es und versuchen Sie es erneut.",
+     "INSTALLER_THEME_ERROR": "Verwenden Sie /THEME=auto, /THEME=light oder /THEME=dark.",
+     "INSTALLER_FAILED": "Die Installation wurde nicht abgeschlossen. Schließen Sie dieses Installationsprogramm und versuchen Sie es erneut. Wenn das Problem weiterhin besteht, laden Sie das Installationsprogramm erneut herunter.",
+-    "INSTALLER_RUNNING": "DeepSeek Harness läuft. Beenden Sie es über die Taskleiste und versuchen Sie es erneut.",
++    "INSTALLER_RUNNING": "DSH Desktop Plus läuft. Beenden Sie es über die Taskleiste und versuchen Sie es erneut.",
+     "INSTALLER_DIRECTORY_FAILED": "Das Installationsverzeichnis konnte nicht ersetzt werden.",
+     "INSTALLER_DIRECTORY_HINT": "Überprüfen Sie den Zugriff auf das Installationsverzeichnis und schließen Sie Programme mithilfe seiner Dateien. Führen Sie dann das Installationsprogramm erneut aus. Kopieren Sie die Fehlerdetails, wenn das Problem weiterhin besteht.",
+     "INSTALLER_DIRECTORY_RESTORE_HINT": "Die vorherige Installation konnte nicht wiederhergestellt werden. Behalten Sie das in den Fehlerdetails angezeigte Sicherungsverzeichnis bei und wenden Sie sich vor der erneuten Installation an den Support.",
+     "INSTALLER_PATH_INVALID": "Wählen Sie einen vollständigen lokalen Ordnerpfad. Laufwerksstämme, Systemordner, Links und Sonderzeichen werden nicht unterstützt.",
+-    "INSTALLER_PATH_OWNERSHIP": "Wählen Sie einen leeren Ordner oder den registrierten DeepSeek Harness-Installationsordner.",
++    "INSTALLER_PATH_OWNERSHIP": "Wählen Sie einen leeren Ordner oder den registrierten DSH Desktop Plus-Installationsordner.",
+     "INSTALLER_PATH_WRITABLE": "Dieser Ort ist nicht beschreibbar. Wählen Sie einen Ordner, der für den aktuellen Benutzer verfügbar ist.",
+     "INSTALLER_DISK_SPACE": "Es ist nicht genügend freier Speicherplatz vorhanden. Wählen Sie einen anderen Standort.",
+     "INSTALLER_PER_USER": "Dieses Installationsprogramm unterstützt nur den aktuellen Benutzer. Deinstallieren Sie zunächst die vorhandene All-User-Installation.",
+diff --git a/upstream/apps/desktop/installer/locales/en_US.json b/upstream/apps/desktop/installer/locales/en_US.json
+index f522ad9b..f9f57481 100644
+--- a/upstream/apps/desktop/installer/locales/en_US.json
++++ b/upstream/apps/desktop/installer/locales/en_US.json
+@@ -11,16 +11,16 @@
+     "INSTALLER_CHOOSE_PATH": "Choose location",
+     "INSTALLER_BROWSE": "Browse",
+     "INSTALLER_LAUNCH": "Launch now",
+-    "INSTALLER_LAUNCH_FAILED": "DeepSeek Harness could not be launched. Retry, or clear Launch now and close the installer.",
++    "INSTALLER_LAUNCH_FAILED": "DSH Desktop Plus could not be launched. Retry, or clear Launch now and close the installer.",
+     "INSTALLER_UI_ERROR": "The installer could not initialize its window. Close it and try again.",
+     "INSTALLER_THEME_ERROR": "Use /THEME=auto, /THEME=light or /THEME=dark.",
+     "INSTALLER_FAILED": "Installation did not finish. Close this installer and retry. If the problem persists, download the installer again.",
+-    "INSTALLER_RUNNING": "DeepSeek Harness is running. Quit it from the system tray and try again.",
++    "INSTALLER_RUNNING": "DSH Desktop Plus is running. Quit it from the system tray and try again.",
+     "INSTALLER_DIRECTORY_FAILED": "The installation directory could not be replaced.",
+     "INSTALLER_DIRECTORY_HINT": "Check access to the installation directory and close programs using its files, then run the installer again. Copy the error details if the problem persists.",
+     "INSTALLER_DIRECTORY_RESTORE_HINT": "The previous installation could not be restored. Keep the backup directory shown in the error details and contact support before installing again.",
+     "INSTALLER_PATH_INVALID": "Choose a full local folder path. Drive roots, system folders, links and special characters are not supported.",
+-    "INSTALLER_PATH_OWNERSHIP": "Choose an empty folder or the registered DeepSeek Harness installation folder.",
++    "INSTALLER_PATH_OWNERSHIP": "Choose an empty folder or the registered DSH Desktop Plus installation folder.",
+     "INSTALLER_PATH_WRITABLE": "This location is not writable. Choose a folder available to the current user.",
+     "INSTALLER_DISK_SPACE": "There is not enough free disk space. Choose another location.",
+     "INSTALLER_PER_USER": "This installer supports the current user only. Uninstall the existing all-users installation first.",
+diff --git a/upstream/apps/desktop/installer/locales/es_ES.json b/upstream/apps/desktop/installer/locales/es_ES.json
+index d4fbfd97..cc4eb081 100644
+--- a/upstream/apps/desktop/installer/locales/es_ES.json
++++ b/upstream/apps/desktop/installer/locales/es_ES.json
+@@ -11,16 +11,16 @@
+     "INSTALLER_CHOOSE_PATH": "Elige ubicación",
+     "INSTALLER_BROWSE": "Examinar",
+     "INSTALLER_LAUNCH": "Lanzar ahora",
+-    "INSTALLER_LAUNCH_FAILED": "No se pudo iniciar DeepSeek Harness. Vuelva a intentarlo o desmarque Iniciar ahora y cierre el instalador.",
++    "INSTALLER_LAUNCH_FAILED": "No se pudo iniciar DSH Desktop Plus. Vuelva a intentarlo o desmarque Iniciar ahora y cierre el instalador.",
+     "INSTALLER_UI_ERROR": "El instalador no pudo inicializar su ventana. Ciérralo y vuelve a intentarlo.",
+     "INSTALLER_THEME_ERROR": "Utilice /THEME=auto, /THEME=light o /THEME=dark.",
+     "INSTALLER_FAILED": "La instalación no terminó. Cierre este instalador y vuelva a intentarlo. Si el problema persiste, descargue el instalador nuevamente.",
+-    "INSTALLER_RUNNING": "DeepSeek Harness se está ejecutando. Salga de la bandeja del sistema y vuelva a intentarlo.",
++    "INSTALLER_RUNNING": "DSH Desktop Plus se está ejecutando. Salga de la bandeja del sistema y vuelva a intentarlo.",
+     "INSTALLER_DIRECTORY_FAILED": "No se pudo reemplazar el directorio de instalación.",
+     "INSTALLER_DIRECTORY_HINT": "Verifique el acceso al directorio de instalación y cierre los programas usando sus archivos, luego ejecute el instalador nuevamente. Copie los detalles del error si el problema persiste.",
+     "INSTALLER_DIRECTORY_RESTORE_HINT": "No se pudo restaurar la instalación anterior. Mantenga el directorio de respaldo que se muestra en los detalles del error y comuníquese con el soporte antes de volver a instalar.",
+     "INSTALLER_PATH_INVALID": "Elija una ruta de carpeta local completa. No se admiten raíces de unidades, carpetas del sistema, enlaces ni caracteres especiales.",
+-    "INSTALLER_PATH_OWNERSHIP": "Elija una carpeta vacía o la carpeta de instalación registrada de DeepSeek Harness.",
++    "INSTALLER_PATH_OWNERSHIP": "Elija una carpeta vacía o la carpeta de instalación registrada de DSH Desktop Plus.",
+     "INSTALLER_PATH_WRITABLE": "Esta ubicación no se puede escribir. Elija una carpeta disponible para el usuario actual.",
+     "INSTALLER_DISK_SPACE": "No hay suficiente espacio libre en disco. Elija otra ubicación.",
+     "INSTALLER_PER_USER": "Este instalador solo admite el usuario actual. Primero desinstale la instalación existente para todos los usuarios.",
+diff --git a/upstream/apps/desktop/installer/locales/fr_FR.json b/upstream/apps/desktop/installer/locales/fr_FR.json
+index 326ead62..a3dd7532 100644
+--- a/upstream/apps/desktop/installer/locales/fr_FR.json
++++ b/upstream/apps/desktop/installer/locales/fr_FR.json
+@@ -11,16 +11,16 @@
+     "INSTALLER_CHOOSE_PATH": "Choisissez un emplacement",
+     "INSTALLER_BROWSE": "Parcourir",
+     "INSTALLER_LAUNCH": "Lancez-vous maintenant",
+-    "INSTALLER_LAUNCH_FAILED": "DeepSeek Harness n'a pas pu être lancé. Réessayez ou désactivez Lancer maintenant et fermez le programme d'installation.",
++    "INSTALLER_LAUNCH_FAILED": "DSH Desktop Plus n'a pas pu être lancé. Réessayez ou désactivez Lancer maintenant et fermez le programme d'installation.",
+     "INSTALLER_UI_ERROR": "Le programme d'installation n'a pas pu initialiser sa fenêtre. Fermez-le et réessayez.",
+     "INSTALLER_THEME_ERROR": "Utilisez /THEME=auto, /THEME=light ou /THEME=dark.",
+     "INSTALLER_FAILED": "L'installation n'est pas terminée. Fermez ce programme d'installation et réessayez. Si le problème persiste, téléchargez à nouveau le programme d'installation.",
+-    "INSTALLER_RUNNING": "DeepSeek Harness est en cours d'exécution. Quittez-le de la barre d'état système et réessayez.",
++    "INSTALLER_RUNNING": "DSH Desktop Plus est en cours d'exécution. Quittez-le de la barre d'état système et réessayez.",
+     "INSTALLER_DIRECTORY_FAILED": "Le répertoire d'installation n'a pas pu être remplacé.",
+     "INSTALLER_DIRECTORY_HINT": "Vérifiez l'accès au répertoire d'installation et fermez les programmes à l'aide de ses fichiers, puis réexécutez le programme d'installation. Copiez les détails de l'erreur si le problème persiste.",
+     "INSTALLER_DIRECTORY_RESTORE_HINT": "L'installation précédente n'a pas pu être restaurée. Conservez le répertoire de sauvegarde indiqué dans les détails de l'erreur et contactez l'assistance avant de procéder à une nouvelle installation.",
+     "INSTALLER_PATH_INVALID": "Choisissez un chemin de dossier local complet. Les racines du lecteur, les dossiers système, les liens et les caractères spéciaux ne sont pas pris en charge.",
+-    "INSTALLER_PATH_OWNERSHIP": "Choisissez un dossier vide ou le dossier d'installation DeepSeek Harness enregistré.",
++    "INSTALLER_PATH_OWNERSHIP": "Choisissez un dossier vide ou le dossier d'installation DSH Desktop Plus enregistré.",
+     "INSTALLER_PATH_WRITABLE": "Cet emplacement n'est pas accessible en écriture. Choisissez un dossier disponible pour l'utilisateur actuel.",
+     "INSTALLER_DISK_SPACE": "Il n'y a pas assez d'espace disque libre. Choisissez un autre emplacement.",
+     "INSTALLER_PER_USER": "Ce programme d'installation prend en charge uniquement l'utilisateur actuel. Désinstallez d’abord l’installation existante pour tous les utilisateurs.",
+diff --git a/upstream/apps/desktop/installer/locales/ja_JP.json b/upstream/apps/desktop/installer/locales/ja_JP.json
+index ee614789..596da279 100644
+--- a/upstream/apps/desktop/installer/locales/ja_JP.json
++++ b/upstream/apps/desktop/installer/locales/ja_JP.json
+@@ -11,16 +11,16 @@
+     "INSTALLER_CHOOSE_PATH": "インストール先を選択",
+     "INSTALLER_BROWSE": "参照",
+     "INSTALLER_LAUNCH": "今すぐ起動",
+-    "INSTALLER_LAUNCH_FAILED": "DeepSeek Harness を起動できませんでした。再試行するか、「今すぐ起動」のチェックを外してインストーラーを閉じてください。",
++    "INSTALLER_LAUNCH_FAILED": "DSH Desktop Plus を起動できませんでした。再試行するか、「今すぐ起動」のチェックを外してインストーラーを閉じてください。",
+     "INSTALLER_UI_ERROR": "インストーラーのウィンドウを初期化できませんでした。閉じてから再試行してください。",
+     "INSTALLER_THEME_ERROR": "/THEME=auto、/THEME=light、/THEME=dark のいずれかを指定してください。",
+     "INSTALLER_FAILED": "インストールが完了しませんでした。インストーラーを閉じて再試行してください。問題が解決しない場合は、インストーラーを再度ダウンロードしてください。",
+-    "INSTALLER_RUNNING": "DeepSeek Harness が実行中です。システムトレイから終了して再試行してください。",
++    "INSTALLER_RUNNING": "DSH Desktop Plus が実行中です。システムトレイから終了して再試行してください。",
+     "INSTALLER_DIRECTORY_FAILED": "インストール先のディレクトリを置き換えられませんでした。",
+     "INSTALLER_DIRECTORY_HINT": "インストール先へのアクセス権限を確認し、そのファイルを使用しているプログラムを閉じてから、インストーラーを再実行してください。問題が続く場合はエラーの詳細をコピーしてください。",
+     "INSTALLER_DIRECTORY_RESTORE_HINT": "以前のインストールを復元できませんでした。エラーの詳細に表示されたバックアップディレクトリを保持し、再インストール前にサポートへお問い合わせください。",
+     "INSTALLER_PATH_INVALID": "ローカルフォルダーの完全なパスを選択してください。ドライブのルート、システムフォルダー、リンク、特殊文字を含むパスは使用できません。",
+-    "INSTALLER_PATH_OWNERSHIP": "空のフォルダー、または登録済みの DeepSeek Harness インストール先を選択してください。",
++    "INSTALLER_PATH_OWNERSHIP": "空のフォルダー、または登録済みの DSH Desktop Plus インストール先を選択してください。",
+     "INSTALLER_PATH_WRITABLE": "この場所には書き込めません。現在のユーザーが書き込めるフォルダーを選択してください。インストーラーは管理者権限を要求しません。",
+     "INSTALLER_DISK_SPACE": "ディスクの空き容量が不足しています。別の場所を選択してください。",
+     "INSTALLER_PER_USER": "このインストーラーは現在のユーザーのみを対象としています。先にすべてのユーザー向けの既存のインストールを削除してください。",
+diff --git a/upstream/apps/desktop/installer/locales/pt_BR.json b/upstream/apps/desktop/installer/locales/pt_BR.json
+index dda249e4..6457a964 100644
+--- a/upstream/apps/desktop/installer/locales/pt_BR.json
++++ b/upstream/apps/desktop/installer/locales/pt_BR.json
+@@ -11,16 +11,16 @@
+     "INSTALLER_CHOOSE_PATH": "Escolha o local",
+     "INSTALLER_BROWSE": "Procurar",
+     "INSTALLER_LAUNCH": "Lançar agora",
+-    "INSTALLER_LAUNCH_FAILED": "DeepSeek Harness não pôde ser iniciado. Tente novamente ou desmarque Iniciar agora e feche o instalador.",
++    "INSTALLER_LAUNCH_FAILED": "DSH Desktop Plus não pôde ser iniciado. Tente novamente ou desmarque Iniciar agora e feche o instalador.",
+     "INSTALLER_UI_ERROR": "O instalador não conseguiu inicializar sua janela. Feche-o e tente novamente.",
+     "INSTALLER_THEME_ERROR": "Use /THEME=auto, /THEME=light ou /THEME=dark.",
+     "INSTALLER_FAILED": "A instalação não foi concluída. Feche este instalador e tente novamente. Se o problema persistir, baixe o instalador novamente.",
+-    "INSTALLER_RUNNING": "DeepSeek Harness está em execução. Saia da bandeja do sistema e tente novamente.",
++    "INSTALLER_RUNNING": "DSH Desktop Plus está em execução. Saia da bandeja do sistema e tente novamente.",
+     "INSTALLER_DIRECTORY_FAILED": "O diretório de instalação não pôde ser substituído.",
+     "INSTALLER_DIRECTORY_HINT": "Verifique o acesso ao diretório de instalação e feche os programas usando seus arquivos e execute o instalador novamente. Copie os detalhes do erro se o problema persistir.",
+     "INSTALLER_DIRECTORY_RESTORE_HINT": "A instalação anterior não pôde ser restaurada. Mantenha o diretório de backup mostrado nos detalhes do erro e entre em contato com o suporte antes de instalar novamente.",
+     "INSTALLER_PATH_INVALID": "Escolha um caminho completo para a pasta local. Raízes de unidade, pastas de sistema, links e caracteres especiais não são suportados.",
+-    "INSTALLER_PATH_OWNERSHIP": "Escolha uma pasta vazia ou a pasta de instalação DeepSeek Harness registrada.",
++    "INSTALLER_PATH_OWNERSHIP": "Escolha uma pasta vazia ou a pasta de instalação DSH Desktop Plus registrada.",
+     "INSTALLER_PATH_WRITABLE": "Este local não é gravável. Escolha uma pasta disponível para o usuário atual.",
+     "INSTALLER_DISK_SPACE": "Não há espaço livre suficiente em disco. Escolha outro local.",
+     "INSTALLER_PER_USER": "Este instalador oferece suporte apenas ao usuário atual. Desinstale primeiro a instalação existente para todos os usuários.",
+diff --git a/upstream/apps/desktop/installer/locales/ru_RU.json b/upstream/apps/desktop/installer/locales/ru_RU.json
+index e5fec3f8..a8ac6d40 100644
+--- a/upstream/apps/desktop/installer/locales/ru_RU.json
++++ b/upstream/apps/desktop/installer/locales/ru_RU.json
+@@ -11,16 +11,16 @@
+     "INSTALLER_CHOOSE_PATH": "Выберите местоположение",
+     "INSTALLER_BROWSE": "Обзор",
+     "INSTALLER_LAUNCH": "Запустить сейчас",
+-    "INSTALLER_LAUNCH_FAILED": "DeepSeek Harness не удалось запустить. Повторите попытку или снимите флажок «Запустить сейчас» и закройте программу установки.",
++    "INSTALLER_LAUNCH_FAILED": "DSH Desktop Plus не удалось запустить. Повторите попытку или снимите флажок «Запустить сейчас» и закройте программу установки.",
+     "INSTALLER_UI_ERROR": "Установщику не удалось инициализировать свое окно. Закройте его и попробуйте еще раз.",
+     "INSTALLER_THEME_ERROR": "Используйте /THEME=auto, /THEME=light или /THEME=dark.",
+     "INSTALLER_FAILED": "Установка не завершена. Закройте этот установщик и повторите попытку. Если проблема не устранена, загрузите установщик еще раз.",
+-    "INSTALLER_RUNNING": "DeepSeek Harness работает. Закройте его из системного трея и повторите попытку.",
++    "INSTALLER_RUNNING": "DSH Desktop Plus работает. Закройте его из системного трея и повторите попытку.",
+     "INSTALLER_DIRECTORY_FAILED": "Не удалось заменить каталог установки.",
+     "INSTALLER_DIRECTORY_HINT": "Проверьте доступ к каталогу установки и закройте программы, использующие его файлы, затем снова запустите установщик. Скопируйте сведения об ошибке, если проблема не устранена.",
+     "INSTALLER_DIRECTORY_RESTORE_HINT": "Предыдущую установку восстановить не удалось. Сохраните каталог резервной копии, указанный в сведениях об ошибке, и обратитесь в службу поддержки перед повторной установкой.",
+     "INSTALLER_PATH_INVALID": "Выберите полный путь к локальной папке. Корни дисков, системные папки, ссылки и специальные символы не поддерживаются.",
+-    "INSTALLER_PATH_OWNERSHIP": "Выберите пустую папку или зарегистрированную папку установки DeepSeek Harness.",
++    "INSTALLER_PATH_OWNERSHIP": "Выберите пустую папку или зарегистрированную папку установки DSH Desktop Plus.",
+     "INSTALLER_PATH_WRITABLE": "Это местоположение недоступно для записи. Выберите папку, доступную текущему пользователю.",
+     "INSTALLER_DISK_SPACE": "Недостаточно свободного места на диске. Выберите другое место.",
+     "INSTALLER_PER_USER": "Этот установщик поддерживает только текущего пользователя. Сначала удалите существующую установку для всех пользователей.",
+diff --git a/upstream/apps/desktop/installer/locales/zh_CN.json b/upstream/apps/desktop/installer/locales/zh_CN.json
+index e3f40f13..08182378 100644
+--- a/upstream/apps/desktop/installer/locales/zh_CN.json
++++ b/upstream/apps/desktop/installer/locales/zh_CN.json
+@@ -11,16 +11,16 @@
+     "INSTALLER_CHOOSE_PATH": "选择安装位置",
+     "INSTALLER_BROWSE": "选择",
+     "INSTALLER_LAUNCH": "立即启动",
+-    "INSTALLER_LAUNCH_FAILED": "无法启动 DeepSeek Harness。请重试，或取消勾选立即启动后关闭安装程序。",
++    "INSTALLER_LAUNCH_FAILED": "无法启动 DSH Desktop Plus。请重试，或取消勾选立即启动后关闭安装程序。",
+     "INSTALLER_UI_ERROR": "无法初始化安装窗口，请关闭后重试。",
+     "INSTALLER_THEME_ERROR": "主题参数须为 /THEME=auto、/THEME=light 或 /THEME=dark。",
+     "INSTALLER_FAILED": "安装未完成，请关闭安装程序后重试。如仍然失败，请重新下载安装包。",
+-    "INSTALLER_RUNNING": "DeepSeek Harness 正在运行，请先在系统托盘中退出应用后重试。",
++    "INSTALLER_RUNNING": "DSH Desktop Plus 正在运行，请先在系统托盘中退出应用后重试。",
+     "INSTALLER_DIRECTORY_FAILED": "无法替换安装目录。",
+     "INSTALLER_DIRECTORY_HINT": "请检查安装目录的访问权限，关闭占用其中内容的程序后重新运行安装器。如仍失败，请复制错误详情。",
+     "INSTALLER_DIRECTORY_RESTORE_HINT": "未能恢复原安装目录。请保留错误详情中列出的备份目录，联系支持人员后再安装。",
+     "INSTALLER_PATH_INVALID": "请选择本地磁盘上的完整文件夹路径，不能使用磁盘根目录、系统目录、链接目录或包含特殊字符的路径。",
+-    "INSTALLER_PATH_OWNERSHIP": "请选择空文件夹，或 DeepSeek Harness 原来的安装目录。",
++    "INSTALLER_PATH_OWNERSHIP": "请选择空文件夹，或 DSH Desktop Plus 原来的安装目录。",
+     "INSTALLER_PATH_WRITABLE": "无法写入此位置。请选择当前用户可写入的文件夹；安装程序不会申请管理员权限。",
+     "INSTALLER_DISK_SPACE": "此磁盘的可用空间不足，请选择其他位置。",
+     "INSTALLER_PER_USER": "此安装程序仅支持当前用户。请先卸载已有的所有用户安装版本。",
