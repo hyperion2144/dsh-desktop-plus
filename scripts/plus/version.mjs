@@ -34,6 +34,22 @@ export function unreleasedNotes(changelogPath = join(root, 'CHANGELOG.md')) {
   return rest.slice(0, next === -1 ? rest.length : next).trim()
 }
 
+/** 已发布段里指定版本小节的正文（重发场景的 release notes 来源）；无该小节返回 ''。 */
+export function releasedNotes(version, changelogPath = join(root, 'CHANGELOG.md')) {
+  const text = readFileSync(changelogPath, 'utf8')
+  const published = text.indexOf('## 已发布')
+  if (published === -1) return ''
+  const rest = text.slice(published + '## 已发布'.length)
+  const heading = `### ${version}`
+  const start = rest.indexOf(heading)
+  if (start === -1) return ''
+  const section = rest.slice(start + heading.length)
+  // 小节正文延伸到下一个版本小节（### <版本号>）或已发布段结束——功能小节（### 桌面应用等）
+  // 与版本小节同为 ### 级，不能作为截断点。
+  const next = [section.search(/\n### \d+\.\d+\.\d+/), section.indexOf('\n## ')].filter((n) => n !== -1)
+  return section.slice(0, next.length === 0 ? section.length : Math.min(...next)).trim().replace(/\n---\s*$/, '').trim()
+}
+
 /**
  * 期望的 plus 版本号：有未发布变更 → `base.plus.(latestN+1)`；没有 → 发版被拒（没有可发布的内容）。
  * @param base       upstream 的 X.Y.Z[-pre]

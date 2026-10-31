@@ -117,20 +117,12 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          # release 步骤只下载这个 artifact：只装安装包产物，证据树物理隔绝（
+          # release 步骤只下载这个 artifact：只装安装包产物，诊断证据不上传。
           # packaging-runs 里的 targets 快照与真产物路径形状一致，混传必被通配扫入）。
           name: desktop-${{ matrix.target }}
           path: |
             upstream/apps/desktop/.desktop-build/targets/${{ matrix.target }}/unsigned-artifacts/**
           if-no-files-found: error
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          # 打包过程证据（events/logs/staging 快照）：仅供诊断下载，不进 release。
-          name: packaging-runs-${{ matrix.target }}
-          path: |
-            upstream/apps/desktop/.desktop-build/packaging-runs/**
-          if-no-files-found: ignore
 
   release:
     needs: package
@@ -161,7 +153,7 @@ jobs:
             echo "> 未签名构建：本仓库未配置 macOS 公证与 Windows 签名凭据。"
             echo
             node scripts/plus/notes.mjs >> release-notes.md 2>/dev/null || true
-            [ -s release-notes.md ] || node --input-type=module -e "import { unreleasedNotes } from './scripts/plus/version.mjs'; const n = unreleasedNotes(); console.log(n === '' ? '_（CHANGELOG 未发布段为空）_' : n)" >> release-notes.md
+            [ -s release-notes.md ] || node --input-type=module -e "import { unreleasedNotes, releasedNotes } from './scripts/plus/version.mjs'; const tag = process.argv[1]; const n = unreleasedNotes() || releasedNotes(tag.replace(/^v/, '')); console.log(n === '' ? '_（CHANGELOG 无该版本的发布说明）_' : n)" "$TAG" >> release-notes.md
             cat release-notes.md
           } > combined-notes.md
           gh release create "$TAG" --title "dsh-desktop-plus $TAG" --notes-file combined-notes.md release-assets/*
