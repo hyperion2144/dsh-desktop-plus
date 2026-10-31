@@ -52,13 +52,23 @@ export function plusPatchOf(tag) {
   return match === null ? null : { base: match[1], n: Number(match[2]) }
 }
 
-/** 同 base 已发布过的最大 N（本地 tag 里查；无则 0）。 */
-export function latestPublishedN(base) {
+/** 同 base 已发布过的最大 N（本地 tag 里查；无则 0）。excludeTagName 排除正在校验/构建的那一枚：发版 checkout 时 tag 已经存在，不能把自己当成已发布。 */
+export function latestPublishedN(base, excludeTagName) {
   const tags = execFileSync('git', ['tag', '--list', `v${base}.plus.*`], { encoding: 'utf8' })
   return tags.split('\n').reduce((max, tag) => {
-    const patch = plusPatchOf(tag.trim())
+    const name = tag.trim()
+    if (name === '' || name === excludeTagName) return max
+    const patch = plusPatchOf(name)
     return patch === null ? max : Math.max(max, patch.n)
   }, 0)
+}
+/** HEAD 恰好停在某枚 tag 上（发版 checkout）时的 tag 名；否则 null。 */
+function exactTagOnHead() {
+  try {
+    return execFileSync('git', ['describe', '--exact-match', '--tags', 'HEAD'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim()
+  } catch {
+    return null
+  }
 }
 
 const isMain = process.argv[1] !== undefined && fileURLToPath(import.meta.url) === process.argv[1]
@@ -67,14 +77,14 @@ if (isMain) {
   // --print：打包/预览构建要的版本号（不校验 tag、也不要求 CHANGELOG 有未发布条目）：
   // 口径仍然是官方版本号 + plus.N，N 取该 base 已发布的最大 N + 1。
   if (argv.includes('--print')) {
-    console.log(`${upstreamVersion()}.plus.${latestPublishedN(upstreamVersion()) + 1}`)
+    console.log(`${upstreamVersion()}.plus.${latestPublishedN(upstreamVersion(), exactTagOnHead()) + 1}`)
     process.exit(0)
   }
   const checkIndex = argv.indexOf('--check')
   const base = upstreamVersion()
   if (checkIndex !== -1) {
     const tag = argv[checkIndex + 1]
-    const expected = plusVersion(base, latestPublishedN(base), hasUnreleasedChanges())
+    const expected = plusVersion(base, latestPublishedN(base, tag), hasUnreleasedChanges())
     if (expected === null) {
       console.error('refusing to release: CHANGELOG has no unreleased changes')
       process.exit(1)
