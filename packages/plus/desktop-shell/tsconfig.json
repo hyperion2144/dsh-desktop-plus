@@ -6,6 +6,5 @@
     "tsBuildInfoFile": "./lib/.tsbuildinfo"
   },
   "include": ["src"],
-  "references": [
-    { "path": "../desktop-runtime-selection" },]
+  "references": []
 }

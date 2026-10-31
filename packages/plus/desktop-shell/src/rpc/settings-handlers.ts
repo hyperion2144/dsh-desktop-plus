@@ -18,6 +18,8 @@ export interface SettingsRpcDeps {
         builtinVersion: () => string | null
         profileNames: () => Array<{ name: string; active: boolean; selectable: boolean }>
         keepAwakeCapability: () => { platform: string; backend: string | null; available: boolean; reason: string | null } | null
+        /** 登录自启能力快照（OS 读回为准）；面板据此隐藏开关。 */
+        loginItemCapability: () => { supported: boolean; enabled: boolean } | null
         preventSleepActive: () => boolean
         devToolsActive: () => boolean
         /** 保存后的即时生效钩子（例如防休眠开关切换）；失败不阻断保存回执。 */
@@ -42,6 +44,7 @@ export function createSettingsRpcHandlers(deps: SettingsRpcDeps): RpcHandlers {
                                 prevent_sleep: deps.preventSleepActive(),
                                 dev_tools: deps.devToolsActive(),
                                 keep_awake: deps.keepAwakeCapability(),
+                                login_item: deps.loginItemCapability(),
                                 settings,
                         }
                 },

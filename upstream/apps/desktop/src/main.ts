@@ -26,7 +26,7 @@ import {
 } from 'electron'
 import { existsSync, rmSync, writeFileSync } from 'node:fs'
 import { spawn } from 'node:child_process'
-import { applyLoginItemFromEnv, remoteProfileName, loadRemoteAddressList, partitionFor, remoteOrigin, listProfileDirs, createProfilesRpcHandlers, createUpdatesRpcHandlers, createSettingsRpcHandlers, createNotificationsRpcHandlers, applyWindowsAppUserModelId, attachDownloads, attachPackagedDevTools, attachPageConsole, collectDiagnostics, clearSelectedRuntime, createDownloadRpcHandlers, createElectronProfileRuntime, createLoggingKernel, createLoggingRpcHandlers, createProfileTray, createRpcRegistry, createShellKernel, ensurePlusProfileBundles, PLUS_BUNDLE_NAMES, DEFAULT_PROFILE, resolveStartupRuntimeSelection, restartApplicationInPlace, runPlusStartup, loadDesktopSettings, saveDesktopSettings, soundCapabilityReport, playSoundFile, createLifecycleRpcHandlers, resolveProxyEnv, proxyEnvRecord, detectSystemProxy, plusApplicationVersion, type RpcRegistry, type ProfileTray } from '@deepseek-ai/dsh-desktop-plus-shell'
+import { applyLoginItemFromEnv, isLoginItemEnabled, setLoginItemEnabled, remoteProfileName, loadRemoteAddressList, partitionFor, remoteOrigin, listProfileDirs, createProfilesRpcHandlers, createUpdatesRpcHandlers, createSettingsRpcHandlers, createNotificationsRpcHandlers, applyWindowsAppUserModelId, attachDownloads, attachPackagedDevTools, attachPageConsole, collectDiagnostics, clearSelectedRuntime, createDownloadRpcHandlers, createElectronProfileRuntime, createLoggingKernel, createLoggingRpcHandlers, createProfileTray, createRpcRegistry, createShellKernel, ensurePlusProfileBundles, PLUS_BUNDLE_NAMES, DEFAULT_PROFILE, resolveStartupRuntimeSelection, restartApplicationInPlace, runPlusStartup, loadDesktopSettings, saveDesktopSettings, soundCapabilityReport, playSoundFile, createLifecycleRpcHandlers, resolveProxyEnv, proxyEnvRecord, detectSystemProxy, plusApplicationVersion, type RpcRegistry, type ProfileTray } from '@deepseek-ai/dsh-desktop-plus-shell'
 import { createBusyLease, createPlusNotifier, createSleepGate, createSplashWindow, deliverHostNotice, loadNotificationConfig, noticePolicyFromConfig, systemDefaultSoundCommand, type RestartAllOutcome } from '@deepseek-ai/dsh-desktop-plus-shell'
 import { plusShellCopy } from '@deepseek-ai/dsh-desktop-plus-shell'
 import { installShellConsoleTee } from '@deepseek-ai/dsh-desktop-plus-shell'
@@ -2115,11 +2115,17 @@ const plusRpcRegistry: RpcRegistry = createRpcRegistry([
     // 防休眠：powerSaveBlocker 全平台可用，能力如实报可开（不需要平台分支）。
     keepAwakeCapability: () => ({ platform: process.platform, backend: 'electron-power-save-blocker', available: true, reason: null }),
     // 两个开关都读 plus 的设置文件：面板显示的是壳真正保存过的值。
+    // 登录自启：macOS/Windows 用 Electron 登录项，Linux 无此概念；开关状态以 OS 读回为准。
+    loginItemCapability: () => ({ supported: process.platform !== 'linux', enabled: isLoginItemEnabled(app) }),
     // 缺省开：仅显式 false 关（对齐设置页文案「缺省开」）；undefined/null/true 都算开。
     preventSleepActive: () => loadPlusDesktopSettings().prevent_sleep !== false,
     devToolsActive: () => loadPlusDesktopSettings().dev_tools === true,
     // remote_list 变更即时重建托盘菜单：新增/删除远程地址就是远程 profile 集变化。
-    applySetting: (key) => { if (key === 'remote_list') refreshPlusTray() },
+    applySetting: (key, value) => {
+      if (key === 'remote_list') refreshPlusTray()
+      // 登录自启开关立即写 OS 登录项；开关显示状态以 get 时 OS 读回为准。
+      if (key === 'login_item_enabled') setLoginItemEnabled(app, value === true)
+    },
   }),
   createNotificationsRpcHandlers({
     dshHome: () => resolveDshHome(),

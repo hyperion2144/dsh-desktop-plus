@@ -23,8 +23,13 @@ export async function smokePreparedRuntime(
   root: string, node: string, resourcesRuntime: string, descriptor: DesktopRuntimeDescriptor,
 ): Promise<void> {
   const cache = await mkdtemp(join(tmpdir(), 'desktop-native-smoke-'))
-  const environment = { ...scrubWindowsSigningEnvironment(process.env), NODE_OPTIONS: '',
-    NARB_NATIVE_CACHE_DIR: cache, NARB_DISABLE_NATIVE_CACHE: '0' }
+  // 宿主组合里的 product-telemetry 用 DSH_CLIENT_VERSION 填 serviceVersion：真应用由壳注入，
+  // smoke 链路同样要给，否则必过不了配置校验（required 字段缺失 → 宿主起不来）。
+  const environment = {
+    ...scrubWindowsSigningEnvironment(process.env), NODE_OPTIONS: '',
+    DSH_CLIENT_VERSION: descriptor.release.version,
+    NARB_NATIVE_CACHE_DIR: cache, NARB_DISABLE_NATIVE_CACHE: '0'
+  }
   try {
     const archive = runtimeArchivePath(root)
     if (archive !== undefined) await verifyRuntimeArchive(archive, descriptor)

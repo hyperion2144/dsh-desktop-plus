@@ -12,7 +12,6 @@
   "dependencies": {},
   "devDependencies": {
     "@deepseek-ai/dsh-desktop-plus-plugin": "workspace:*",
-    "@deepseek-ai/dsh-desktop-plus-runtime-selection": "workspace:*",
     "@types/node": "^22.20.1",
     "electron": "^44.7.0",
     "typescript": "^6.0.3",
