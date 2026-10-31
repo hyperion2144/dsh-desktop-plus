@@ -119,7 +119,7 @@ jobs:
         with:
           name: desktop-${{ matrix.target }}
           path: |
-            upstream/apps/desktop/.desktop-build/targets/${{ matrix.target }}/artifacts/**
+            upstream/apps/desktop/.desktop-build/targets/${{ matrix.target }}/unsigned-artifacts/**
             upstream/apps/desktop/.desktop-build/packaging-runs/**
           if-no-files-found: warn
 
