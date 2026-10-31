@@ -149,7 +149,11 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           mkdir -p release-assets
-          find artifacts -path '*/unsigned-artifacts/*' -type f \( -name '*.dmg' -o -name '*.zip' -o -name '*.exe' -o -name '*.AppImage' -o -name '*.tar.gz' -o -name '*.blockmap' -o -name 'nightly*.yml' -o -name 'latest*.yml' \) -exec cp {} release-assets/ \; || true
+          # download-artifact 对单一 path 按最短公共祖先裁剪：desktop-* 只有一条
+          # path，产物在 artifacts/desktop-<t>/ 下平铺（无 unsigned-artifacts 层级）。
+          # artifact 已物理纯净，全盘收集即可；先打印清单，再出问题一眼可定位。
+          find artifacts -type f | head -40
+          find artifacts -type f \( -name '*.dmg' -o -name '*.zip' -o -name '*.exe' -o -name '*.AppImage' -o -name '*.tar.gz' -o -name '*.blockmap' -o -name 'nightly*.yml' -o -name 'latest*.yml' \) -exec cp {} release-assets/ \; || true
           {
             echo "## dsh-desktop-plus ${TAG}"
             echo
