@@ -307,7 +307,7 @@ index 1461444f..1adda3f1 100644
    readonly platform: NodeJS.Platform
    readonly arch: string
 diff --git a/upstream/apps/desktop/scripts/electron-builder-config.mjs b/upstream/apps/desktop/scripts/electron-builder-config.mjs
-index cf0c19e8..e6a7cb06 100644
+index cf0c19e8..76666e9b 100644
 --- a/upstream/apps/desktop/scripts/electron-builder-config.mjs
 +++ b/upstream/apps/desktop/scripts/electron-builder-config.mjs
 @@ -20,7 +20,7 @@ import {
@@ -419,7 +419,17 @@ index cf0c19e8..e6a7cb06 100644
        },
        // Ad-hoc signing keeps the modified Electron executable runnable without a Developer ID.
        identity: unsigned ? '-' : macOSSigning?.signingIdentity,
-@@ -185,6 +210,14 @@ export function createElectronBuilderConfig(
+@@ -178,13 +203,23 @@ export function createElectronBuilderConfig(
+       // Prepared runtime files retain their signatures; PAK resources are sealed by their enclosing bundle.
+       signIgnore: ['/Contents/Resources/app\\.asar\\.unpacked/dsh(?:/|$)', '/Contents/Resources/runtime/primary-runtime(?:/|$)', '\\.pak$'],
+       notarize: !unsigned && !skipNotarization,
+-      target: unsigned ? ['dmg'] : ['dmg', 'zip'],
++      // mac 自动更新的载体是 zip（dmg 仅手动安装）：unsigned 也必须产出 zip，
++      // 发布流水线据此生成 nightly-mac.yml，旧版本才能从当前版本更新。
++      target: ['dmg', 'zip'],
+     },
+     dmg: {
+       format: 'ULMO',
        sign: !unsigned,
        writeUpdateInfo: false,
      },
@@ -434,7 +444,7 @@ index cf0c19e8..e6a7cb06 100644
      beforePack: async context => {
        const office = await officePackageDirectories(buildPaths.dsh, { platform: resolvedPlatform, arch: resolvedArch })
        const patterns = office.map(directory => `**/${relative(buildPaths.dsh, directory).split(sep).join('/')}/**/*`)
-@@ -253,8 +286,11 @@ export function createElectronBuilderConfig(
+@@ -253,8 +288,11 @@ export function createElectronBuilderConfig(
        target: ['nsis'],
      },
      linux: {

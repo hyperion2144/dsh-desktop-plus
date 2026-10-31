@@ -203,7 +203,9 @@ export function createElectronBuilderConfig(
       // Prepared runtime files retain their signatures; PAK resources are sealed by their enclosing bundle.
       signIgnore: ['/Contents/Resources/app\\.asar\\.unpacked/dsh(?:/|$)', '/Contents/Resources/runtime/primary-runtime(?:/|$)', '\\.pak$'],
       notarize: !unsigned && !skipNotarization,
-      target: unsigned ? ['dmg'] : ['dmg', 'zip'],
+      // mac 自动更新的载体是 zip（dmg 仅手动安装）：unsigned 也必须产出 zip，
+      // 发布流水线据此生成 nightly-mac.yml，旧版本才能从当前版本更新。
+      target: ['dmg', 'zip'],
     },
     dmg: {
       format: 'ULMO',
