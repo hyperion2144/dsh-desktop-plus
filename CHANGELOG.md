@@ -2,6 +2,11 @@
 
 ## 未发布
 
+
+## 已发布
+
+### 0.2.2-alpha.2.plus.1
+
 DSH Desktop Plus 首个公开版本：把 DeepSeek Harness Web GUI 封装成三平台桌面应用，并在官方能力之上补齐桌面集成。
 
 ### 桌面应用
@@ -54,10 +59,6 @@ DSH Desktop Plus 首个公开版本：把 DeepSeek Harness Web GUI 封装成三�
 
 - 应用版本 0.2.2-alpha.2.plus.1（官方版本 + .plus.N），写入安装包、Info.plist 与关于页。
 - 更新检测指向本仓库 GitHub Releases，支持 latest 与 nightly 渠道。
-
-## 已发布
-
-（暂无）
 
 ---
 
