@@ -117,11 +117,20 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
+          # release 步骤只下载这个 artifact：只装安装包产物，证据树物理隔绝（
+          # packaging-runs 里的 targets 快照与真产物路径形状一致，混传必被通配扫入）。
           name: desktop-${{ matrix.target }}
           path: |
             upstream/apps/desktop/.desktop-build/targets/${{ matrix.target }}/unsigned-artifacts/**
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          # 打包过程证据（events/logs/staging 快照）：仅供诊断下载，不进 release。
+          name: packaging-runs-${{ matrix.target }}
+          path: |
             upstream/apps/desktop/.desktop-build/packaging-runs/**
-          if-no-files-found: warn
+          if-no-files-found: ignore
 
   release:
     needs: package
