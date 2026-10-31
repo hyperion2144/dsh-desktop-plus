@@ -70,6 +70,15 @@ function exactTagOnHead() {
     return null
   }
 }
+/** 解析一个 rev 到 commit SHA；解析失败返回 null。 */
+function revParse(rev) {
+  try {
+    return execFileSync('git', ['rev-parse', '--verify', rev], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim()
+  } catch {
+    return null
+  }
+}
+
 
 const isMain = process.argv[1] !== undefined && fileURLToPath(import.meta.url) === process.argv[1]
 if (isMain) {
@@ -86,6 +95,15 @@ if (isMain) {
     const tag = argv[checkIndex + 1]
     const expected = plusVersion(base, latestPublishedN(base, tag), hasUnreleasedChanges())
     if (expected === null) {
+      // 重发放行：tag 指向当前 HEAD（main 已含该版本全部内容）且版本号正确时，
+      // 未发布段为空是重发的正常形态（产物修复重发不新增变更）。
+      const patch = plusPatchOf(tag)
+      const head = revParse('HEAD')
+      const tagHead = revParse(`${tag}^{commit}`)
+      if (patch !== null && head !== null && tagHead === head && patch.n === latestPublishedN(base, tag) + 1) {
+        console.log(`ok ${tag} (republish at HEAD)`)
+        process.exit(0)
+      }
       console.error('refusing to release: CHANGELOG has no unreleased changes')
       process.exit(1)
     }
