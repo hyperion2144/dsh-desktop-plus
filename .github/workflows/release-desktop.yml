@@ -74,6 +74,9 @@ jobs:
       - name: Build plus plugin client bundle
         run: pnpm --filter @deepseek-ai/dsh-desktop-plus-plugin run build:client
 
+      - name: Build plus brand client bundle
+        run: pnpm --filter @deepseek-ai/dsh-desktop-plus-brand run build:client
+
       - name: Install xvfb (Linux headless smoke)
         if: matrix.target == 'linux-x64'
         run: sudo apt-get update && sudo apt-get install -y xvfb

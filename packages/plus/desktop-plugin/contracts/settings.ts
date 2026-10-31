@@ -46,6 +46,8 @@ export interface SettingsCommands {
       prevent_sleep?: boolean | null
       dev_tools?: boolean | null
       keep_awake?: KeepAwakeCapability | null
+      /** 登录自启能力快照：OS 读回为准；supported=false 时面板隐藏开关。 */
+      login_item?: { supported: boolean; enabled: boolean } | null
       origin?: string
       /** serializeSettings 的设置段（面板 nsGet 读它）；Record 是有意的：设置键随版本增加。 */
       settings?: Record<string, unknown>

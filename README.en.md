@@ -62,10 +62,6 @@ Current releases are unsigned builds: on macOS, right-click the app and choose "
 
 - Two-column layout: profiles (create / delete / port), notifications, proxy, sleep prevention, login launch, developer tools, and one-click privacy & telemetry opt-out.
 
-### Runtime management
-
-- Lists built-in and downloaded DSH runtimes; download, switch (applies after restart) and uninstall.
-
 ### Remote access
 
 - Add a remote DSH lane address (shaped like `http://<host>:<port>/pair?token=…`) to the service addresses and it becomes a remote profile: the window connects straight to the remote origin and no local DSH host is started.

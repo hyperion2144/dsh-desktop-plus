@@ -23,6 +23,7 @@ import { DownloadCard } from './desktop-settings/cards/download-card.tsx'
 import { MigrationCard } from './desktop-settings/cards/migration-card.tsx'
 import { RemoteAccessCard } from './desktop-settings/cards/remote-access-card.tsx'
 import { PowerCard } from './desktop-settings/cards/power-card.tsx'
+import { LoginItemCard } from './desktop-settings/cards/login-item-card.tsx'
 import { PrivacyCard } from './desktop-settings/cards/privacy-card.tsx'
 import { ProfileCard } from './desktop-settings/cards/profile-card.tsx'
 import { ProfilePortsCard } from './desktop-settings/cards/profile-ports-card.tsx'
@@ -167,6 +168,7 @@ function DesktopSettingsPanel(): React.ReactElement {
       <div>
       <DiagnosticsCard />
       <PowerCard desktop={desktop} />
+      <LoginItemCard desktop={desktop} />
       <DevToolsCard desktop={desktop} />
       <PrivacyCard desktop={desktop} />
       </div>

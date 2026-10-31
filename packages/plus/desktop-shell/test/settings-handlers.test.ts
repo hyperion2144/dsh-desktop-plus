@@ -16,6 +16,7 @@ function harness() {
 		port: () => 6390,
 		profileNames: () => [{ name: 'desktop', active: true, selectable: true }],
 		keepAwakeCapability: () => ({ platform: 'darwin', backend: null, available: false, reason: 'no consumer' }),
+		loginItemCapability: () => ({ supported: true, enabled: false }),
 		preventSleepActive: () => false,
 		devToolsActive: () => false,
 		applySetting: (key) => { applied.push(key) },
@@ -44,6 +45,14 @@ describe('settings rpc handlers', () => {
 		const onDisk = JSON.parse(readFileSync(join(home, 'desktop-settings.json'), 'utf8'))
 		expect(onDisk['log_retention_days']).toBe(7)
 		expect(existsSync(join(home, 'desktop-settings.json.tmp'))).toBe(false)
+	})
+
+	it('reports the login-item capability and applies the login_item_enabled patch', () => {
+		const { handlers, applied } = harness()
+		const data = handlers.get_desktop_settings_data({})
+		expect(data.login_item).toEqual({ supported: true, enabled: false })
+		handlers.save_desktop_settings({ patch: { login_item_enabled: true } })
+		expect(applied).toContain('login_item_enabled')
 	})
 
 	it('falls back to defaults on a corrupted file and keeps saving', () => {
