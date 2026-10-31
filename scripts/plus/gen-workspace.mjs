@@ -111,7 +111,7 @@ for (const line of source) {
       const bare = quote ? raw.slice(1, -1) : raw
       const value =
         bare.startsWith('link:') && !bare.startsWith('link:upstream/')
-          ? `link:upstream/${bare.slice('link:'.length)}`
+          ? `link:upstream/${bare.slice('link:'.length)}`.replaceAll('link:upstream/../', 'link:')
           : bare
       out.push(`${match[1]}${match[2]}: ${quote}${value}${quote}`)
       break
@@ -153,6 +153,28 @@ function appendToSection(lines, name, entries) {
   lines.splice(end, 0, ...entries)
 }
 
+/**
+ * The version the official lockfile pins for one package, or null when the
+ * official tree has no lockfile yet. Snapshot keys carry optional peer suffixes
+ * (`electron@44.7.0(peer@x)`); only the base version is compared.
+ * @param {string} name - Package whose lockfile version to read.
+ * @returns {string | null} The pinned base version.
+ */
+function upstreamLockPin(name) {
+  const lockPath = join(ROOT, 'upstream', 'pnpm-lock.yaml')
+  if (!existsSync(lockPath)) return null
+  const versions = new Set()
+  const head = `  ${name}@`
+  for (const line of readFileSync(lockPath, 'utf8').split('\n')) {
+    if (!line.startsWith(head)) continue
+    const rest = line.slice(head.length)
+    const version = rest.slice(0, rest.search(/[:(]/))
+    if (version !== '') versions.add(version)
+  }
+  if (versions.size === 0) fail(`upstream/pnpm-lock.yaml records no ${name} snapshot to pin`)
+  if (versions.size > 1) fail(`upstream/pnpm-lock.yaml records several ${name} versions (${[...versions].join(', ')}) — pin one manually`)
+  return versions.values().next().value
+}
 const ownGlobs = OWN_GLOBS.filter(([dir]) => existsSync(join(ROOT, dir))).map(([, glob]) => `  - ${glob}`)
 if (ownGlobs.length > 0) appendToSection(out, 'packages', ownGlobs)
 
@@ -167,6 +189,22 @@ if (pins.length > 0) {
   ])
 }
 
+// Desktop packaging downloads and launches the real Electron (its runtime
+// fingerprint gates reject drifted minors) and compiles NSIS through
+// app-builder-lib, whose peer graph must resolve as one instance for the
+// directory-installer patch to reach the copy electron-builder runs. Pin both
+// to the exact versions the official lockfile records, like patched deps.
+const lockPins = ['electron', 'dmg-builder']
+  .map((name) => [name, upstreamLockPin(name)])
+  .filter(([, version]) => version !== null)
+if (lockPins.length > 0) {
+  appendToSection(out, 'overrides', [
+    '  # Pinned to the official lockfile version: a drifted packaging dependency',
+    '  # breaks the desktop build (runtime fingerprint gate, app-builder-lib',
+    '  # peer-instance split), not just the development workspace.',
+    ...lockPins.map(([name, version]) => `  '${name}': '${String(version)}'`),
+  ])
+}
 // Electron fetches its platform binary in a postinstall that the official allowlist
 // never enables, because the official workspace consumes a prebuilt Electron. Desktop
 // packaging launches the real binary, so it has to run here.

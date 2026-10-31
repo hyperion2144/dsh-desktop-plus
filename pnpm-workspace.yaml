@@ -27,16 +27,30 @@ overrides:
   'extract-zip>yauzl': '3.4.0'
   '@deepseek-ai/cosmokit': 'link:upstream/vendor/cosmokit'
   '@deepseek-ai/schemastery': 'link:upstream/vendor/schemastery'
+  # plus 桌面内置包在 upstream 之外（../../packages/plus/），apps/cli 按精确版本
+  # 依赖它们（package-set 闭包）；overrides 让本 workspace 的依赖解析可命中源码目录。
+  '@deepseek-ai/dsh-desktop-plus-plugin': 'link:packages/plus/desktop-plugin'
+  '@deepseek-ai/dsh-desktop-plus-remote-access': 'link:packages/plus/desktop-remote-access'
+  '@deepseek-ai/dsh-desktop-plus-brand': 'link:packages/plus/desktop-brand'
   # Pinned to the version each patchedDependencies entry targets: without the
   # official lockfile pnpm re-resolves and drifts past the patched version.
-  '@earendil-works/pi-ai': '1.1.0'
+  '@botiverse/oar': '0.67.0'
+  '@earendil-works/pi-ai': '1.3.0'
   '@electron/osx-sign': '1.3.3'
   '@fortune-sheet/core': '1.0.4'
   '@fortune-sheet/react': '1.0.4'
   '@yao-pkg/pkg': '6.21.0'
   'app-builder-lib': '26.17.0'
   'exceljs': '4.4.0'
+  'lexical': '0.49.0'
+  'mdast-util-gfm-autolink-literal': '2.0.1'
+  'micromark-extension-gfm-autolink-literal': '2.1.0'
   'node-pty': '1.2.0-beta.15'
+  # Pinned to the official lockfile version: a drifted packaging dependency
+  # breaks the desktop build (runtime fingerprint gate, app-builder-lib
+  # peer-instance split), not just the development workspace.
+  'electron': '44.7.0'
+  'dmg-builder': '26.17.0'
 
 peerDependencyRules:
   allowedVersions:
@@ -76,6 +90,8 @@ allowBuilds:
   electron: true
 
 minimumReleaseAgeExclude:
+  # Native Codex and Claude tests qualify this exact release with its local patches.
+  - '@botiverse/oar@0.67.0'
   # Office engines and their API are qualified and released together by the kit repository.
   - '@deepseek-ai/libreoffice-kit@0.1.5'
   - '@deepseek-ai/libreoffice-kit-darwin-arm64@0.1.5'
@@ -85,8 +101,8 @@ minimumReleaseAgeExclude:
   - '@deepseek-ai/libreoffice-kit-wasm@0.1.5'
   # Fresh pi-ai releases carry the model catalog updates that are the whole
   # point of bumping it; waiting out the release age would defeat that.
-  - '@earendil-works/pi-ai@1.1.0'
-  - '@earendil-works/pi-telemetry@1.1.0'
+  - '@earendil-works/pi-ai@1.3.0'
+  - '@earendil-works/pi-telemetry@1.3.0'
   # This addon release recognizes the Electron 44.7.0 Node/V8 fingerprint used by Desktop.
   - node-addon-native-custom-loader@0.1.9
   - node-addon-require-builtin-darwin-arm64@0.1.9
@@ -127,11 +143,15 @@ minimumReleaseAgeExclude:
   # Desktop packaging requires this Electron fingerprint with node-addon-require-builtin 0.1.9.
   - electron@44.7.0
 patchedDependencies:
-  '@earendil-works/pi-ai@1.1.0': upstream/patches/@earendil-works__pi-ai@1.1.0.patch
+  '@botiverse/oar@0.67.0': upstream/patches/@botiverse__oar@0.67.0.patch
+  '@earendil-works/pi-ai@1.3.0': upstream/patches/@earendil-works__pi-ai@1.3.0.patch
   '@electron/osx-sign@1.3.3': upstream/patches/@electron__osx-sign@1.3.3.patch
   '@fortune-sheet/core@1.0.4': upstream/patches/@fortune-sheet__core@1.0.4.patch
   '@fortune-sheet/react@1.0.4': upstream/patches/@fortune-sheet__react@1.0.4.patch
   '@yao-pkg/pkg@6.21.0': upstream/patches/@yao-pkg__pkg@6.21.0.patch
   app-builder-lib@26.17.0: upstream/patches/app-builder-lib@26.17.0.patch
   exceljs@4.4.0: upstream/patches/exceljs@4.4.0.patch
+  lexical@0.49.0: upstream/patches/lexical@0.49.0.patch
+  mdast-util-gfm-autolink-literal@2.0.1: upstream/patches/mdast-util-gfm-autolink-literal@2.0.1.patch
+  micromark-extension-gfm-autolink-literal@2.1.0: upstream/patches/micromark-extension-gfm-autolink-literal@2.1.0.patch
   node-pty@1.2.0-beta.15: upstream/patches/node-pty@1.2.0-beta.15.patch

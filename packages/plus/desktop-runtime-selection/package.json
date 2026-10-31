@@ -1,0 +1,22 @@
+{
+	"name": "@deepseek-ai/dsh-desktop-plus-runtime-selection",
+	"version": "0.2.2-alpha.2.plus.1",
+	"private": true,
+	"description": "Pure runtime candidate selection: dedup, semver ordering, and dispositions for the plus desktop.",
+	"type": "module",
+	"exports": {
+		".": {
+			"types": "./lib/index.d.ts",
+			"default": "./lib/index.js"
+		}
+	},
+	"scripts": {
+		"test": "vitest run",
+		"clean": "rm -rf lib"
+	},
+	"devDependencies": {
+		"@types/node": "^22.20.1",
+		"typescript": "^6.0.3",
+		"vitest": "^4.1.11"
+	}
+}

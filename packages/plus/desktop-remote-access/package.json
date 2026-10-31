@@ -1,0 +1,39 @@
+{
+  "name": "@deepseek-ai/dsh-desktop-plus-remote-access",
+  "version": "0.2.2-alpha.2",
+  "description": "远程访问服务：Host/Origin 改写反代 + 配对（扫码/输入地址）+ SSE 设备会话 + cloudflared 隧道（DSH Desktop Plus 内置包）",
+  "type": "module",
+  "main": "lib/index.mjs",
+  "exports": {
+    ".": {
+      "default": "./lib/index.mjs"
+    },
+    "./client": {
+      "default": "./client/client.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "test": "node --test --test-timeout=60000 --test-force-exit test/*.test.mjs"
+  },
+  "files": [
+    "lib",
+    "client",
+    "cordis.patch.yml"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-runtime"
+      ]
+    }
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "license": "MIT"
+}

@@ -58,6 +58,7 @@ pnpm install                 # installs the whole tree (ours + upstream/)
 pnpm run gen:workspace       # regenerate the root pnpm-workspace.yaml
 pnpm run gen:workspace:check # fail if the generated file is stale
 pnpm run sync:upstream       # pull a newer official tree into upstream/
+pnpm run verify:patches      # replay the hook patches; fail on any drift from upstream/
 pnpm run typecheck           # official typecheck gates, run inside upstream/
 pnpm run typecheck:plus      # typecheck our packages
 ```
@@ -70,10 +71,20 @@ official package would.
 
 ## Syncing upstream
 
-`scripts/plus/sync-upstream.mjs` replaces `upstream/` with a fresh official tree,
-re-applies the hook patches, removes files superseded by our root configuration,
-regenerates `pnpm-workspace.yaml`, and records the new SHA. A conflict in a hook
-patch fails the sync loudly — it never leaves a half-applied tree.
+`scripts/plus/sync-upstream.mjs` upgrades `upstream/` through a 3-way merge in
+a throwaway git repository (`.plus/tmp/sync`): `base` is the tree recorded in
+`.plus/upstream-base`, `plus` is our current `upstream/`, and `official` is the
+new release. `--dry` runs that merge and reports the real conflict list; after
+the conflicts are resolved in the scratch repo, `--finish` swaps the merged
+tree into `upstream/`, regenerates every hook patch from `git diff official
+HEAD`, and records the new SHA. The patch files, not the tree, are the
+replayable source of truth.
+
+`--regen` re-records every patched file from the live tree, which is how edits
+made after a finish rejoin the patch set. `--adopt` widens one patch that was
+missing files, taking `<patch>=<path,...>`. `pnpm run verify:patches` replays
+the patch set onto the recorded base and fails on any drift, which is what
+keeps this model honest.
 
 Review the generated `pnpm-workspace.yaml` diff after every sync: it is the
 shortest readable summary of what upstream changed about dependencies.

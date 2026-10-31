@@ -60,9 +60,10 @@ async function launchElectron(): Promise<void> {
   const require = createRequire(import.meta.url)
   const electron: unknown = require('electron')
   if (typeof electron !== 'string') throw new Error('desktop development: electron executable is unavailable')
-  const mainPort = debugPort('DSH_DESKTOP_MAIN_INSPECT_PORT', 9229)
-  const rendererPort = debugPort('DSH_DESKTOP_RENDERER_DEBUG_PORT', 9222)
-  const hostPort = debugPort('DSH_DESKTOP_HOST_INSPECT_PORT', 9230)
+  // 默认避开常用调试端口段（9229/9222/9230 与其它 Electron/Node 实例高冲突）；env 可覆盖。
+  const mainPort = debugPort('DSH_DESKTOP_MAIN_INSPECT_PORT', 9349)
+  const rendererPort = debugPort('DSH_DESKTOP_RENDERER_DEBUG_PORT', 9342)
+  const hostPort = debugPort('DSH_DESKTOP_HOST_INSPECT_PORT', 9350)
   const home = resolve(process.env.DSH_HOME ?? join(DEVELOPMENT_ROOT, 'home'))
   const userData = resolve(process.env.DSH_DESKTOP_USER_DATA_DIR ?? join(DEVELOPMENT_ROOT, 'electron-user-data'))
   const environment: NodeJS.ProcessEnv = {
@@ -70,8 +71,19 @@ async function launchElectron(): Promise<void> {
     DSH_HOME: home,
     DSH_DESKTOP_PRIMARY_RUNTIME_DIR: process.env.DSH_DESKTOP_PRIMARY_RUNTIME_DIR ?? developmentRuntimeDirectory(),
     DSH_DESKTOP_HOST_INSPECT_PORT: String(hostPort),
-    DSH_DESKTOP_OPEN_DEVTOOLS: process.env.DSH_DESKTOP_OPEN_DEVTOOLS ?? '1',
+    DSH_DESKTOP_OPEN_DEVTOOLS: process.env.DSH_DESKTOP_OPEN_DEVTOOLS ?? '0',
     ELECTRON_ENABLE_LOGGING: process.env.ELECTRON_ENABLE_LOGGING ?? '1',
+    // 宿主进程（如 DSH 桌面壳）会带 ELECTRON_RUN_AS_NODE 启动终端；不清掉，Electron 二进制
+    // 会以 node 模式启动并报 bad option 直接退 9。NO_ATTACH_CONSOLE 同属 node 态开关。
+    ELECTRON_RUN_AS_NODE: '',
+    ELECTRON_NO_ATTACH_CONSOLE: '',
+  }
+  // plus：开发态也要在关于窗口/托盘/诊断里显示 plus 版本。打包构建用 extraMetadata + 注入两层，
+  // 开发态没有这两层（app.getVersion() 是官方版本号），所以从 plus 壳包 manifest 读一份写进注入变量。
+  if (environment.DSH_DESKTOP_BUILD_VERSION === undefined || environment.DSH_DESKTOP_BUILD_VERSION === '') {
+    // 注意 REPOSITORY_ROOT 是 vendored 的官方树（upstream/），plus 包在它上一层。
+    const plusShellManifest = join(REPOSITORY_ROOT, '..', 'packages', 'plus', 'desktop-shell', 'package.json')
+    if (existsSync(plusShellManifest)) environment.DSH_DESKTOP_BUILD_VERSION = packageVersion(plusShellManifest, 'plus shell package')
   }
   console.log(`desktop development: DSH_HOME=${home}`)
   console.log(`desktop development: userData=${userData}`)
@@ -113,7 +125,7 @@ async function main(): Promise<void> {
     pnpmVersion,
   }
   prepareDevelopmentProject({
-    projectDir: join(DEVELOPMENT_ROOT, 'project'),
+    projectDir: resolve(process.env.DSH_DESKTOP_DEV_PROJECT_DIR ?? join(DEVELOPMENT_ROOT, 'project')),
     cliDir: join(REPOSITORY_ROOT, 'apps', 'cli'),
     hostDir: join(REPOSITORY_ROOT, 'apps', 'desktop-host'),
     dependencyDir: join(REPOSITORY_ROOT, 'node_modules', '.pnpm', 'node_modules'),
@@ -121,6 +133,8 @@ async function main(): Promise<void> {
     target: resolveDesktopBuildTarget(),
   })
   await preparePrimaryRuntime()
+  // 双开验证：后续实例复用首实例已准备好的 primary runtime（同代码同版本，纯只读分发）。
+  if (process.env.DSH_DESKTOP_SKIP_RUNTIME_PREP !== '1') await preparePrimaryRuntime()
   await launchElectron()
 }
 

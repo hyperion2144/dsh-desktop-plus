@@ -1,0 +1,7 @@
+# 本包的官方 bundle 组合层：随安装分发（asar 的 dsh/node_modules），
+# 由 profile 的 dsh.profile.bundles 列出后由宿主装载本文件。
+# inject 必需：lane 控制面要往 connection/webServer 注册 exact 路由。
+- insert:
+    - id: "@deepseek-ai-dsh-desktop-plus-remote-access"
+      name: "@deepseek-ai/dsh-desktop-plus-remote-access"
+      inject: [connection, settings, webServer]

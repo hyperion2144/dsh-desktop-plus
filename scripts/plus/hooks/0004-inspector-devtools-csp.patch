@@ -1,0 +1,13 @@
+diff --git a/upstream/packages/experimental/inspector/scripts/devtools/vite.ts b/upstream/packages/experimental/inspector/scripts/devtools/vite.ts
+index b521d8ef..93c82fd0 100644
+--- a/upstream/packages/experimental/inspector/scripts/devtools/vite.ts
++++ b/upstream/packages/experimental/inspector/scripts/devtools/vite.ts
+@@ -102,6 +102,8 @@ export const LOCAL_FETCH_PATTERN = "data:application/json,{}", REMOTE_FETCH_PATT
+         const html = await readFile(join(front, 'entrypoint_template.html'), 'utf8')
+         const source = html.replaceAll('%ENTRYPOINT_NAME%', name)
+           .replace(' https://chrome-devtools-frontend.appspot.com', '')
++          // #6：DevTools 的 ws 走 ws://app 代理与本机任意端口；npm 模板 CSP 只放行 127.0.0.1:*，这里放宽为 ws:/wss:。
++          .replace('ws://127.0.0.1:*', 'ws: wss:')
+           .replace(/<script type="module"/u, name === 'devtools_app' ? '<script type="module" src="./connect.js"></script><script type="module"' : '<script type="module"')
+         if (source.includes('%ENTRYPOINT_NAME%')) throw new Error('DevTools HTML entry placeholder changed')
+         emit(`${name}.html`, source)

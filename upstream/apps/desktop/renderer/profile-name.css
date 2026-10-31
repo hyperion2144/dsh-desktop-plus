@@ -1,0 +1,91 @@
+/* 新建 Profile 弹窗：颜色/边框/字号全部取 DSH 官方 token（--dsw-alias-*），
+   没有 token 的场合才回退到等价的中性值，避免在壳里另立一套视觉。 */
+:root {
+  color-scheme: light dark;
+}
+
+body {
+  margin: 0;
+  padding: 18px 20px;
+  font-family: var(--dsh-font-family-text, -apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--dsw-alias-label-primary, #1f2329);
+  background: var(--dsw-alias-bg-base, #fff);
+}
+
+main {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+h1 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--dsw-alias-label-primary, #1f2329);
+}
+
+label {
+  color: var(--dsw-alias-label-secondary, #646a73);
+}
+
+input {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 6px 8px;
+  font: inherit;
+  color: var(--dsw-alias-label-primary, #1f2329);
+  background: var(--dsw-alias-bg-layer-1, #f7f8fa);
+  border: 1px solid var(--dsw-alias-border-l1, #dee0e3);
+  border-radius: 6px;
+}
+
+input:focus-visible {
+  outline: 2px solid var(--dsw-alias-brand-primary, #4d6bfe);
+  outline-offset: 1px;
+  border-color: var(--dsw-alias-brand-primary, #4d6bfe);
+}
+
+#hint {
+  margin: 0;
+  color: var(--dsw-alias-label-tertiary, #8f959e);
+}
+
+#error {
+  margin: 0;
+  color: var(--dsw-static-red-500, #e5534b);
+}
+
+footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+button {
+  padding: 5px 14px;
+  font: inherit;
+  color: var(--dsw-alias-label-primary, #1f2329);
+  background: var(--dsw-alias-bg-layer-1, #f7f8fa);
+  border: 1px solid var(--dsw-alias-border-l1, #dee0e3);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+button:hover {
+  border-color: var(--dsw-alias-border-l2, #c9cdd4);
+}
+
+#ok {
+  color: var(--dsw-alias-brand-primary-invert, #fff);
+  background: var(--dsw-alias-brand-primary, #4d6bfe);
+  border-color: var(--dsw-alias-brand-primary, #4d6bfe);
+}
+
+#ok:disabled {
+  opacity: 0.5;
+  cursor: default;
+}

@@ -9,11 +9,23 @@ import { syncNativeTheme } from './preload-theme.ts'
 import { syncWindowsAppearance } from './preload-windows.ts'
 import { installMandatoryUpdateOverlay } from './preload-mandatory-overlay.ts'
 import { createDesktopBrowserBridge } from './preload-browser.ts'
+import type { FileDragHandle } from '@deepseek-ai/dsh-util-file-drag'
 
 function createProductApi(): DshDesktopProductApi {
   return {
     protocolVersion: 1,
     browser: createDesktopBrowserBridge(),
+    fileDrag: {
+      prepare: (source, requestId) => ipcRenderer.invoke(DESKTOP_IPC.fileDragPrepare, source, requestId) as
+        Promise<FileDragHandle | undefined>,
+      cancel: (requestId) => { void ipcRenderer.invoke(DESKTOP_IPC.fileDragCancel, requestId).catch((_error: unknown) => {
+        // Main-process shutdown cancels any remaining preparations.
+      }) },
+      start: handle => ipcRenderer.invoke(DESKTOP_IPC.fileDragStart, handle) as Promise<boolean>,
+      release: (handle) => { void ipcRenderer.invoke(DESKTOP_IPC.fileDragRelease, handle).catch((_error: unknown) => {
+        // Main-process shutdown also releases every prepared file.
+      }) },
+    },
     deviceInfo: () => ipcRenderer.invoke(DESKTOP_IPC.deviceInfo) as Promise<string>,
     keyboard: {
       closeWindow: revision => ipcRenderer.invoke(DESKTOP_IPC.shortcutsCloseWindow, revision) as Promise<void>,
@@ -93,7 +105,9 @@ if (location.protocol === `${SCHEME}:` && location.hostname === 'app') {
   })
 }
 
-markDocumentPlatform()
+// 只有产品窗口（dsh-app://app）才是桌面 runtime：profile 窗口加载各 profile 自己的 http 页面，
+// 那里没有原生键盘桥；无条件标 desktop 会让 dsh-client-shortcuts 构造时直接抛错（#④ 连锁 pending 根因）。
+if (location.protocol === `${SCHEME}:` && location.hostname === 'app' && process.isMainFrame) markDocumentPlatform()
 syncWindowFullscreen()
 syncNativeTheme()
 // Main-process IPC also verifies the owning window and top frame.

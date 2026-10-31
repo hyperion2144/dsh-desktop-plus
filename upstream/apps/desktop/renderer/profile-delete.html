@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'none'; connect-src 'none'">
+    <title>删除 Profile</title>
+    <link rel="stylesheet" href="profile-name.css">
+  </head>
+  <body>
+    <main>
+      <h1>删除 Profile</h1>
+      <p id="message" aria-describedby="hint"></p>
+      <p id="hint">整目录删除，不可恢复。</p>
+      <p id="error" role="alert" hidden></p>
+      <footer>
+        <button id="cancel" type="button">取消</button>
+        <button id="ok" type="button" class="danger">删除</button>
+      </footer>
+    </main>
+    <script src="profile-delete.js"></script>
+  </body>
+</html>

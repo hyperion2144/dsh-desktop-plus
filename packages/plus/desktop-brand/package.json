@@ -1,0 +1,47 @@
+{
+  "name": "@deepseek-ai/dsh-desktop-plus-brand",
+  "version": "0.2.2-alpha.2",
+  "description": "dsh-desktop-plus 品牌包：占据侧边栏品牌 slot，显示 DSH Desktop Plus 名称与 plus 构建版本徽标",
+  "type": "module",
+  "main": "index.js",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hyperion2144/dsh-desktop-plus.git"
+  },
+  "files": [
+    "index.js",
+    "lib/client.js",
+    "cordis.patch.yml"
+  ],
+  "exports": {
+    ".": {
+      "default": "./index.js"
+    },
+    "./client": {
+      "default": "./lib/client.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "listedByDefault": true,
+      "patch": "./cordis.patch.yml",
+      "platforms": ["darwin", "win32", "linux"]
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-renderer",
+        "@deepseek-ai/dsh-client-ui-sidebar"
+      ],
+      "platform": "web"
+    }
+  },
+  "scripts": {
+    "build:client": "node scripts/build-client.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0"
+  },
+  "private": true
+}

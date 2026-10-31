@@ -2,7 +2,7 @@
 import { constants } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { access, mkdir, readFile } from 'node:fs/promises'
-import { dirname, join, resolve } from 'node:path'
+import { dirname, join, resolve, sep } from 'node:path'
 import { withFileLock, writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
 import type { SubprocessOutcome, SubprocessRuntime } from '@deepseek-ai/dsh-subprocess'
 
@@ -17,7 +17,7 @@ export type NativeArchitecture = 'arm64' | 'x64'
  * @throws When the current host has no native implementation.
  */
 export function nativeHostArchitecture(platform: string, architecture: string): NativeArchitecture {
-  if (platform !== 'darwin' || (architecture !== 'arm64' && architecture !== 'x64')) throw new Error('Computer Use currently requires macOS on Apple silicon or Intel. Windows support is in development')
+  if (platform !== 'darwin' || (architecture !== 'arm64' && architecture !== 'x64')) throw new Error('Computer use currently requires macOS on Apple silicon or Intel. Windows support is in development')
   return architecture
 }
 
@@ -91,7 +91,7 @@ async function compileNative(spec: NativeBuildSpec, signal: AbortSignal, executa
   signal.throwIfAborted()
   if (outcome.exitCode !== 0 || outcome.signal !== null) {
     const diagnostics = `${handle.collected.stdout?.readFrom(0).text ?? ''}${handle.collected.stderr?.readFrom(0).text ?? ''}`
-    throw new Error(`Computer Use native preparation failed (${String(outcome.exitCode)}, ${String(outcome.signal)}): ${diagnostics}`)
+    throw new Error(`Computer use native preparation failed (${String(outcome.exitCode)}, ${String(outcome.signal)}): ${diagnostics}`)
   }
   const built = await readFile(join(scratch, 'release', 'dsh-cua-native'))
   let previous: Buffer | undefined
@@ -107,7 +107,7 @@ async function compileNative(spec: NativeBuildSpec, signal: AbortSignal, executa
   try { retained = await readFile(runtime) } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
   }
-  if (retained && !retained.equals(built)) throw new Error('Computer Use retained executable does not match its content digest')
+  if (retained && !retained.equals(built)) throw new Error('Computer use retained executable does not match its content digest')
   signal.throwIfAborted()
   if (!retained) await writeFileAtomic(runtime, built, { mode: 0o755 })
   await access(runtime, constants.X_OK)
@@ -122,7 +122,17 @@ async function compileNative(spec: NativeBuildSpec, signal: AbortSignal, executa
 export async function prepareNativeExecutable(spec: NativeBuildSpec): Promise<string> {
   if (await isSourcePackage(spec.packageRoot)) return buildNativeExecutable(spec)
   const executable = nativeExecutablePath(spec.packageRoot, spec.architecture)
-  await access(executable, constants.X_OK)
+  await access(unpackedExecutable(executable), constants.X_OK)
   spec.signal.throwIfAborted()
-  return executable
+  return unpackedExecutable(executable)
+}
+
+/**
+ * Electron 只把 asar 内的文件读取重定向到 unpacked 副本；spawn 的 execve 落在真实
+ * 文件系统上，asar 虚拟路径直接 ENOTDIR。打包后的原生可执行必须换成 unpacked 磁盘路径
+ * （electron-builder asarUnpack 的配套惯例），源码检出路径不含 app.asar，原样返回。
+ */
+function unpackedExecutable(executable: string): string {
+	const marker = `${sep}app.asar${sep}`
+	return executable.includes(marker) ? executable.replace(marker, `${sep}app.asar.unpacked${sep}`) : executable
 }

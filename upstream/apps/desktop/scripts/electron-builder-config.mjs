@@ -1,7 +1,8 @@
+import { readInstallerLocales, renderInstallerStrings } from './installer-locales.mjs'
 import { officePackageDirectories } from '../../../scripts/libreoffice-packages.mjs'
 import { X509Certificate } from 'node:crypto'
 import { readFileSync } from 'node:fs'
-import { readFile } from 'node:fs/promises'
+import { readFile, writeFile } from 'node:fs/promises'
 import { join, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { execFile } from 'node:child_process'
@@ -19,7 +20,7 @@ import {
   resolveWindowsUpdatePublisher,
   scrubWindowsSigningEnvironment,
 } from './windows-sign.mjs'
-import { resolveDesktopAutoUpdateConfig } from './desktop-auto-update-environment.mjs'
+import { resolveDesktopAutoUpdateConfig, resolveDesktopUpdateChannel } from './desktop-auto-update-environment.mjs'
 import { resolveDesktopBuildCommit } from './desktop-build-commit.mjs'
 import { resolveDesktopBuildVersion } from './desktop-build-version.mjs'
 import { resolveDesktopPolicyEnvironment } from './desktop-policy-environment.mjs'
@@ -69,12 +70,13 @@ export function createElectronBuilderConfig(
   if (resolvedPlatform === 'win32') installWindowsDirectoryInstaller()
   const macOSSigning = packagesMacOS && !unsigned ? resolveMacOSSigningEnvironment(env) : undefined
   if (packagesMacOS && !unsigned && !skipNotarization) resolveMacOSNotarizationEnvironment(env)
-  const buildPaths = desktopTargetBuildPaths(resolveDesktopBuildTarget(env, hostPlatform, hostArch))
+  const buildPaths = desktopTargetBuildPaths(resolveDesktopBuildTarget(env, hostPlatform, hostArch), env)
   const output = desktopArtifactOutput(buildPaths, { unsigned, skipNotarization })
   let primaryRuntimeDestination
   let dshDestination
   let windowsCode = []
   const unpack = ['**/*.{node,dylib,dll,so,exe}', '**/*.so.*', '**/spawn-helper', '**/@vscode/ripgrep-*/bin/rg',
+    `**/node_modules/@deepseek-ai/dsh-experimental-cua-macos/native/**/*`,
     `**/node_modules/@deepseek-ai/libreoffice-kit-${resolvedPlatform}-${resolvedArch}/**/*`]
   const windowsSigner = packagesWindows && !unsigned
     ? createWindowsTokenSigner({
@@ -95,7 +97,18 @@ export function createElectronBuilderConfig(
   if (windowsSigner !== undefined) {
     installWindowsNsisBootstrapSigner({ sign: windowsSigner })
   }
-  const update = unsigned ? undefined : resolveDesktopAutoUpdateConfig(env, resolvedPlatform, resolvedArch)
+  // plus：官方逻辑里未签名构建不写更新源（app-update.yml 缺席 → 检查更新恒报「无源」）。
+  // 未签名也内置默认 feed：指向本仓库 GitHub Releases；plus 版本号必带 prerelease，
+  // 渠道只能用 nightly（latest 被 stable-only 校验拒绝）。显式设置 DSH_DESKTOP_UPDATE_PUBLIC_URL 时以它为准。
+  let update = unsigned ? undefined : resolveDesktopAutoUpdateConfig(env, resolvedPlatform, resolvedArch)
+  if (update === undefined) {
+    const explicitFeed = env.DSH_DESKTOP_UPDATE_PUBLIC_URL?.trim() ?? ''
+    const channel = resolveDesktopUpdateChannel({ DSH_DESKTOP_UPDATE_CHANNEL: env.DSH_DESKTOP_UPDATE_CHANNEL?.trim() || 'nightly' })
+    update = {
+      channel,
+      publicUrl: explicitFeed !== '' ? explicitFeed : 'https://github.com/hyperion2144/dsh-desktop-plus/releases/latest/download/',
+    }
+  }
   if (preparedRuntime !== undefined) buildPaths.dsh = preparedRuntime
   // electron-builder merges extraMetadata into the packaged manifest, so a build version here reaches
   // the artifact names, the update feed, and the installed app.getVersion() the updater compares against.
@@ -113,9 +126,12 @@ export function createElectronBuilderConfig(
       ...buildVersion === productVersion ? {} : { version: buildVersion },
       ...packaged === undefined ? {} : { dshBuildCommit: packaged.commit, dshBuildDirty: packaged.dirty },
     },
-    productName: 'DeepSeek Harness',
+    // plus 层自己的产品名：与官方 DeepSeek Harness 区分，装在同一台机器上互不覆盖。
+    productName: 'DSH Desktop Plus',
+    // The default copyright uses author.name; this line names the product instead.
+    copyright: `Copyright © ${new Date().getFullYear()} DSH Desktop Plus`,
     // Unsigned builds carry their own suffix so a shared file can never pass for a release artifact.
-    artifactName: `deepseek-harness-\${version}-\${os}-\${arch}${output.suffix}.\${ext}`,
+    artifactName: `dsh-desktop-plus-\${version}-\${os}-\${arch}${output.suffix}.\${ext}`,
     directories: { output: output.directory },
     asar: true,
     electronDist: buildPaths.electron,
@@ -127,6 +143,7 @@ export function createElectronBuilderConfig(
         '-OutputDirectory', join(buildPaths.root, 'installer-ui')], {
         env: scrubWindowsSigningEnvironment(env), windowsHide: true,
       })
+      await writeFile(join(buildPaths.root, 'installer-ui', 'strings.nsh'), renderInstallerStrings(readInstallerLocales()), 'utf8')
       if (windowsSigner !== undefined) {
         await windowsSigner({ path: join(buildPaths.root, 'installer-ui', 'window-frame.dll'), hash: 'sha256', isNest: false })
       }
@@ -135,9 +152,11 @@ export function createElectronBuilderConfig(
     },
     files: [
       'lib/main.js',
+      'lib/operation-report-worker.js',
       'lib/welcome/**/*',
       'lib/preload-app.cjs',
       'lib/preload-mandatory.cjs',
+      'lib/preload-profile-name.cjs',
       'lib/preload-platform-account.cjs',
       'lib/preload-update-dialog.cjs',
       'lib/preload-welcome.cjs',
@@ -145,9 +164,10 @@ export function createElectronBuilderConfig(
       'package.json',
       '!node_modules/**/*.{js,cjs,mjs,ts,cts,mts,css}.map',
       '!node_modules/**/*.tsbuildinfo',
-      { from: buildPaths.dsh, to: 'dsh', filter: ['**/*'] },
+      // dsh 树是显式 from/to 拷贝，files 里的 ! 规则管不到它 => 排除得写在 filter 里。
+      { from: buildPaths.dsh, to: 'dsh', filter: ['**/*', ...(resolvedPlatform === 'linux' ? ['!**/node_modules/@deepseek-ai/libreoffice-kit-linux-*/**/*'] : [])] },
       // electron-builder excludes a source directory's root node_modules.
-      { from: join(buildPaths.dsh, 'node_modules'), to: 'dsh/node_modules', filter: ['**/*'] },
+      { from: join(buildPaths.dsh, 'node_modules'), to: 'dsh/node_modules', filter: ['**/*', ...(resolvedPlatform === 'linux' ? ['!**/@deepseek-ai/libreoffice-kit-linux-*/**/*'] : [])] },
     ],
     asarUnpack: unpack,
     extraResources: [
@@ -155,17 +175,29 @@ export function createElectronBuilderConfig(
       { from: fileURLToPath(new URL('../resources/icon-windows.png', import.meta.url)), to: 'icon.png' },
       // Windows tray bitmaps; macOS keeps the Dock and ships no menu bar icon.
       ...(packagesWindows ? [{ from: fileURLToPath(new URL('../resources/tray-windows.ico', import.meta.url)), to: 'tray.ico' }] : []),
+      // The plus profile tray ships on every platform: PNG for the macOS menu bar and Linux applets.
+      { from: fileURLToPath(new URL('../../../../scripts/plus/assets/tray-22.png', import.meta.url)), to: 'tray.png' },
+      { from: fileURLToPath(new URL('../../../../scripts/plus/assets/tray-22@2x.png', import.meta.url)), to: 'tray@2x.png' },
+      { from: fileURLToPath(new URL('../../../../scripts/plus/assets/trayTemplate.png', import.meta.url)), to: 'trayTemplate.png' },
+      { from: fileURLToPath(new URL('../../../../scripts/plus/assets/trayTemplate@2x.png', import.meta.url)), to: 'trayTemplate@2x.png' },
+      // The plus desktop plugin ships in resources for the startup `dsh plugin add` staging step.
     ],
     mac: {
       icon: fileURLToPath(new URL('../resources/icon-macos.png', import.meta.url)),
       category: 'public.app-category.developer-tools',
+      // macOS 的 app.getVersion() 读 Info.plist：bundleShortVersion 必须钉成构建版本（plus 版本）。
+      // extraMetadata 只改包内 package.json，碰不到 plist，否则托盘状态/关于窗口显示官方版本。
+      bundleShortVersion: buildVersion,
       // macOS matches the application locale against this bundle, not Electron Framework resources.
-      extendInfo: { CFBundleLocalizations: ['en', 'zh_CN'] },
+      // 麦克风用途说明：合并进同一个 extendInfo（此前写了两个 extendInfo 键，后者覆盖前者）。
+      extendInfo: {
+        CFBundleLocalizations: ['en', 'zh_CN', 'ja', 'es', 'fr', 'de', 'ru', 'pt'],
+        NSMicrophoneUsageDescription: 'DSH Desktop Plus uses your microphone to transcribe speech into message drafts.',
+      },
       // Ad-hoc signing keeps the modified Electron executable runnable without a Developer ID.
       identity: unsigned ? '-' : macOSSigning?.signingIdentity,
       forceCodeSigning: !unsigned,
       hardenedRuntime: true,
-      extendInfo: { NSMicrophoneUsageDescription: 'DeepSeek Harness uses your microphone to transcribe speech into message drafts.' },
       entitlements: fileURLToPath(new URL('./macos-entitlements.plist', import.meta.url)),
       entitlementsInherit: fileURLToPath(new URL('./macos-entitlements.plist', import.meta.url)),
       // Prepared runtime files retain their signatures; PAK resources are sealed by their enclosing bundle.
@@ -182,8 +214,8 @@ export function createElectronBuilderConfig(
     linux: {
       icon: fileURLToPath(new URL('../resources/icon-windows.png', import.meta.url)),
       category: 'Development',
-      executableName: 'deepseek-harness',
-      synopsis: 'DeepSeek Harness desktop',
+      executableName: 'dsh-desktop-plus',
+      synopsis: 'DSH Desktop Plus desktop',
       target: ['AppImage', 'tar.gz'],
     },
     beforePack: async context => {
@@ -256,11 +288,12 @@ export function createElectronBuilderConfig(
     linux: {
       icon: fileURLToPath(new URL('../resources/icon-windows.png', import.meta.url)),
       category: 'Development',
-      executableName: 'deepseek-harness',
-      synopsis: 'DeepSeek Harness desktop',
+      executableName: 'dsh-desktop-plus',
+      synopsis: 'DSH Desktop Plus desktop',
       target: ['AppImage', 'tar.gz'],
     },
     nsis: {
+      uninstallDisplayName: '${productName}',
       installerSidebar: join(buildPaths.root, 'installer-ui', 'uninstaller-sidebar.bmp'),
       uninstallerSidebar: join(buildPaths.root, 'installer-ui', 'uninstaller-sidebar.bmp'),
       include: fileURLToPath(new URL('./installer.nsh', import.meta.url)),
@@ -268,7 +301,7 @@ export function createElectronBuilderConfig(
       perMachine: false,
       allowElevation: false,
       allowToChangeInstallationDirectory: false,
-      installerLanguages: ['en_US', 'zh_CN'],
+      installerLanguages: readInstallerLocales().map(locale => locale.id),
       differentialPackage: true,
     },
     detectUpdateChannel: false,

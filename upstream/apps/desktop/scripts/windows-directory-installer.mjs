@@ -4,6 +4,11 @@ import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 
 const require = createRequire(import.meta.url)
+// electron-builder runs app-builder-lib from its own dependency context; the desktop
+// workspace can resolve a second peer-instance copy whose NsisTarget prototype this
+// adapter would never reach. Resolve through electron-builder's package so the
+// patched class is the one the packaging process instantiates.
+const requireFromElectronBuilder = createRequire(require.resolve('electron-builder/package.json'))
 const templates = join(dirname(require.resolve('app-builder-lib/package.json')), 'templates/nsis')
 const patched = Symbol.for('@deepseek-ai/dsh-desktop/directory-installer')
 
@@ -55,9 +60,9 @@ export function directoryInstallerExits(source) {
 /** Install the build-only NSIS adapter without replacing electron-builder's signed bootstrap path. */
 export function installWindowsDirectoryInstaller() {
   // The package entry initializes the platform classes before their mutually dependent leaves.
-  require('app-builder-lib')
-  const { NsisTarget } = require('app-builder-lib/out/targets/nsis/NsisTarget.js')
-  const { getPath7za } = require('app-builder-lib/out/toolsets/7zip.js')
+  requireFromElectronBuilder('app-builder-lib')
+  const { NsisTarget } = requireFromElectronBuilder('app-builder-lib/out/targets/nsis/NsisTarget.js')
+  const { getPath7za } = requireFromElectronBuilder('app-builder-lib/out/toolsets/7zip.js')
   const prototype = NsisTarget.prototype
   if (prototype[patched]) return
   prototype[patched] = true
