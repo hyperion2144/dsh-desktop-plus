@@ -140,7 +140,7 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           mkdir -p release-assets
-          find artifacts -type f \( -name '*.dmg' -o -name '*.zip' -o -name '*.exe' -o -name '*.AppImage' -o -name '*.tar.gz' -o -name '*.blockmap' -o -name 'nightly*.yml' -o -name 'latest*.yml' \) -exec cp {} release-assets/ \; || true
+          find artifacts -path '*/unsigned-artifacts/*' -type f \( -name '*.dmg' -o -name '*.zip' -o -name '*.exe' -o -name '*.AppImage' -o -name '*.tar.gz' -o -name '*.blockmap' -o -name 'nightly*.yml' -o -name 'latest*.yml' \) -exec cp {} release-assets/ \; || true
           {
             echo "## dsh-desktop-plus ${TAG}"
             echo
