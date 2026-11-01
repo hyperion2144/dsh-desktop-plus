@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 右下角悬浮按钮：主色 + 16px 圆角（token：dsw-radius-lg）。 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@color/dsh_deepseek_450" />
+    <corners android:radius="@dimen/dsh_radius_lg" />
+</shape>

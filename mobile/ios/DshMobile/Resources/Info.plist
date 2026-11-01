@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>zh_CN</string>
+	<key>CFBundleDisplayName</key>
+	<string>DSH Desktop PlusM</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>$(PRODUCT_NAME)</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>$(MARKETING_VERSION)</string>
+	<key>CFBundleVersion</key>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>LSRequiresIPhoneOS</key>
+	<true/>
+	<key>UILaunchScreen</key>
+	<dict/>
+	<key>UIApplicationSupportsIndirectInputEvents</key>
+	<true/>
+	<key>UISupportedInterfaceOrientations</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
+	<key>UISupportedInterfaceOrientations~ipad</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationPortraitUpsideDown</string>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
+
+	<!--
+		本地网络（iOS 14+）：壳要连局域网里的桌面 lane，并扫描 mDNS 广播。
+		一次授权覆盖全部局域网访问——不逐条列 IP。
+	-->
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>需要访问局域网中的 DSH Desktop Plus 主机，以连接你的桌面会话。</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_dsh-lane._tcp</string>
+	</array>
+
+	<!--
+		ATS：一条本地网络豁免。
+
+		iOS 17 起 ATS 不再默认放行裸 IP（必须逐条列进 NSExceptionDomains），
+		而 `.local` 主机名与无限定域名（localhost）在 iOS 10~17 全版本都被
+		`NSAllowsLocalNetworking` 覆盖。故壳的出站地址一律用 `.local`：
+		一条豁免就够，不必在构建期枚举运行时的局域网 IP。
+
+		依据：Apple《Preventing Insecure Network Connections》与
+		`NSAllowsLocalNetworking` 文档；本仓研究笔记
+		docs/agents/research/webview-shell-constraints.md §1.1。
+	-->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
+
+	<!-- 扫码配对：读桌面端「远程访问」面板的配对二维码。 -->
+	<key>NSCameraUsageDescription</key>
+	<string>扫描桌面端「远程访问」面板显示的配对二维码。</string>
+
+	<!-- 生物锁：Face ID 解锁。 -->
+	<key>NSFaceIDUsageDescription</key>
+	<string>解锁 DSH Desktop PlusM：验证身份后访问你的桌面主机。</string>
+</dict>
+</plist>

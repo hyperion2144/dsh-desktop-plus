@@ -22,6 +22,10 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+        with:
+          # version.mjs --check 需要历史 tag 推导期望版本：浅克隆只能看到当前 tag，
+          # plus.2 起期望版本会恒为 plus.1 而校验失败（#68）。
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -38,7 +42,8 @@ jobs:
       matrix:
         include:
           - target: mac-arm64
-            os: macos-14
+            # macOS 14 镜像 2026-11-02 退役，brownout 窗口会直接取消作业（同 package-desktop）。
+            os: macos-15
           - target: win-x64
             os: windows-latest
           - target: linux-x64
@@ -53,6 +58,11 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
+      # 构建吃的是「官方树 + 补丁集」：装依赖之前必须先把补丁打上去，
+      # 否则 upstream/apps/cli 等包清单还是官方版，锁文件与 workspace 都会漂移。
+      - name: Apply the desktop patch set
+        run: pnpm run patches:apply
+
       - name: Install
         run: pnpm install
 
@@ -76,6 +86,11 @@ jobs:
 
       - name: Build plus brand client bundle
         run: pnpm --filter @deepseek-ai/dsh-desktop-plus-brand run build:client
+
+      # 远程访问包的 host lib/ 同样是 gitignore 的构建产物（源码在 src/host/*.ts）：
+      # 打包前必须现场构建，否则 files 白名单里的 lib/ 为空，宿主装载 lane 插件会失败。
+      - name: Build plus remote-access host bundle
+        run: pnpm --filter @deepseek-ai/dsh-desktop-plus-remote-access run build
 
       - name: Install xvfb (Linux headless smoke)
         if: matrix.target == 'linux-x64'

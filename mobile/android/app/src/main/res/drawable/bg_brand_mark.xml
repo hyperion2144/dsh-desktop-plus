@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 品牌标记：主色方块 + 18px 圆角（锁屏 / 配对成功标记共用）。 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@color/dsh_deepseek_450" />
+    <corners android:radius="18dp" />
+</shape>

@@ -29,6 +29,28 @@ jobs:
           node-version: 22
           cache: pnpm
 
+      # upstream/ 是官方树的逐字节副本：门禁先把它与官方提交的 tree id 对齐，
+      # 再确认补丁集能干净重放。官方提交只要 tree 就够（--filter=blob:none），
+      # 因此这一步不下载官方仓库的 blob。
+      - name: Fetch the official baseline
+        run: |
+          BASE=$(cat .plus/upstream-base)
+          git init --bare --quiet .plus/mirror
+          git -C .plus/mirror fetch --no-tags --filter=blob:none --depth 1 https://github.com/deepseek-ai/deepseek-harness.git "$BASE"
+
+      - name: Upstream is the untouched official tree
+        run: pnpm run verify:patches:strict
+
+      # 铁律 3：桌面补丁集与移动补丁集物理分离。一个路径只能属于一个补丁集，
+      # 否则一次构建会继承另一个集合的改动。
+      - name: The patch sets stay separate
+        run: pnpm run verify:patch-sets
+
+      # 构建吃的是「官方树 + 补丁集」：装依赖之前必须先把补丁打上去，
+      # 否则 upstream/apps/cli 等包清单还是官方版，锁文件与 workspace 都会漂移。
+      - name: Apply the desktop patch set
+        run: pnpm run patches:apply
+
       - name: Install
         run: pnpm install
 
@@ -45,3 +67,34 @@ jobs:
 
       - name: Plus unit tests
         run: pnpm run test:plus
+
+      # scripts/plus 下的发版逻辑件（移动端元数据生成 + versionCode 推导）。
+      - name: Release logic unit tests
+        run: pnpm run test:plus-mobile
+
+  # 移动变体（官方树 + 移动补丁集）单独一个 job：它要在临时目录里装一份
+  # 完整依赖并跑官方构建，比 verify 重得多，单独跑才不会把 verify 的超时吃光。
+  mobile-web:
+    name: Mobile web variant
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.28.5
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      # 变体构建自己装依赖、自己跑官方构建，从不写 upstream/。
+      - name: Build the mobile web variant
+        run: pnpm run build:web:mobile
+
+      # 基线验证：官方变体与移动变体逐文件比较。移动补丁集非空时两个 dist
+      # 必然不同，门禁要确认的是「差异只来自补丁集」且两个构建都没碰仓库。
+      - name: The variant baseline holds
+        run: pnpm run verify:web:baseline

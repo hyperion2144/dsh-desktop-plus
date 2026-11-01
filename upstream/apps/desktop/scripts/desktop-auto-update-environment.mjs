@@ -33,7 +33,7 @@ const UPDATE_ENVIRONMENTS = {
   },
 }
 
-const UPDATE_TARGETS = new Set(['mac-arm64', 'mac-x64', 'win-x64', 'linux-x64'])
+const UPDATE_TARGETS = new Set(['mac-arm64', 'mac-x64', 'win-x64'])
 
 /**
  * Name the fixed installer object shared by uploading and cache refresh.
@@ -144,27 +144,6 @@ function httpsOrigin(value, name) {
 }
 
 /**
- * Resolve an explicitly configured feed URL. A GitHub release download prefix is one,
- * so the value may carry a path; unset keeps the official COS layout.
- * @param {NodeJS.ProcessEnv} env - Packaging environment.
- * @returns {string | undefined} The URL with exactly one trailing slash, or undefined.
- */
-function explicitFeedUrl(env) {
-  const value = env.DSH_DESKTOP_UPDATE_PUBLIC_URL?.trim()
-  if (value === undefined || value === '') return undefined
-  let parsed
-  try {
-    parsed = new URL(value)
-  } catch {
-    throw new Error('desktop auto-update: DSH_DESKTOP_UPDATE_PUBLIC_URL must be an absolute HTTPS URL')
-  }
-  if (parsed.protocol !== 'https:' || parsed.username !== '' || parsed.password !== '' || parsed.search !== '' || parsed.hash !== '') {
-    throw new Error('desktop auto-update: DSH_DESKTOP_UPDATE_PUBLIC_URL must be an absolute HTTPS URL without credentials, query, or fragment')
-  }
-  return parsed.href.endsWith('/') ? parsed.href : `${parsed.href}/`
-}
-
-/**
  * Resolve the public updater URL and object prefixes for one release target.
  * @param {NodeJS.ProcessEnv} env - Packaging or upload environment.
  * @param {NodeJS.Platform} platform - Target Node.js platform.
@@ -199,7 +178,7 @@ export function resolveDesktopAutoUpdateConfig(env, platform, arch) {
     origin,
     keyPrefix,
     binaryKeyPrefix: `${releasePrefix}/bin/${target}${channel === 'latest' ? '/latest' : ''}`,
-    publicUrl: explicitFeedUrl(env) ?? `${origin}/${keyPrefix}/`,
+    publicUrl: `${origin}/${keyPrefix}/`,
   }
 }
 

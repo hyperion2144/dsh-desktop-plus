@@ -57,12 +57,7 @@ function InspectorPage({ t, frontendUrl, close, bindFrame, usePanel }:
  */
 export function registerInspectorPage(ctx: Context, sourceId: InspectorSourceId): void {
   const query = new URLSearchParams({ disableLocaleInfoBar: 'true', clientSourceId: sourceId })
-  // 桌面壳里页面源是 dsh-app://app，相对址会让 connect.js 推导 ws://app/… —— Electron 自定义协议
-  // 不支持 WebSocket upgrade，诊断面板必断连。桌面壳下改用宿主 origin 的绝对地址（同源 ws 可用）。
-  const hostBase = (globalThis as { __DSH_TRANSPORT__?: { streamBaseUrl?: string } }).__DSH_TRANSPORT__?.streamBaseUrl
-  const nonHttpShell = typeof location !== 'undefined' && location.protocol !== 'http:' && location.protocol !== 'https:'
-  const frontendPath = `inspector/devtools/devtools_app.html?${query}`
-  const frontendUrl = nonHttpShell && hostBase !== undefined && hostBase !== '' ? new URL(frontendPath, hostBase).toString() : frontendPath
+  const frontendUrl = `inspector/devtools/devtools_app.html?${query}`
   ctx.effect(() => ctx.locale.register('inspectorPanel', { zh, en, ja, es, fr, de, ru, pt }))
   const t = ctx.locale.bind('inspectorPanel')
   ctx.slots.inject('shell.bottom', function* () {

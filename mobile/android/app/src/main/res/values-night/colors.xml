@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  深色主题覆盖：仅声明会随明暗切换的语义色，静态色板（brand / 状态 / violet）
+  留在 values/colors.xml 不动，资源合并按深浅自动择一。
+
+  对应上游 dark body（upstream/packages/client/ui-theme/src/styles/design-platform.css
+  297 行起的 body 段），色值与浅色版同一批 alias。
+-->
+<resources>
+    <!-- 基面：dsw-alias-bg-base = neutral-bluish-950（dark body:301 / :77） -->
+    <color name="dsh_bg_base">#151517</color>
+    <!-- 卡片面板：dsw-alias-bg-layer-2 = neutral-bluish-850（dark body:306 / :73） -->
+    <color name="dsh_bg_layer_2">#2C2C2E</color>
+    <!-- 交互底 / 模块平台：dsw-alias-bg-layer-3 = neutral-bluish-800（dark body:307 / :72） -->
+    <color name="dsh_bg_layer_3">#353638</color>
+
+    <!-- 文字：dsw-alias-label-primary = neutral-bluish-50（dark body:362 / :65） -->
+    <color name="dsh_label_primary">#F9FAFB</color>
+    <!-- 文字：dsw-alias-label-secondary = neutral-bluish-300（dark body:363 / :61） -->
+    <color name="dsh_label_secondary">#CFD3D6</color>
+    <!-- 文字：dsw-alias-label-tertiary = neutral-bluish-400（dark body:365 / :64） -->
+    <color name="dsh_label_tertiary">#ADB2B8</color>
+    <!-- 文字：dsw-alias-label-caption = neutral-bluish-600（dark body:354 / :67） -->
+    <color name="dsh_label_caption">#81858C</color>
+
+    <!-- 边框：dsw-alias-border-l1 = rgba(255,255,255,.06)（dark body:319） -->
+    <color name="dsh_border_l1">#0FFFFFFF</color>
+    <!-- 边框：dsw-alias-border-l2 = rgba(255,255,255,.12)（dark body:321） -->
+    <color name="dsh_border_l2">#1FFFFFFF</color>
+</resources>

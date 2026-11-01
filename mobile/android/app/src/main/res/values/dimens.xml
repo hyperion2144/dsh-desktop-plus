@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      圆角与间距 —— 圆角值取自 upstream/packages/client/ui-theme/src/styles/base.css:
+        dsw-radius-sm: 8px / md: 12px / lg: 16px / xl: 20px
+      页面边距按用户要求加倍（16dp → 32dp），卡片间距沿用原型的 12dp；
+      卡片内边距同步提到 16dp，与大边距的比例一致。
+      （XML 注释里不能出现连续两个连字符，故 CSS 变量名去掉前缀的两条横线。）
+    -->
+
+    <dimen name="dsh_radius_sm">8dp</dimen>
+    <dimen name="dsh_radius_md">12dp</dimen>
+    <dimen name="dsh_radius_lg">16dp</dimen>
+    <dimen name="dsh_radius_xl">20dp</dimen>
+    <!-- 徽标 / 胶囊：原型里是 999px 圆角 -->
+    <dimen name="dsh_radius_pill">100dp</dimen>
+
+    <dimen name="dsh_page_gutter">32dp</dimen>
+    <dimen name="dsh_card_gap">12dp</dimen>
+    <dimen name="dsh_card_padding">16dp</dimen>
+    <dimen name="dsh_row_padding">12dp</dimen>
+    <dimen name="dsh_status_dot">8dp</dimen>
+    <dimen name="dsh_fab_size">52dp</dimen>
+    <!-- 徽标文字的内边距 -->
+    <dimen name="dsh_badge_padding">8dp</dimen>
+</resources>

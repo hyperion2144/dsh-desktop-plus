@@ -11,7 +11,7 @@ import { validateSoundFile } from './sound.ts'
  * Windows notification banners show this app's name instead of the process
  * name. Must match the packaged appId (electron-builder config).
  */
-export const PLUS_APP_USER_MODEL_ID = 'com.deepseek.harness.plus'
+export const PLUS_APP_USER_MODEL_ID = 'io.github.hyperion2144.dsh.plus'
 
 
 /**

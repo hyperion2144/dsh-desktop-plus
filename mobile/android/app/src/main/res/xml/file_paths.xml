@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  FileProvider 的可见路径：只暴露私有目录下的 updates/（下载好的 apk）。
+  刻意不放外部存储与整个 filesDir——能被系统安装器读到的东西越少越好。
+-->
+<paths>
+    <files-path
+        name="updates"
+        path="updates/" />
+</paths>

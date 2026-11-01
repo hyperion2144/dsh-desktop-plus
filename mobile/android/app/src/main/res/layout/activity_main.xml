@@ -1,0 +1,130 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  主界面：原生顶栏（连接状态 + 主机入口）+ 壳内页面（WebView）+ 浮层主机切换器。
+  顶栏是原生控件，页面本身是壳内自带的 upstream web 产物（本地加载）；
+  浮层切换器（原型定稿变体 A）叠在页面之上：右下角标 → 底部抽屉 → 主机列表。
+-->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/dsh_bg_base"
+    android:fitsSystemWindows="true">
+
+    <LinearLayout
+        android:id="@+id/main_content"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical">
+
+        <LinearLayout
+            android:id="@+id/top_bar"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@color/dsh_bg_base"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="16dp"
+            android:paddingTop="8dp"
+            android:paddingEnd="12dp"
+            android:paddingBottom="8dp">
+
+            <View
+                android:id="@+id/status_dot"
+                android:layout_width="@dimen/dsh_status_dot"
+                android:layout_height="@dimen/dsh_status_dot"
+                android:background="@drawable/bg_dot" />
+
+            <TextView
+                android:id="@+id/status_text"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:layout_weight="1"
+                android:text="@string/status_no_host"
+                android:textColor="@color/dsh_label_tertiary"
+                android:textSize="12sp" />
+
+            <TextView
+                android:id="@+id/btn_manage"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:background="?android:attr/selectableItemBackground"
+                android:padding="8dp"
+                android:text="@string/management_entry"
+                android:textColor="@color/dsh_deepseek_400"
+                android:textSize="13sp" />
+        </LinearLayout>
+
+        <WebView
+            android:id="@+id/web_view"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:background="@color/dsh_bg_base" />
+
+        <!-- 更新提醒条（Snackbar 形态）：有新版本时从底部升起，带下载进度。 -->
+        <com.plus.mobile.android.shell.ui.UpdateNoticeBar
+            android:id="@+id/update_notice"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="@dimen/dsh_page_gutter"
+            android:layout_marginEnd="@dimen/dsh_page_gutter"
+            android:layout_marginBottom="@dimen/dsh_page_gutter" />
+    </LinearLayout>
+
+    <!-- 浮层主机切换器：遮罩 + 底部抽屉 + 右下角标（叠在页面之上）。 -->
+    <View
+        android:id="@+id/host_switcher_scrim"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@color/dsh_scrim"
+        android:visibility="gone" />
+
+    <LinearLayout
+        android:id="@+id/host_switcher_sheet"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:background="@drawable/bg_host_sheet"
+        android:orientation="vertical"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/host_switcher_title"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingStart="16dp"
+            android:paddingTop="14dp"
+            android:paddingEnd="16dp"
+            android:paddingBottom="6dp"
+            android:text="@string/switcher_title"
+            android:textColor="@color/dsh_label_tertiary"
+            android:textSize="12sp" />
+
+        <ScrollView
+            android:id="@+id/host_switcher_scroll"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:scrollbars="none">
+
+            <LinearLayout
+                android:id="@+id/host_switcher_list"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical" />
+        </ScrollView>
+
+        <TextView
+            android:id="@+id/host_switcher_hint"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingStart="16dp"
+            android:paddingTop="8dp"
+            android:paddingEnd="16dp"
+            android:paddingBottom="18dp"
+            android:text="@string/switcher_hint"
+            android:textColor="@color/dsh_label_caption"
+            android:textSize="11sp" />
+    </LinearLayout>
+
+</FrameLayout>

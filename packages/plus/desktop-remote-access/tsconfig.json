@@ -1,19 +1,16 @@
 {
+  "extends": "../../../upstream/tsconfig.base.json",
   "compilerOptions": {
-    "target": "ES2022",
-    "lib": ["ES2022", "DOM", "DOM.Iterable"],
-    "module": "ESNext",
-    "moduleResolution": "Bundler",
-    "jsx": "react-jsx",
-    "allowImportingTsExtensions": true,
-    "noEmit": true,
-    "strict": true,
-    "skipLibCheck": true,
-    "forceConsistentCasingInFileNames": true,
-    "paths": {
-      "react": ["../../../upstream/node_modules/@types/react"],
-      "react/jsx-runtime": ["../../../upstream/node_modules/@types/react/jsx-runtime"]
-    }
+    "rootDir": "./src/host",
+    "outDir": "./lib",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "lib": ["ES2024"],
+    "allowImportingTsExtensions": false,
+    "rewriteRelativeImportExtensions": false,
+    "types": ["node"],
+    "tsBuildInfoFile": "./lib/.tsbuildinfo"
   },
-  "include": ["src/client/**/*.ts", "src/client/**/*.tsx", "types/**/*.d.ts"]
+  "include": ["src/host/**/*.ts"],
+  "references": []
 }

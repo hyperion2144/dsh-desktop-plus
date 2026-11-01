@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 壳原生界面：基面随明暗切换（浅色为默认，深色见 values-night/colors.xml）。
+         状态栏 / 导航栏的图标跟着底色走：浅色底用深色图标；深色那一版在 values-night/themes.xml，改动要两边同步。 -->
+    <style name="Theme.DshMobile" parent="Theme.AppCompat.DayNight.NoActionBar">
+        <item name="android:windowBackground">@color/dsh_bg_base</item>
+        <item name="android:statusBarColor">@color/dsh_bg_base</item>
+        <item name="android:navigationBarColor">@color/dsh_bg_base</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightNavigationBar">true</item>
+    </style>
+</resources>

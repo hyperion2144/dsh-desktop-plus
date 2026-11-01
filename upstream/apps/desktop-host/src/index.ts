@@ -32,9 +32,7 @@ async function main(): Promise<void> {
     environment: loadLayeredEnv('dsh'),
     profile: 'desktop',
     resolvedProfile: { profile, installAnchor },
-    // 壳自己的插件走 --patch 叠加层（bun 同款）：不写进 profile 的 package.json.bundles，
-    // 否则插件一旦有问题会把整个桌面应用带崩。路径列表由主进程注入。
-    patchFiles: (process.env.DSH_DESKTOP_PATCH_FILES ?? '').split(delimiter).filter((entry) => entry.length > 0),
+    patchFiles: [],
     args: ['--no-open', '--host', '127.0.0.1', '--port', '0'],
     ...(process.argv[5] === undefined ? {} : {
       packageManager: {
@@ -74,19 +72,6 @@ async function main(): Promise<void> {
   process.on('message', (message: unknown) => {
     if (typeof message !== 'object' || message === null || !('type' in message)) return
     if (message.type === 'shutdown') { void stop(); return }
-    if (message.type === 'plus-reload') {
-      // 重发当前注入；collect 失败回 error，由壳侧提示而不是盲目刷新。
-      void (async () => {
-        try {
-          if (stopping !== undefined) throw new Error('Host stopping')
-          const current = collectReady()
-          await send({ type: 'plus-reload-result', url: current.url, injections: current.injections })
-        } catch (error) {
-          await send({ type: 'plus-reload-result', error: error instanceof Error ? error.message : String(error) })
-        }
-      })().catch((error: unknown) => { console.error(error) })
-      return
-    }
     if (message.type === 'file-drag-cancel') {
       if ('requestId' in message && typeof message.requestId === 'number') dragReads.get(message.requestId)?.abort()
       return
@@ -144,14 +129,6 @@ async function main(): Promise<void> {
   process.once('disconnect', () => { void stop() })
   const { ctx } = await application
   installOperationDiagnostics(ctx, record => send({ type: 'plugin-operation', record }), 32, runId)
-
-  // plus：右键「重载插件」的宿主侧编排（unlag 移植，入口在壳）。插件管理器启停或产物更新后，
-  // 运行中的宿主重扫产物；这里按当前状态重新收集 boot 注入/清单回给壳，壳再刷新页面，
-  // 页面不再拿启动时冻结的旧清单（旧 rev 会被宿主拒绝，表现为 web boot 批量 import 失败）。
-  const collectReady = (): { url: string; injections: ReturnType<typeof ctx.webServer.collectIndexInjections> } => ({
-    url: ctx.connection.authenticatedUrl(`${ctx.webServer.protocol}//127.0.0.1:${String(ctx.webServer.port)}`),
-    injections: ctx.webServer.collectIndexInjections(ctx.connection.browserPeer),
-  })
   control.updateTasks = installDesktopUpdateTaskControl(ctx)
   control.quitInspection = installDesktopQuitInspection(ctx)
   await ctx.plugin(desktopOffice, {
@@ -162,8 +139,8 @@ async function main(): Promise<void> {
   installPlatformSessionPublisher(ctx, (session) => {
     if (process.connected) process.send?.({ type: 'platform-session', session })
   })
-  const ready = collectReady()
-  if (process.connected) process.send?.({ type: 'ready', url: ready.url, injections: ready.injections }, (error) => { if (error !== null) console.error(error) })
+  const url = ctx.connection.authenticatedUrl(`${ctx.webServer.protocol}//127.0.0.1:${String(ctx.webServer.port)}`)
+  if (process.connected) process.send?.({ type: 'ready', url, injections: ctx.webServer.collectIndexInjections(ctx.connection.browserPeer) }, (error) => { if (error !== null) console.error(error) })
 }
 
 if (import.meta.main) {

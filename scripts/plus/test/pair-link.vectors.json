@@ -1,0 +1,40 @@
+{
+  "note": "配对链接解析的跨端测试向量（事实源：packages/plus/desktop-remote-access/lib/links.mjs 的 buildPairLink / buildHttpPairLink）。桌面端签发链接、移动端壳解析——同一批链接必须解析出同一个令牌与同一组地址候选。候选的**顺序**是 base 参数里的顺序（Android / 鸿蒙照用）；iOS 按平台择优重排（.local 在前），因此 iOS 侧只断言集合。",
+  "cases": [
+    {
+      "link": "http://192.168.3.90:3093/pair?token=4f8a2c1d",
+      "token": "4f8a2c1d",
+      "candidates": ["http://192.168.3.90:3093"]
+    },
+    {
+      "link": "https://dsh-4f2e.cpolar.io/pair?token=t1",
+      "token": "t1",
+      "candidates": ["https://dsh-4f2e.cpolar.io"]
+    },
+    {
+      "link": "dsh-mobile://pair?token=abc123&base=192.168.3.90:3093,mutsu-mbp.local:3093",
+      "token": "abc123",
+      "candidates": ["http://192.168.3.90:3093", "http://mutsu-mbp.local:3093"]
+    },
+    {
+      "link": "http://192.168.3.90:3093/pair?token=abc&base=192.168.3.90%3A3093,mutsu-mbp.local%3A3093,10.0.0.5%3A3093",
+      "token": "abc",
+      "candidates": [
+        "http://192.168.3.90:3093",
+        "http://mutsu-mbp.local:3093",
+        "http://10.0.0.5:3093"
+      ]
+    },
+    {
+      "link": "http://192.168.3.90:3093/pair?token=abc&base=mutsu-mbp.local%3A3093",
+      "token": "abc",
+      "candidates": ["http://192.168.3.90:3093", "http://mutsu-mbp.local:3093"]
+    }
+  ],
+  "invalid": [
+    "",
+    "http://192.168.3.90:3093/index.html",
+    "http://192.168.3.90:3093/pair",
+    "随便一段文字"
+  ]
+}

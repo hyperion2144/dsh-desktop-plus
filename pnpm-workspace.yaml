@@ -155,3 +155,9 @@ patchedDependencies:
   mdast-util-gfm-autolink-literal@2.0.1: upstream/patches/mdast-util-gfm-autolink-literal@2.0.1.patch
   micromark-extension-gfm-autolink-literal@2.1.0: upstream/patches/micromark-extension-gfm-autolink-literal@2.1.0.patch
   node-pty@1.2.0-beta.15: upstream/patches/node-pty@1.2.0-beta.15.patch
+
+# pnpm would re-resolve the graph before every script run and rewrite the
+# root lockfile whenever upstream/ is the official tree instead of the
+# patched tree the lockfile describes. Gates must not rewrite what they
+# check, so installs stay explicit: apply the patch set, then pnpm install.
+verifyDepsBeforeRun: false

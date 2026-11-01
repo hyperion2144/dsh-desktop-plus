@@ -12,9 +12,22 @@
     "gen:workspace:check": "node scripts/plus/gen-workspace.mjs --check",
     "sync:upstream": "node scripts/plus/sync-upstream.mjs",
     "verify:patches": "node scripts/plus/verify-patches.mjs",
+    "verify:patches:strict": "node scripts/plus/verify-patches.mjs --strict",
+    "verify:separation": "node scripts/plus/verify-separation.mjs",
+    "verify:patch-sets": "node scripts/plus/verify-patch-sets.mjs",
+    "verify:web:baseline": "node scripts/plus/verify-web-baseline.mjs",
+    "patches:apply": "node scripts/plus/apply-patches.mjs apply",
+    "patches:revert": "node scripts/plus/apply-patches.mjs revert",
+    "patches:extract": "node scripts/plus/apply-patches.mjs extract",
+    "build:web:mobile": "node scripts/plus/build-web-variant.mjs --set mobile",
+    "build:web:official": "node scripts/plus/build-web-variant.mjs --official",
     "typecheck": "pnpm -C upstream run typecheck",
-    "typecheck:plus": "tsc -b packages/plus/*/tsconfig.json",
-    "test:plus": "pnpm --filter \"./packages/plus/**\" run test"
+    "typecheck:plus": "tsc -b packages/plus/*/tsconfig.json packages/plus/desktop-remote-access/tsconfig.client.json",
+    "test:plus": "pnpm --filter \"./packages/plus/**\" run test",
+    "test:plus-mobile": "node --test scripts/plus/test/*.test.mjs"
+  },
+  "dependencies": {
+    "semver": "^7.8.5"
   },
   "devDependencies": {
     "typescript": "^6.0.3"

@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      dsh 视觉 token —— 值逐条取自上游，不自造色值。
+
+      upstream/packages/client/ui-theme/src/styles/design-platform.css
+        · 静态色板：dsw-static-deepseek-450 / dsw-static-deepseek-400、
+          dsw-static-neutral-bluish-*
+        · dark body（App 为深色主题）：dsw-alias-bg-base / dsw-alias-bg-layer-2 /
+          dsw-alias-bg-layer-3、dsw-alias-label-primary|secondary|tertiary、
+          dsw-alias-border-l1|l2、dsw-alias-state-success-primary
+      upstream/packages/client/ui-theme/src/styles/base.css
+        · 圆角：dsw-radius-sm/md/lg/xl = 8/12/16/20px
+      upstream/packages/client/ui-primitives/src/FileTypeIcon.module.css
+        · dsh-file-type-violet（隧道徽标补充色）
+
+      原型对照：prototype/ui-mock/index.html（wayfinder #54 定稿 · 管理页变体 A）。
+      深色底上的白色透明度换算：6% → #0FFFFFFF，12% → #1FFFFFFF。
+      （XML 注释里不能出现连续两个连字符，故 CSS 变量名去掉前缀的两条横线。）
+    -->
+
+    <!-- 主色：dsw-static-deepseek-450（design-platform.css:27） -->
+    <color name="dsh_deepseek_450">#5686FE</color>
+    <!-- 链接色：dsw-static-deepseek-400（design-platform.css:26） -->
+    <color name="dsh_deepseek_400">#7AAFFF</color>
+
+    <!-- 主色上的文字：dsw-alias-brand-text（dark body：neutral-bluish-50，design-platform.css:327 / :65） -->
+    <color name="dsh_brand_text">#F9FAFB</color>
+
+    <!-- 基面：dsw-alias-bg-base = neutral-bluish-950（design-platform.css:301 / :77） -->
+
+    <!-- 基面：dsw-alias-bg-base = neutral-bluish-00（light body:177 / :56）——浅色为默认，深色见 values-night -->
+    <color name="dsh_bg_base">#FFFFFF</color>
+    <!-- 卡片面板：dsw-alias-bg-layer-2 = neutral-bluish-00（light body:182；卡片靠 border-l1 分层） -->
+    <color name="dsh_bg_layer_2">#FFFFFF</color>
+    <!-- 交互底 / 模块平台：dsw-alias-bg-layer-3 = neutral-bluish-00（light body:183） -->
+    <color name="dsh_bg_layer_3">#FFFFFF</color>
+
+    <!-- 文字：dsw-alias-label-primary = neutral-bluish-1000（light body:238 / :57） -->
+    <color name="dsh_label_primary">#0F1115</color>
+    <!-- 文字：dsw-alias-label-secondary = neutral-bluish-700（light body:239 / :69） -->
+    <color name="dsh_label_secondary">#61666B</color>
+    <!-- 文字：dsw-alias-label-tertiary = neutral-bluish-600（light body:241 / :67） -->
+    <color name="dsh_label_tertiary">#81858C</color>
+    <!-- 文字：dsw-alias-label-caption = neutral-bluish-400（light body:230 / :63） -->
+    <color name="dsh_label_caption">#ADB2B8</color>
+
+    <!-- 边框：dsw-alias-border-l1 = rgba(0,0,0,.04)（light body:195） -->
+    <color name="dsh_border_l1">#0A000000</color>
+    <!-- 边框：dsw-alias-border-l2 = rgba(0,0,0,.1)（light body:197） -->
+    <color name="dsh_border_l2">#1A000000</color>
+
+    <!-- 状态：dsw-alias-state-success-primary = green-500（dark body:394 / :36） -->
+    <color name="dsh_state_success">#22C55E</color>
+    <!-- 状态：dsw-alias-state-error-primary = red-600（dark body:267 / :83） -->
+    <color name="dsh_state_error">#EC1313</color>
+    <!-- 隧道徽标：dsh-file-type-violet（ui-primitives/src/FileTypeIcon.module.css:3） -->
+    <color name="dsh_violet">#8B76F6</color>
+
+    <!-- 浮层遮罩：黑色 40%（原型定稿变体 A 的抽屉遮罩，Harmony 侧同值 #66000000） -->
+    <color name="dsh_scrim">#66000000</color>
+    <!-- 自适应图标背景层：桌面应用图标（upstream/apps/desktop/resources/icon.png）的边缘底色 -->
+    <color name="ic_launcher_background">#FEFEFE</color>
+</resources>

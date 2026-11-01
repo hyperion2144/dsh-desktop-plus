@@ -22,12 +22,19 @@ jobs:
       matrix:
         include:
           - target: mac-arm64
-            os: macos-14
+            # macOS 14 runner 镜像将于 2026-11-02 退役（当前已有 brownout 窗口会让作业直接取消），
+            # 固定到 macos-15：仍是 Intel/ARM 双架构镜像，但不会再被退役窗口打断。
+            os: macos-15
           - target: win-x64
             os: windows-latest
           - target: linux-x64
             os: ubuntu-latest
     steps:
+      # Windows runner 默认 core.autocrlf=true，会把工作区行尾换成 CRLF，
+      # 补丁集的上下文行就再也对不上（三平台里唯独 win 失败的原因）。先关掉再签出。
+      - name: Keep LF line endings
+        if: runner.os == 'Windows'
+        run: git config --global core.autocrlf false
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
         with:
@@ -37,6 +44,11 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
+
+      # 构建吃的是「官方树 + 补丁集」：装依赖之前必须先把补丁打上去，
+      # 否则 upstream/apps/cli 等包清单还是官方版，锁文件与 workspace 都会漂移。
+      - name: Apply the desktop patch set
+        run: pnpm run patches:apply
 
       - name: Install
         run: pnpm install
@@ -67,6 +79,7 @@ jobs:
 
       # 插件客户端的 lib/client.js 是被 gitignore 的构建产物：打包前必须现场构建，
       # 否则 extraResources 拷过去的 plus-plugin 里没有它，宿主启动时会因缺 client bundle 整包失败。
+      # 远程访问包的 host lib/ 也是 gitignore 的构建产物（源码在 src/host/*.ts）：同样要现场构建。
       - name: Build plus plugin client bundle
         env:
           DSH_CLIENT_VERSION: ${{ steps.plusversion.outputs.version }}
@@ -74,6 +87,7 @@ jobs:
           pnpm --filter @deepseek-ai/dsh-desktop-plus-plugin run build:client
           pnpm --filter @deepseek-ai/dsh-desktop-plus-plugin run build:remote-client
           pnpm --filter @deepseek-ai/dsh-desktop-plus-brand run build:client
+          pnpm --filter @deepseek-ai/dsh-desktop-plus-remote-access run build
 
       - name: Install xvfb (Linux headless smoke)
         if: matrix.target == 'linux-x64'

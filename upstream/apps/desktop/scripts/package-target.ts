@@ -48,14 +48,14 @@ const DESKTOP_UPLOAD_CREDENTIAL_ENV_NAMES = new Set([
 const AUTOMATIC_BUILD_VERSION = 'auto'
 
 /** Fixed platform and architecture identifiers exposed by package scripts. */
-export type DesktopPackageTargetName = 'mac-arm64' | 'mac-x64' | 'win-x64' | 'linux-x64'
+export type DesktopPackageTargetName = 'mac-arm64' | 'mac-x64' | 'win-x64'
 
 /** One supported release target and its electron-builder selectors. */
 export interface DesktopPackageTarget {
   readonly name: DesktopPackageTargetName
-  readonly platform: 'darwin' | 'win32' | 'linux'
+  readonly platform: 'darwin' | 'win32'
   readonly arch: 'arm64' | 'x64'
-  readonly builderPlatform: '--mac' | '--win' | '--linux'
+  readonly builderPlatform: '--mac' | '--win'
   readonly builderArch: '--arm64' | '--x64'
 }
 
@@ -79,13 +79,6 @@ const TARGETS: Record<DesktopPackageTargetName, DesktopPackageTarget> = {
     platform: 'win32',
     arch: 'x64',
     builderPlatform: '--win',
-    builderArch: '--x64',
-  },
-  'linux-x64': {
-    name: 'linux-x64',
-    platform: 'linux',
-    arch: 'x64',
-    builderPlatform: '--linux',
     builderArch: '--x64',
   },
 }
@@ -190,9 +183,6 @@ export function resolveDesktopPackageTarget(
   }
   if (target.platform === 'darwin' && hostPlatform !== 'darwin') {
     throw new Error(`desktop package: ${name} requires a macOS build host`)
-  }
-  if (target.platform === 'linux' && hostPlatform !== 'linux') {
-    throw new Error(`desktop package: ${name} requires a Linux build host`)
   }
   if (name === 'mac-arm64' && hostArch !== 'arm64') {
     throw new Error('desktop package: mac-arm64 requires an Apple Silicon build host')
@@ -354,8 +344,7 @@ async function main(): Promise<void> {
   if (invocation.skipNotarization) {
     process.stdout.write('desktop package: skipping notarization and stapling; internal debugging only, not qualified for distribution or update publishing\n')
   }
-  // Unsigned builds use the local preset instead of a release dotenv; it is platform-agnostic.
-  const environment = invocation.unsigned
+  const environment = target.platform === 'darwin' && invocation.unsigned
     ? localMacOSPackageEnvironment()
     : loadDesktopPackageEnvironment(target.platform, process.env, APP_ROOT, {
       unsigned: invocation.unsigned, prepareOnly: invocation.prepareOnly,
@@ -556,7 +545,7 @@ export async function packageTarget(
   } else if (target.platform === 'darwin' && !invocation.unsigned && !invocation.skipNotarization) {
     await execute([...desktopElectronBuilderArguments(target, true), '--config.mac.notarize=false'], electronBuilderEnv)
     await execute(['exec', 'tsx', 'scripts/smoke-packaged-runtime.ts'], targetEnv)
-    const appPath = join(buildPaths.artifacts, target.arch === 'arm64' ? 'mac-arm64' : 'mac', 'DSH Desktop Plus.app')
+    const appPath = join(buildPaths.artifacts, target.arch === 'arm64' ? 'mac-arm64' : 'mac', 'DeepSeek Harness.app')
     await withMacOSNotarizationProxy(mac?.notarizationProxy,
       () => notarizeMacOS({ appPath, ...resolveMacOSNotarizationEnvironment(environment) }), undefined, undefined, proxyEvent)
   } else {

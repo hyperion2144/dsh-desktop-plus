@@ -354,17 +354,15 @@ function RemoteAccessPanel() {
   const refreshLanBase = useCallback(async () => {
     try {
       const info = await hostCall("info");
-      if (info.lanIp) {
-        lanBaseRef.current = {
-          base: info.lanIp + ":" + (info.lanePort ?? lanePort),
-          scheme: "http",
-        };
-      } else {
-        lanBaseRef.current = {
-          base: "127.0.0.1:" + (info.lanePort ?? lanePort),
-          scheme: "http",
-        };
-      }
+      const port = info.lanePort ?? lanePort;
+      // 地址候选：`.local` 主机名 + 多网卡 IP（桌面下发；手机壳按平台择优：iOS 用 .local，
+      // Android/鸿蒙用 IP）。链接本身仍用可达的 IP 打开——.local 只作候选，不做主地址。
+      const candidates = Array.isArray(info.baseCandidates) ? info.baseCandidates : [];
+      lanBaseRef.current = {
+        base: info.lanIp ? info.lanIp + ":" + port : "127.0.0.1:" + port,
+        candidates,
+        scheme: "http",
+      };
       if (!tunSavedUrlRef.current && info.customTunnelUrl) {
         setTunSavedUrl(info.customTunnelUrl);
         setTunInputValue(info.customTunnelUrl);
@@ -435,14 +433,16 @@ function RemoteAccessPanel() {
   // ---- helpers ----
   // 配对链接地址**刻意用历史形态 `/pair`**（不带命名空间前缀）：已安装的旧壳解析器只认裸
   // `/pair`，给命名空间形态它会把它当目录拼错地址 → 401（实机踩过）；lane 两种都服务。
-  const pairLink = (base, scheme, token) =>
-    scheme + "://" + base + "/pair?token=" + encodeURIComponent(token);
+  // 候选列表以 `base` 参数随链接下发（与 dsh-mobile:// 形态同名字段、逗号分隔）。
+  const pairLink = (base, scheme, token, candidates = []) =>
+    scheme + "://" + base + "/pair?token=" + encodeURIComponent(token) +
+    (candidates.length ? "&base=" + encodeURIComponent(candidates.join(",")) : "");
 
   /** 铸造一次性配对链接：mint → 写 link/hint；失败写 hint。 */
-  const mintFor = async (base, scheme, setLink, setHint) => {
+  const mintFor = async (base, scheme, setLink, setHint, candidates = []) => {
     try {
       const r = await hostCall("token.mint");
-      const link = pairLink(base, scheme, r.token);
+      const link = pairLink(base, scheme, r.token, candidates);
       setLink(link);
       setHint({
         text: t("10 分钟有效 · 一次性 · 扫码/打开即配对"),
@@ -489,6 +489,7 @@ function RemoteAccessPanel() {
                     lanBaseRef.current.scheme,
                     setLanLink,
                     setLanHint,
+                    lanBaseRef.current.candidates,
                   );
                 } else {
                   setLanHint({ text: t("无法确定局域网地址"), color: "#e5484d" });

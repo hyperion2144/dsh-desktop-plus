@@ -1,0 +1,133 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">DSH Desktop PlusM</string>
+    <string name="keepalive_channel">连接保活</string>
+    <string name="keepalive_text">与桌面主机的连接保持中</string>
+
+    <!-- 状态栏 -->
+    <string name="status_no_host">未配置主机</string>
+    <string name="status_connecting">正在连接主机：%1$s</string>
+    <string name="status_connected">已连接：%1$s</string>
+    <string name="status_failed">连接失败：%1$s</string>
+    <string name="status_retry">点击重试</string>
+    <string name="status_hint">点击状态栏切换主机</string>
+
+    <!-- 主机切换 -->
+    <string name="dialog_switch_host_title">切换主机</string>
+    <string name="dialog_no_host">还没有已配置的主机。</string>
+    <string name="dialog_cancel">取消</string>
+    <string name="host_menu_rename">重命名</string>
+    <string name="host_menu_remove">移除主机</string>
+    <string name="dialog_save">保存</string>
+    <string name="toast_host_renamed">已重命名</string>
+
+    <!-- 桥与页面的提示 -->
+
+    <!-- 浮层主机切换器（原生） -->
+    <string name="switcher_title">切换主机</string>
+    <string name="switcher_hint">切换 = 壳改代理目标 + 页面重载；会话在桌面侧，不丢失。</string>
+    <string name="switcher_entry">切换主机</string>
+    <string name="switcher_fab_label">⇄  切换</string>
+    <string name="toast_switching_host">正在切换主机：%1$s</string>
+    <string name="toast_unknown_host">找不到该主机：%1$s</string>
+
+    <!-- 原生管理页 -->
+    <string name="management_title">主机管理</string>
+    <string name="management_entry">主机</string>
+    <string name="management_no_host">未配置主机</string>
+    <string name="management_group_hosts">主机</string>
+    <string name="management_group_prefs">偏好</string>
+    <string name="management_hint_remove">长按主机可移除该主机</string>
+    <string name="host_current_marker">当前</string>
+    <string name="host_state_connected">已连接</string>
+    <string name="host_state_offline">未连接</string>
+    <string name="host_state_needs_repair">需重新配对</string>
+    <string name="host_state_unknown">状态未知</string>
+    <string name="host_paired_hint">设备已配对</string>
+    <string name="host_latency">%1$d ms</string>
+
+    <!-- 偏好 -->
+    <string name="pref_update_title">更新提醒</string>
+    <string name="pref_update_desc">每 6 小时检查 GitHub Releases</string>
+    <string name="pref_lock_title">生物锁</string>
+    <string name="pref_lock_desc">冷启动与离开超 1 分钟后要求验证</string>
+    <string name="pref_appearance_title">外观</string>
+    <string name="appearance_system">跟随系统</string>
+    <string name="appearance_light">浅色</string>
+    <string name="appearance_dark">深色</string>
+
+    <!-- 配对 -->
+    <string name="pair_title">添加主机</string>
+    <string name="pair_fab">添加主机</string>
+    <string name="pair_step_source">① 选择来源</string>
+    <string name="pair_step_verify">② 验证</string>
+    <string name="pair_step_done">③ 完成</string>
+    <string name="pair_scan_title">扫描二维码</string>
+    <string name="pair_scan_desc">对准桌面端「远程访问」面板显示的配对码（内含地址候选与一次性令牌）</string>
+    <string name="pair_paste_title">粘贴配对链接</string>
+    <string name="pair_paste_desc">桌面端可复制形如 http://主机地址:端口/pair?token=… 的配对链接</string>
+    <string name="pair_paste_hint">粘贴配对链接</string>
+    <string name="pair_use_link">使用链接</string>
+    <string name="pair_notice">发现只解决「找到桌面」；授权必须由桌面签发的一次性配对链接完成（10 分钟有效）。公网主机走隧道地址。</string>
+    <string name="pair_verify_hint">正在验证配对链接…</string>
+    <string name="pair_ok_title">已配对</string>
+    <string name="pair_ok_detail">设备 ID 已入加密存储；会话 cookie 失效将自动续期。</string>
+    <string name="pair_ok_detail_host">已配对 %1$s。设备 ID 已入加密存储；会话 cookie 失效将自动续期。</string>
+    <string name="pair_enter">进入</string>
+    <string name="pair_fail_title">链接无效或已过期</string>
+    <string name="pair_retry">重新扫码 / 粘贴</string>
+    <string name="pair_fail_expired_title">链接无效或已过期</string>
+    <string name="pair_fail_expired_detail">配对链接 10 分钟有效、一次性。请回到桌面端重新获取二维码或链接。</string>
+    <string name="pair_fail_removed_title">此设备已被移除</string>
+    <string name="pair_fail_removed_detail">桌面端已移除这台设备。请在桌面端重新配对后再试。</string>
+    <string name="pair_fail_unreachable_title">目标不可达，请检查地址或网络</string>
+    <string name="pair_fail_unreachable_detail">配对链接里的地址连不上。确认桌面端已开机、这台设备与桌面在同一网络（公网主机请用隧道地址），再重新粘贴链接。</string>
+    <string name="pair_fail_malformed_title">无法识别该链接</string>
+    <string name="pair_fail_malformed_detail">这不是桌面端签发的配对链接。请复制完整的配对链接（含 token 参数）。</string>
+    <string name="pair_no_camera">本机没有可用相机，请改用「粘贴配对链接」。</string>
+    <string name="pair_discovered_hint">已发现 %1$s；配对链接仍需从桌面端获取</string>
+
+    <!-- 生物锁 -->
+    <string name="lock_title">DSH Desktop PlusM 已锁定</string>
+    <string name="lock_reason_cold">验证以继续访问你的桌面主机。</string>
+    <string name="lock_reason_background">离开超过 1 分钟。验证以继续访问你的桌面主机。</string>
+    <string name="lock_reason_sensitive">该操作会改动你的主机配置，验证后继续。</string>
+    <string name="lock_verify">验证</string>
+    <string name="lock_hint">真机为指纹 / 面容；不可用时回退到设备 PIN</string>
+
+    <!-- 通用 -->
+    <string name="btn_back">返回</string>
+    <string name="dialog_confirm">确定</string>
+    <string name="dialog_remove_host_title">移除主机</string>
+    <string name="dialog_remove_host_message">移除「%1$s」？该主机的凭证会从加密存储中删除。</string>
+    <string name="toast_host_removed">已移除主机：%1$s</string>
+    <string name="toast_needs_repair">%1$s：%2$s</string>
+    <string name="status_needs_repair">需重新配对：%1$s</string>
+    <string name="toast_already_current">当前已是该主机</string>
+
+    <!-- 更新提醒 -->
+    <string name="update_notice_title">发现新版本 %1$s</string>
+    <string name="update_notice_action_install">安装</string>
+    <string name="update_notice_size">%1$s · 来自 GitHub Releases</string>
+    <string name="update_notice_progress">已下载 %1$s / %2$s（%3$d%%）</string>
+    <string name="update_notice_failed">更新失败：%1$s</string>
+    <string name="update_notice_action_download">下载安装</string>
+    <string name="update_notice_action_downloading">下载中</string>
+    <string name="update_notice_action_retry">重试</string>
+    <string name="update_notice_ignore">不再提示此版本</string>
+    <string name="update_permission_needed">需要「安装未知来源应用」权限，已打开系统设置；授权后回来再点一次</string>
+    <string name="update_install_started">正在拉起系统安装器</string>
+    <string name="update_ignored_version">已忽略版本 %1$s</string>
+
+    <!-- 发现 -->
+    <string name="discovery_group">发现</string>
+    <string name="discovery_scan">扫描局域网</string>
+    <string name="discovery_scanning">正在扫描…</string>
+    <string name="discovery_empty">没有发现运行中的桌面</string>
+    <string name="discovery_hint">发现只解决「找到桌面」；授权仍需桌面签发的一次性配对链接。</string>
+    <string name="discovery_row_action">去配对</string>
+    <string name="discovery_pick_title">用这台桌面？</string>
+    <string name="discovery_pick_message">已发现 %1$s（%2$s）。\n发现不带授权：请在桌面端「远程访问」面板获取配对链接，然后扫码或粘贴完成配对。</string>
+    <string name="discovery_pick_action">去配对</string>
+    <string name="discovery_error">扫描失败：%1$s</string>
+</resources>

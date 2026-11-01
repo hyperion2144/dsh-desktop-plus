@@ -1,0 +1,44 @@
+{
+  "color": [
+    {
+      "name": "dsh_bg_base",
+      "value": "#151517"
+    },
+    {
+      "name": "dsh_bg_layer_2",
+      "value": "#2C2C2E"
+    },
+    {
+      "name": "dsh_bg_layer_3",
+      "value": "#353638"
+    },
+    {
+      "name": "dsh_chip",
+      "value": "#43434A"
+    },
+    {
+      "name": "dsh_label_primary",
+      "value": "#F9FAFB"
+    },
+    {
+      "name": "dsh_label_secondary",
+      "value": "#CFD3D6"
+    },
+    {
+      "name": "dsh_label_tertiary",
+      "value": "#ADB2B8"
+    },
+    {
+      "name": "dsh_label_caption",
+      "value": "#81858C"
+    },
+    {
+      "name": "dsh_border_l1",
+      "value": "#0FFFFFFF"
+    },
+    {
+      "name": "dsh_border_l2",
+      "value": "#1FFFFFFF"
+    }
+  ]
+}

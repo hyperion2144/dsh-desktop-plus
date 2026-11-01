@@ -9,6 +9,12 @@
 // paths re-rooted. This script does that mechanically and keeps the official
 // comments, so a review diff shows exactly what changed upstream.
 //
+// `upstream/` is the untouched official tree, so the settings it carries are the
+// official ones — but the settings a *build* runs with are the official ones plus
+// the desktop patch set (that is where the plus package overrides live). The two
+// files this script reads are therefore read through the patch set, so the result
+// is the same whether or not the patches happen to be applied on disk.
+//
 // Usage:
 //   node scripts/plus/gen-workspace.mjs [root] [--dry] [--check]
 //
@@ -17,14 +23,17 @@
 
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
+import { readPatchedFiles } from './patch-set.mjs'
 
 const argv = process.argv.slice(2)
 const flags = new Set(argv.filter((a) => a.startsWith('--')))
 const rootArg = argv.find((a) => !a.startsWith('--'))
 const ROOT = resolve(rootArg ?? process.cwd())
 const SRC = join(ROOT, 'upstream', 'pnpm-workspace.yaml')
+const LOCK = join(ROOT, 'upstream', 'pnpm-lock.yaml')
 const OUT = join(ROOT, 'pnpm-workspace.yaml')
-
+const WORKSPACE_PATH = 'upstream/pnpm-workspace.yaml'
+const LOCK_PATH = 'upstream/pnpm-lock.yaml'
 const HEADER = [
   '# GENERATED FILE — DO NOT EDIT.',
   '#',
@@ -68,8 +77,19 @@ const fail = (message) => {
 }
 
 if (!existsSync(SRC)) fail(`missing ${SRC} — is the official tree vendored under upstream/?`)
+if (!existsSync(LOCK)) fail(`missing ${LOCK} — is the official tree vendored under upstream/?`)
 
-const source = readFileSync(SRC, 'utf8').split('\n')
+// The workspace settings describe the tree a build runs with: the official tree
+// plus the desktop patch set. Reading them through the patch set keeps the
+// generated file identical no matter what is on disk.
+let patchedFiles
+try {
+  patchedFiles = readPatchedFiles({ root: ROOT, set: 'desktop', paths: [WORKSPACE_PATH, LOCK_PATH] })
+} catch (error) {
+  fail(`cannot read the patched upstream settings: ${error instanceof Error ? error.message : String(error)}`)
+}
+
+const source = patchedFiles.get(WORKSPACE_PATH).split('\n')
 
 /** Splits `name@version` at the last `@` that is not the scope marker. */
 function splitPatchedKey(key) {
@@ -161,11 +181,11 @@ function appendToSection(lines, name, entries) {
  * @returns {string | null} The pinned base version.
  */
 function upstreamLockPin(name) {
-  const lockPath = join(ROOT, 'upstream', 'pnpm-lock.yaml')
-  if (!existsSync(lockPath)) return null
+  const lock = patchedFiles.get(LOCK_PATH)
+  if (lock === undefined) return null
   const versions = new Set()
   const head = `  ${name}@`
-  for (const line of readFileSync(lockPath, 'utf8').split('\n')) {
+  for (const line of lock.split('\n')) {
     if (!line.startsWith(head)) continue
     const rest = line.slice(head.length)
     const version = rest.slice(0, rest.search(/[:(]/))
@@ -212,6 +232,22 @@ appendToSection(out, 'allowBuilds', [
   '  # Electron downloads its platform binary in a postinstall; packaging runs it.',
   '  electron: true',
 ])
+
+// pnpm 11 re-resolves the dependency graph before every script run. The root
+// lockfile describes the *patched* tree (upstream/apps/cli depends on the plus
+// packages through our patch), so on the committed tree — the official tree —
+// that implicit install rewrites the lockfile on every `pnpm run`. A gate must
+// not rewrite what it checks, so the implicit install is off: the build applies
+// the patch set and installs explicitly.
+if (!out.some(line => line.startsWith('verifyDepsBeforeRun:'))) {
+  out.push(
+    '# pnpm would re-resolve the graph before every script run and rewrite the',
+    '# root lockfile whenever upstream/ is the official tree instead of the',
+    '# patched tree the lockfile describes. Gates must not rewrite what they',
+    '# check, so installs stay explicit: apply the patch set, then pnpm install.',
+    'verifyDepsBeforeRun: false',
+  )
+}
 
 const text = `${HEADER}${out.join('\n').replace(/\n+$/, '')}\n`
 

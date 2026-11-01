@@ -1,0 +1,16 @@
+# Xcode 工程产物（不入库）
+build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+*.xcworkspace/xcuserdata/
+
+# 壳内的 web 产物（构建产物，由 tools/sync-web-dist.sh 同步）
+DshMobile/Resources/dist/*
+!DshMobile/Resources/dist/.gitkeep
+
+# Python（tools/mock-lane.py 的字节码缓存）
+__pycache__/
+*.pyc
+# macOS
+.DS_Store

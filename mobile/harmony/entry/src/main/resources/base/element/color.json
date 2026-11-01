@@ -1,0 +1,68 @@
+{
+  "color": [
+    {
+      "name": "dsh_deepseek_450",
+      "value": "#5686FE"
+    },
+    {
+      "name": "dsh_deepseek_400",
+      "value": "#7AAFFF"
+    },
+    {
+      "name": "dsh_bg_base",
+      "value": "#FFFFFF"
+    },
+    {
+      "name": "dsh_bg_layer_2",
+      "value": "#FFFFFF"
+    },
+    {
+      "name": "dsh_bg_layer_3",
+      "value": "#FFFFFF"
+    },
+    {
+      "name": "dsh_chip",
+      "value": "#F0F1F3"
+    },
+    {
+      "name": "dsh_label_primary",
+      "value": "#0F1115"
+    },
+    {
+      "name": "dsh_label_secondary",
+      "value": "#61666B"
+    },
+    {
+      "name": "dsh_label_tertiary",
+      "value": "#81858C"
+    },
+    {
+      "name": "dsh_label_caption",
+      "value": "#ADB2B8"
+    },
+    {
+      "name": "dsh_border_l1",
+      "value": "#0A000000"
+    },
+    {
+      "name": "dsh_border_l2",
+      "value": "#1A000000"
+    },
+    {
+      "name": "dsh_state_success",
+      "value": "#22C55E"
+    },
+    {
+      "name": "dsh_state_error",
+      "value": "#EC1313"
+    },
+    {
+      "name": "dsh_violet",
+      "value": "#8B76F6"
+    },
+    {
+      "name": "start_window_background",
+      "value": "#151517"
+    }
+  ]
+}

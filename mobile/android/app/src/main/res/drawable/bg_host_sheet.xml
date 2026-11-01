@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  浮层切换器底部抽屉：面板色（bg-layer-2）+ 顶部 20px 圆角（token：dsw-radius-xl）。
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@color/dsh_bg_layer_2" />
+    <corners
+        android:topLeftRadius="@dimen/dsh_radius_xl"
+        android:topRightRadius="@dimen/dsh_radius_xl" />
+</shape>
