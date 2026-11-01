@@ -1,0 +1,9 @@
+# Gradle / Android 构建产物
+.gradle/
+build/
+local.properties
+*.iml
+.idea/
+
+# 壳内自带的 upstream web 产物（构建产物，不入库；由 tools/sync-web-dist.sh 同步）
+app/src/main/assets/dist/

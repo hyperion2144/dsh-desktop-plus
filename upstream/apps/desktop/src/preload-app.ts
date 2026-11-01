@@ -105,9 +105,7 @@ if (location.protocol === `${SCHEME}:` && location.hostname === 'app') {
   })
 }
 
-// 只有产品窗口（dsh-app://app）才是桌面 runtime：profile 窗口加载各 profile 自己的 http 页面，
-// 那里没有原生键盘桥；无条件标 desktop 会让 dsh-client-shortcuts 构造时直接抛错（#④ 连锁 pending 根因）。
-if (location.protocol === `${SCHEME}:` && location.hostname === 'app' && process.isMainFrame) markDocumentPlatform()
+markDocumentPlatform()
 syncWindowFullscreen()
 syncNativeTheme()
 // Main-process IPC also verifies the owning window and top frame.

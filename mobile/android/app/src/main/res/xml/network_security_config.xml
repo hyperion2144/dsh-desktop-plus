@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!--
+        明文策略：壳要连的是「用户自填的局域网 lane 地址」（http://192.168.x.x:3091 这类
+        裸 IP + 明文端口），而 Android 的 networkSecurityConfig 只按**精确域名/IP**匹配，
+        不支持 CIDR、不支持网段（见 docs/agents/research/webview-shell-constraints.md 的
+        「按域放开」一节与 Android 官方 Network security configuration 文档）——
+        lane 地址在运行时才确定，构建期无法枚举，故 base-config 放开明文。
+
+        风险边界：壳的 WebView 只加载本地资产 origin（https://appassets.androidplatform.net），
+        明文出口只有用户显式配置的那台 lane；页面自身不加载任何第三方明文内容。
+        信任锚仍只认系统 CA（不引入用户 CA）。
+    -->
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

@@ -22,6 +22,10 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+        with:
+          # version.mjs --check 需要历史 tag 推导期望版本：浅克隆只能看到当前 tag，
+          # plus.2 起期望版本会恒为 plus.1 而校验失败（#68）。
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -38,12 +42,19 @@ jobs:
       matrix:
         include:
           - target: mac-arm64
-            os: macos-14
+            # macOS 14 镜像 2026-11-02 退役，brownout 窗口会直接取消作业（同 package-desktop）。
+            os: macos-15
           - target: win-x64
             os: windows-latest
           - target: linux-x64
             os: ubuntu-latest
     steps:
+      # Windows runner 默认 core.autocrlf=true，会把工作区行尾换成 CRLF，补丁集的上下文行
+      # 就再也对不上（三平台里唯独 win 失败）。必须在签出**之前**关掉，否则签出的补丁文件
+      # 已经带上了 CRLF。package-desktop 同样处理。
+      - name: Keep LF line endings
+        if: runner.os == 'Windows'
+        run: git config --global core.autocrlf false
       - uses: actions/checkout@v4
 
       - uses: pnpm/action-setup@v4
@@ -53,6 +64,11 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
+      # 构建吃的是「官方树 + 补丁集」：装依赖之前必须先把补丁打上去，
+      # 否则 upstream/apps/cli 等包清单还是官方版，锁文件与 workspace 都会漂移。
+      - name: Apply the desktop patch set
+        run: pnpm run patches:apply
+
       - name: Install
         run: pnpm install
 
@@ -76,6 +92,11 @@ jobs:
 
       - name: Build plus brand client bundle
         run: pnpm --filter @deepseek-ai/dsh-desktop-plus-brand run build:client
+
+      # 远程访问包的 host lib/ 同样是 gitignore 的构建产物（源码在 src/host/*.ts）：
+      # 打包前必须现场构建，否则 files 白名单里的 lib/ 为空，宿主装载 lane 插件会失败。
+      - name: Build plus remote-access host bundle
+        run: pnpm --filter @deepseek-ai/dsh-desktop-plus-remote-access run build
 
       - name: Install xvfb (Linux headless smoke)
         if: matrix.target == 'linux-x64'
@@ -135,7 +156,7 @@ jobs:
           path: artifacts
           pattern: desktop-*
           merge-multiple: false
-      - name: Create GitHub release with CHANGELOG notes
+      - name: Publish the GitHub release with CHANGELOG notes
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
@@ -156,4 +177,12 @@ jobs:
             [ -s release-notes.md ] || node --input-type=module -e "import { unreleasedNotes, releasedNotes } from './scripts/plus/version.mjs'; const tag = process.argv[1]; const n = unreleasedNotes() || releasedNotes(tag.replace(/^v/, '')); console.log(n === '' ? '_（CHANGELOG 无该版本的发布说明）_' : n)" "$TAG" >> release-notes.md
             cat release-notes.md
           } > combined-notes.md
-          gh release create "$TAG" --title "dsh-desktop-plus $TAG" --notes-file combined-notes.md release-assets/*
+          # 重发（同一个 tag 重打一次）必须能覆盖已有 release：release 已存在时改为
+          # 覆盖资产 + 改说明，而不是直接失败（之前重发一遍就卡在 create）。
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "release $TAG 已存在：覆盖资产与说明"
+            gh release upload "$TAG" release-assets/* --clobber
+            gh release edit "$TAG" --notes-file combined-notes.md --title "dsh-desktop-plus $TAG"
+          else
+            gh release create "$TAG" --title "dsh-desktop-plus $TAG" --notes-file combined-notes.md release-assets/*
+          fi

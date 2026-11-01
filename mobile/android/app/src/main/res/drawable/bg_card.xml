@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 卡片底：面板色 + 1px 边框 + 12px 圆角（token 见 values/colors.xml 注释）。 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@color/dsh_bg_layer_2" />
+    <stroke
+        android:width="1dp"
+        android:color="@color/dsh_border_l2" />
+    <corners android:radius="@dimen/dsh_radius_md" />
+</shape>

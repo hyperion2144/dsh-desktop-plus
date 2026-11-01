@@ -18,11 +18,6 @@ overrides:
   'extract-zip>yauzl': '3.4.0'
   '@deepseek-ai/cosmokit': 'link:vendor/cosmokit'
   '@deepseek-ai/schemastery': 'link:vendor/schemastery'
-  # plus 桌面内置包在 upstream 之外（../../packages/plus/），apps/cli 按精确版本
-  # 依赖它们（package-set 闭包）；overrides 让本 workspace 的依赖解析可命中源码目录。
-  '@deepseek-ai/dsh-desktop-plus-plugin': 'link:../packages/plus/desktop-plugin'
-  '@deepseek-ai/dsh-desktop-plus-remote-access': 'link:../packages/plus/desktop-remote-access'
-  '@deepseek-ai/dsh-desktop-plus-brand': 'link:../packages/plus/desktop-brand'
 
 peerDependencyRules:
   allowedVersions:

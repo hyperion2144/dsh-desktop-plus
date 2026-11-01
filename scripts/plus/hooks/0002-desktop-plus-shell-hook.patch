@@ -650,7 +650,7 @@ index 338f93bd..451c568d 100644
          const request = this.controlRequests.get(message.requestId)
          if (message.error === undefined) request?.resolve(message)
 diff --git a/upstream/apps/desktop/src/main.ts b/upstream/apps/desktop/src/main.ts
-index 4770fe83..09490bc1 100644
+index 4770fe83..7827f858 100644
 --- a/upstream/apps/desktop/src/main.ts
 +++ b/upstream/apps/desktop/src/main.ts
 @@ -13,6 +13,7 @@ import {
@@ -1707,7 +1707,7 @@ index 4770fe83..09490bc1 100644
 +  }),
 +  createNotificationsRpcHandlers({
 +    dshHome: () => resolveDshHome(),
-+    bundleId: () => (app.isPackaged ? 'com.deepseek.harness.plus' : null),
++    bundleId: () => (app.isPackaged ? 'io.github.hyperion2144.dsh.plus' : null),
 +    // 本机播放能力如实探测（afplay / paplay / aplay / PowerShell 矩阵），不再恒 null。
 +    capability: () => {
 +      const report = soundCapabilityReport()

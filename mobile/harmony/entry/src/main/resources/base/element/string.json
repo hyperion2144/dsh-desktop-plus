@@ -1,0 +1,404 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "DSH Desktop Plus 移动端鸿蒙壳"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "DSH 移动端主界面"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "DSH Desktop PlusM"
+    },
+    {
+      "name": "permission_camera_reason",
+      "value": "扫描桌面端显示的配对二维码，用于把本机与你的桌面主机配对。"
+    },
+
+    {
+      "name": "page_placeholder_title",
+      "value": "尚未连接桌面"
+    },
+    {
+      "name": "page_placeholder_hint",
+      "value": "配对一台运行 DSH 的桌面后，远程工作台会显示在这里"
+    },
+    {
+      "name": "page_placeholder_action",
+      "value": "去管理主机"
+    },
+    {
+      "name": "status_no_host",
+      "value": "未配置主机"
+    },
+    {
+      "name": "status_connecting",
+      "value": "正在连接主机：%1$s"
+    },
+    {
+      "name": "status_connected",
+      "value": "已连接：%1$s"
+    },
+    {
+      "name": "status_failed",
+      "value": "连接失败：%1$s"
+    },
+    {
+      "name": "status_needs_repair",
+      "value": "需重新配对：%1$s"
+    },
+    {
+      "name": "status_hint",
+      "value": "点此切换主机"
+    },
+
+    {
+      "name": "management_title",
+      "value": "主机管理"
+    },
+    {
+      "name": "management_entry",
+      "value": "主机"
+    },
+    {
+      "name": "management_no_host",
+      "value": "未配置主机"
+    },
+    {
+      "name": "management_group_hosts",
+      "value": "主机"
+    },
+    {
+      "name": "management_group_prefs",
+      "value": "偏好"
+    },
+    {
+      "name": "management_hint_remove",
+      "value": "长按主机可移除该主机"
+    },
+    {
+      "name": "host_current_marker",
+      "value": "当前"
+    },
+    {
+      "name": "host_state_connected",
+      "value": "已连接"
+    },
+    {
+      "name": "host_state_offline",
+      "value": "未连接"
+    },
+    {
+      "name": "host_state_needs_repair",
+      "value": "需重新配对"
+    },
+    {
+      "name": "host_state_unknown",
+      "value": "状态未知"
+    },
+    {
+      "name": "host_paired_hint",
+      "value": "设备已配对"
+    },
+    {
+      "name": "host_latency",
+      "value": "%1$d ms"
+    },
+    {
+      "name": "host_tunnel_reachable",
+      "value": "隧道可达"
+    },
+    {
+      "name": "host_tunnel_unreachable",
+      "value": "隧道不可达"
+    },
+
+    {
+      "name": "pref_update_title",
+      "value": "更新提醒"
+    },
+    {
+      "name": "pref_update_desc",
+      "value": "每 6 小时检查 GitHub Releases"
+    },
+    {
+      "name": "pref_lock_title",
+      "value": "生物锁"
+    },
+    {
+      "name": "pref_lock_desc",
+      "value": "冷启动与离开超 1 分钟后要求验证"
+    },
+    {
+      "name": "pref_appearance_title",
+      "value": "外观"
+    },
+    {
+      "name": "pref_appearance_desc",
+      "value": "主题跟随系统或手动切换"
+    },
+    {
+      "name": "pref_appearance_current",
+      "value": "当前：%1$s"
+    },
+    {
+      "name": "appearance_system",
+      "value": "跟随系统"
+    },
+    {
+      "name": "appearance_light",
+      "value": "浅色"
+    },
+    {
+      "name": "appearance_dark",
+      "value": "深色"
+    },
+    {
+      "name": "toast_appearance_failed",
+      "value": "切换外观失败"
+    },
+    {
+      "name": "fab_switch_label",
+      "value": "⇄  切换"
+    },
+
+    {
+      "name": "pair_title",
+      "value": "添加主机"
+    },
+    {
+      "name": "pair_fab",
+      "value": "添加主机"
+    },
+    {
+      "name": "pair_step_source",
+      "value": "① 选择来源"
+    },
+    {
+      "name": "pair_step_verify",
+      "value": "② 验证"
+    },
+    {
+      "name": "pair_step_done",
+      "value": "③ 完成"
+    },
+    {
+      "name": "pair_scan_title",
+      "value": "扫描二维码"
+    },
+    {
+      "name": "pair_scan_desc",
+      "value": "对准桌面端「远程访问」面板显示的配对码（内含地址候选与一次性令牌）"
+    },
+    {
+      "name": "pair_paste_title",
+      "value": "粘贴配对链接"
+    },
+    {
+      "name": "pair_paste_desc",
+      "value": "桌面端可复制形如 dsh-mobile://pair?… 或 http://…/pair?token=… 的链接"
+    },
+    {
+      "name": "pair_paste_hint",
+      "value": "粘贴配对链接"
+    },
+    {
+      "name": "pair_use_link",
+      "value": "使用链接"
+    },
+    {
+      "name": "pair_notice",
+      "value": "发现只解决「找到桌面」；授权必须由桌面签发的一次性配对链接完成（10 分钟有效）。公网主机走隧道地址。"
+    },
+    {
+      "name": "pair_verify_hint",
+      "value": "正在验证配对链接…"
+    },
+    {
+      "name": "pair_ok_title",
+      "value": "已配对"
+    },
+    {
+      "name": "pair_ok_detail",
+      "value": "设备 ID 已入加密存储；会话 cookie 失效将自动续期。"
+    },
+    {
+      "name": "pair_ok_detail_host",
+      "value": "已配对 %1$s。设备 ID 已入加密存储；会话 cookie 失效将自动续期。"
+    },
+    {
+      "name": "pair_enter",
+      "value": "进入"
+    },
+    {
+      "name": "pair_fail_title",
+      "value": "链接无效或已过期"
+    },
+    {
+      "name": "pair_retry",
+      "value": "重新扫码 / 粘贴"
+    },
+    {
+      "name": "pair_fail_expired_title",
+      "value": "链接无效或已过期"
+    },
+    {
+      "name": "pair_fail_expired_detail",
+      "value": "配对链接 10 分钟有效、一次性。请回到桌面端重新获取二维码或链接。"
+    },
+    {
+      "name": "pair_fail_removed_title",
+      "value": "此设备已被移除"
+    },
+    {
+      "name": "pair_fail_removed_detail",
+      "value": "桌面端已移除这台设备。请在桌面端重新配对后再试。"
+    },
+    {
+      "name": "pair_fail_unreachable_title",
+      "value": "目标不可达，请检查地址或网络"
+    },
+    {
+      "name": "pair_fail_unreachable_detail",
+      "value": "配对链接里的地址连不上。确认桌面端已开机、这台设备与桌面在同一网络（公网主机请用隧道地址），再重新粘贴链接。"
+    },
+    {
+      "name": "pair_fail_malformed_title",
+      "value": "无法识别该链接"
+    },
+    {
+      "name": "pair_fail_malformed_detail",
+      "value": "这不是桌面端签发的配对链接。请复制完整的配对链接（含 token 参数）。"
+    },
+    {
+      "name": "pair_no_camera",
+      "value": "本机没有可用相机，请改用「粘贴配对链接」。"
+    },
+    {
+      "name": "pair_scan_unavailable",
+      "value": "扫码能力不可用，请改用「粘贴配对链接」。"
+    },
+    {
+      "name": "pair_discover_group",
+      "value": "局域网发现（mDNS）"
+    },
+    {
+      "name": "pair_discover_empty",
+      "value": "尚未发现局域网内的桌面主机。"
+    },
+    {
+      "name": "pair_discover_selected",
+      "value": "已选中 %1$s（%2$s）。请在桌面端「远程访问」面板复制这台桌面的配对链接，然后点上方「扫描二维码」，或把链接粘到下面的输入框。"
+    },
+
+    {
+      "name": "lock_title",
+      "value": "DSH Desktop PlusM 已锁定"
+    },
+    {
+      "name": "lock_reason_cold",
+      "value": "验证以继续访问你的桌面主机。"
+    },
+    {
+      "name": "lock_reason_background",
+      "value": "离开超过 1 分钟。验证以继续访问你的桌面主机。"
+    },
+    {
+      "name": "lock_reason_sensitive",
+      "value": "该操作会改动你的主机配置，验证后继续。"
+    },
+    {
+      "name": "lock_verify",
+      "value": "验证"
+    },
+    {
+      "name": "lock_hint",
+      "value": "真机为指纹 / 面容；不可用时回退到设备 PIN"
+    },
+    {
+      "name": "lock_pin_fallback",
+      "value": "使用 PIN 解锁"
+    },
+    {
+      "name": "lock_unlocked",
+      "value": "已解锁"
+    },
+
+    {
+      "name": "switcher_title",
+      "value": "切换主机"
+    },
+    {
+      "name": "switcher_hint",
+      "value": "切换 = 壳切代理目标 + 页面重载；会话在桌面侧，不丢失。"
+    },
+
+    {
+      "name": "update_title",
+      "value": "新版本可用"
+    },
+    {
+      "name": "update_body",
+      "value": "%1$s · 平台不支持应用内安装。鸿蒙走应用市场测试渠道。"
+    },
+    {
+      "name": "update_action",
+      "value": "前往下载页"
+    },
+    {
+      "name": "update_close",
+      "value": "稍后"
+    },
+    {
+      "name": "update_check_failed",
+      "value": "检查更新失败：%1$s"
+    },
+    {
+      "name": "update_ignore",
+      "value": "不再提示此版本"
+    },
+    {
+      "name": "update_open_failed",
+      "value": "打不开下载页，请手动打开 Releases 页。"
+    },
+
+    {
+      "name": "btn_back",
+      "value": "返回"
+    },
+    {
+      "name": "dialog_confirm",
+      "value": "确定"
+    },
+    {
+      "name": "dialog_cancel",
+      "value": "取消"
+    },
+    {
+      "name": "dialog_remove_host_title",
+      "value": "移除主机"
+    },
+    {
+      "name": "dialog_remove_host_message",
+      "value": "移除「%1$s」？该主机的凭证会从加密存储中删除。"
+    },
+    {
+      "name": "toast_host_removed",
+      "value": "已移除主机：%1$s"
+    },
+    {
+      "name": "toast_switching_host",
+      "value": "正在切换主机：%1$s"
+    },
+    {
+      "name": "toast_already_current",
+      "value": "当前已是该主机"
+    },
+    {
+      "name": "toast_needs_repair",
+      "value": "%1$s：%2$s"
+    }
+  ]
+}

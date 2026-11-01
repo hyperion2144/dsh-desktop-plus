@@ -46,7 +46,7 @@ export function desktopTargetBuildPaths(target: DesktopAutoUpdateTarget, environ
  * @returns Platform and architecture of the prepared payload.
  */
 export function desktopTargetPlatform(target: DesktopAutoUpdateTarget): {
-  readonly platform: 'darwin' | 'win32' | 'linux'
+  readonly platform: 'darwin' | 'win32'
   readonly arch: 'arm64' | 'x64'
 }
 

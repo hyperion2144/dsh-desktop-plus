@@ -14,14 +14,6 @@ const manifest = JSON.parse(readFileSync(new URL('./package.json', import.meta.u
 }
 /** electron-builder ships the manifest `dependencies` next to the main bundle; Electron provides `electron` and Node. */
 const mainProcessImports = { packages: new Set(['electron', ...Object.keys(manifest.dependencies)]), nodeBuiltins: true }
-
-/**
- * The plus shell is inlined from its own build output instead of being declared as a
- * dependency: the official tree stays byte-identical to upstream package manifests, so
- * no workspace lockfile ever needs to know about it. The alias points at the lib/ output
- * that `tsc -b` (tsconfig.host.json references) produces immediately before this bundle.
- */
-const plusShellAlias = { '@deepseek-ai/dsh-desktop-plus-shell': fileURLToPath(new URL('../../../packages/plus/desktop-shell/lib/index.js', import.meta.url)) }
 /**
  * The `require` polyfill of a sandboxed preload resolves only these modules
  * (Electron: Process Sandboxing, "Preload scripts").
@@ -63,7 +55,6 @@ export default defineConfig([
   {
     entry: ['lib/types/main.js'],
     plugins: [packagedImportsPlugin(mainProcessImports)],
-    alias: plusShellAlias,
     define: clientVersionDefine,
     onSuccess: async () => {
       await build({
@@ -105,7 +96,7 @@ export default defineConfig([
     clean: false,
     deps: { neverBundle: ['electron'] },
   },
-  ...(['preload-app', 'preload-welcome', 'preload-platform-account', 'preload-mandatory', 'preload-update-dialog', 'preload-profile-name', 'preload-profile-delete'] as const).map(name => ({
+  ...(['preload-app', 'preload-welcome', 'preload-platform-account', 'preload-mandatory', 'preload-update-dialog'] as const).map(name => ({
     // Sandboxed Electron preloads run as CommonJS even though the application package is ESM.
     entry: { [name]: `lib/types/${name}.js` },
     plugins: [packagedImportsPlugin(preloadImports)],

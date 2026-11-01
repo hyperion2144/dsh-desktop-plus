@@ -1,0 +1,27 @@
+{
+  "network-security-config": {
+    "base-config": {
+      "cleartextTrafficPermitted": true,
+      "trust-anchors": [
+        {
+          "certificates": "system"
+        }
+      ]
+    },
+    "domain-config": [
+      {
+        "domains": [
+          {
+            "include-subdomains": true,
+            "name": "localhost"
+          },
+          {
+            "include-subdomains": true,
+            "name": "127.0.0.1"
+          }
+        ],
+        "cleartextTrafficPermitted": true
+      }
+    ]
+  }
+}

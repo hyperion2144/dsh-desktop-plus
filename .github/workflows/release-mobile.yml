@@ -1,0 +1,308 @@
+name: Release Mobile
+
+# 移动端发版管线（票 #66）：与桌面发版**同一个 tag** 触发，两条流水线并行、互不干扰。
+#
+# 产出：Android apk（固定签名，可覆盖安装）+ iOS ipa（未签名，侧载重签）
+#      + 两份移动端 channel 元数据（nightly-android.yml / nightly-ios.yml）
+#      → 一起上传到**桌面 workflow 建好的那一个** Release（同一个 tag → 同一个 Release）。
+#
+# 三条关键约定：
+#   - Release 由桌面 workflow（release-desktop.yml）创建：发布说明取自 CHANGELOG，
+#     桌面资产是它的职责。本 workflow **不创建** Release，只在它存在后追加资产
+#     （`gh release upload --clobber`）——抢着创建会让桌面那条 `gh release create`
+#     失败，桌面发版的既有行为一个字都不动。
+#   - 资产名由 `scripts/plus/mobile-metadata.mjs` 唯一决定（plus 版本 + 平台），
+#     元数据里的 `files[].url` 就是这个文件名：壳拉元数据后按它拼下载地址。
+#   - Android 的签名材料固定（secrets 优先，回退仓库里那把 upload keystore）：
+#     每次 CI 现生成 keystore 会让新版盖不上旧版，用户的升级链就断了。
+#     风险与更换流程见 mobile/android/keystore/README.md。
+on:
+  push:
+    tags:
+      - 'v*.plus.*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-mobile-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  # Gradle 版本与本机验证过的组合一致（mobile/android/README.md 的工具链表）。
+  GRADLE_VERSION: 8.10.2
+  # 与桌面 workflow 同一个 Release：tag 决定 Release，不新建。
+  TAG: ${{ github.ref_name }}
+
+jobs:
+  validate:
+    name: Validate the tag
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # version.mjs 要看历史 tag 才知道这是第几次 plus 发版（浅克隆拿不到旧 tag）。
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Validate the tag against the generated version
+        run: node scripts/plus/version.mjs --check "$TAG"
+      - name: Resolve the plus version
+        id: version
+        # tag 形如 vX.Y.Z.plus.N → plus 版本就是去掉 v 的那截（发版的事实源是 tag）。
+        run: echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+
+  web:
+    name: Build the mobile web variant
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    needs: validate
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.28.5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # 壳里带的页面 = 「官方树 + 移动补丁集」的 web 产物（spec #55）。
+      # 变体构建在临时目录里跑自己的依赖安装，全程不写 upstream/。
+      - name: Build the mobile variant
+        run: pnpm run build:web:mobile
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mobile-web-dist
+          path: dist/web-mobile
+          if-no-files-found: error
+
+  android:
+    name: Android apk
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    needs: [validate, web]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install the Android SDK components
+        shell: bash
+        run: |
+          # sdkmanager 在 runner 镜像的 PATH 上；找不到就从 cmdline-tools 里找一份。
+          SDKMANAGER="$(command -v sdkmanager || ls "$ANDROID_HOME"/cmdline-tools/*/bin/sdkmanager 2>/dev/null | head -1)"
+          if [ -z "$SDKMANAGER" ]; then
+            echo "::error::找不到 sdkmanager（ANDROID_HOME=$ANDROID_HOME）"
+            exit 1
+          fi
+          yes | "$SDKMANAGER" --licenses > /dev/null || true
+          "$SDKMANAGER" "platforms;android-36" "build-tools;36.0.0"
+      - uses: actions/download-artifact@v4
+        with:
+          name: mobile-web-dist
+          path: dist/web-mobile
+      - name: Sync the web dist into the shell
+        run: ./mobile/android/tools/sync-web-dist.sh "$GITHUB_WORKSPACE/dist/web-mobile"
+      - name: Install Gradle
+        run: |
+          # 工程不带 wrapper（见 mobile/android/README.md）：CI 显式装与本机同一个版本。
+          curl -fsSL -o /tmp/gradle.zip "https://services.gradle.org/distributions/gradle-${GRADLE_VERSION}-bin.zip"
+          unzip -q /tmp/gradle.zip -d "$HOME/tools"
+          echo "$HOME/tools/gradle-${GRADLE_VERSION}/bin" >> "$GITHUB_PATH"
+      - name: Prepare the signing keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PATH: ${{ runner.temp }}/upload.keystore
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE_PATH"
+            echo "ANDROID_KEYSTORE_PATH=$KEYSTORE_PATH" >> "$GITHUB_ENV"
+            echo "签名材料：CI secrets 里的私有 keystore"
+          else
+            echo "签名材料：仓库兜底的 upload keystore（mobile/android/keystore/upload.keystore）"
+          fi
+      - name: Build the signed apk
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          gradle --no-daemon -p mobile/android assembleRelease \
+            -PplusVersion="${{ needs.validate.outputs.version }}"
+      - name: Check the signed apk
+        run: |
+          APK=mobile/android/app/build/outputs/apk/release/app-release.apk
+          if [ ! -f "$APK" ]; then
+            echo "::error::没出包：$APK 不存在（签名材料缺失时 release 变体只出 app-release-unsigned.apk）"
+            ls -l mobile/android/app/build/outputs/apk/release/ || true
+            exit 1
+          fi
+          APKSIGNER="$ANDROID_HOME/build-tools/36.0.0/apksigner"
+          if [ -x "$APKSIGNER" ]; then
+            "$APKSIGNER" verify --print-certs "$APK"
+          else
+            echo "apksigner 不可用，跳过签名校验"
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mobile-android-apk
+          path: mobile/android/app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
+
+  ios:
+    name: iOS ipa
+    # macOS 14 镜像 2026-11-02 退役，brownout 窗口会直接取消作业（同 package-desktop）。
+    runs-on: macos-15
+    timeout-minutes: 60
+    needs: [validate, web]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # build-ios.sh 用 node 算 CFBundleVersion（scripts/plus/mobile-version.mjs 里的
+      # semver 依赖）。仓库根的 pnpm install 需要先把桌面补丁集打到 upstream/ 上，
+      # 而移动流水线不碰 upstream/，所以这里只装这一个依赖。
+      - name: Install the version-comparison dependency
+        run: npm install --no-save --no-package-lock --omit=dev --ignore-scripts semver@7.8.5
+      - uses: actions/download-artifact@v4
+        with:
+          name: mobile-web-dist
+          path: dist/web-mobile
+      - name: Archive the unsigned ipa
+        env:
+          PLUS_VERSION: ${{ needs.validate.outputs.version }}
+        run: |
+          cd mobile/ios
+          ./tools/build-ios.sh --archive
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mobile-ios-ipa
+          path: mobile/ios/build/DshMobile.ipa
+          if-no-files-found: error
+
+  metadata:
+    name: Mobile update metadata
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [validate, android, ios]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install the version-comparison dependency
+        run: npm install --no-save --no-package-lock --omit=dev --ignore-scripts semver@7.8.5
+      - uses: actions/download-artifact@v4
+        with:
+          name: mobile-android-apk
+          path: artifacts/android
+      - uses: actions/download-artifact@v4
+        with:
+          name: mobile-ios-ipa
+          path: artifacts/ios
+      - name: Generate the channel metadata
+        run: |
+          node scripts/plus/release/mobile-release-metadata.mjs \
+            --version "${{ needs.validate.outputs.version }}" \
+            --out-dir dist/mobile-metadata \
+            --artifact android=artifacts/android/app-release.apk \
+            --artifact ios=artifacts/ios/DshMobile.ipa
+          echo "--- nightly-android.yml ---"
+          cat dist/mobile-metadata/nightly-android.yml
+          echo "--- nightly-ios.yml ---"
+          cat dist/mobile-metadata/nightly-ios.yml
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mobile-metadata
+          path: dist/mobile-metadata
+          if-no-files-found: error
+
+  publish:
+    name: Upload to the release
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    needs: [validate, metadata]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/download-artifact@v4
+        with:
+          name: mobile-android-apk
+          path: artifacts/android
+      - uses: actions/download-artifact@v4
+        with:
+          name: mobile-ios-ipa
+          path: artifacts/ios
+      - uses: actions/download-artifact@v4
+        with:
+          name: mobile-metadata
+          path: dist/mobile-metadata
+      - name: Wait for the desktop release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          # Release 由桌面 workflow 创建：它带 CHANGELOG 的发布说明，桌面资产是它的
+          # 职责。本 workflow 只追加移动端资产——抢着创建会让桌面那条
+          # `gh release create` 失败（桌面发版的既有行为不动）。
+          for attempt in $(seq 1 450); do
+            if gh release view "$TAG" > /dev/null 2>&1; then
+              echo "Release 已就绪：$TAG"
+              exit 0
+            fi
+            # 桌面 workflow 失败就不用干等：它才是建 Release 的那个。
+            conclusion="$(gh run list --workflow release-desktop.yml --event push --limit 30 \
+              --json headBranch,conclusion | jq -r --arg tag "$TAG" \
+              'first(.[] | select(.headBranch == $tag) | .conclusion) // empty' || true)"
+            if [ "$conclusion" = "failure" ] || [ "$conclusion" = "cancelled" ]; then
+              echo "::error::桌面 workflow（release-desktop.yml）对 $TAG 失败了，Release 不会存在"
+              exit 1
+            fi
+            echo "等待桌面 workflow 建 Release（第 $attempt 次 / 最多 450 次，每 20 秒一次）…"
+            sleep 20
+          done
+          echo "::error::桌面 workflow 没能建出 $TAG 的 Release（移动端资产无处可传）"
+          exit 1
+      - name: Upload the mobile assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # 资产名由元数据生成器唯一决定（版本 + 平台），改名前先读清单。
+          assets=()
+          while IFS=$'\t' read -r platform asset metadata; do
+            case "$platform" in
+              android) source="artifacts/android/app-release.apk" ;;
+              ios) source="artifacts/ios/DshMobile.ipa" ;;
+              *) echo "::error::未知平台：$platform"; exit 1 ;;
+            esac
+            cp "$source" "$asset"
+            assets+=("$asset" "dist/mobile-metadata/$metadata")
+            echo "上传 $asset（$(wc -c < "$asset" | tr -d ' ') 字节）"
+          done < <(jq -r '.artifacts[] | [.platform, .assetName, .metadata] | @tsv' dist/mobile-metadata/summary.json)
+          gh release upload "$TAG" --clobber "${assets[@]}"
+          gh release view "$TAG" --json assets --jq '.assets[].name'
+      - name: Verify the published update chain
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # 端到端自检：按壳的取法把元数据与产物拉回来，比对 sha512 与大小。
+          # 校验器是独立实现（不是生成器自己的解析器），能发现形状不一致。
+          base="https://github.com/${{ github.repository }}/releases/download/$TAG"
+          node scripts/plus/release/verify-mobile-release.mjs --feed "$base/nightly-android.yml"
+          node scripts/plus/release/verify-mobile-release.mjs --feed "$base/nightly-ios.yml"
+          # 壳默认拉的是 releases/latest/download/…（同一 tag 发布完就是这一份）。
+          node scripts/plus/release/verify-mobile-release.mjs \
+            --feed "https://github.com/${{ github.repository }}/releases/latest/download/nightly-android.yml"

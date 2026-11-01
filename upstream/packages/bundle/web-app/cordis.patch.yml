@@ -36,8 +36,7 @@
 - insert:
     - id: desktop-product-telemetry
       name: '@deepseek-ai/dsh-host-product-telemetry-otel'
-      # plus：遥测 opt-out——壳按桌面设置注入 DSH_PLUS_DISABLE_TELEMETRY=1 时整行禁用（OTLP 上报不挂载）。
-      disabled: !!js "ctx.get('profileContext')?.name !== 'desktop' || process.env.DSH_PLUS_DISABLE_TELEMETRY === '1'"
+      disabled: !!js "ctx.get('profileContext')?.name !== 'desktop'"
       config:
         scheduledDelayMillis: 30000
         timeoutMillis: 15000
@@ -49,8 +48,7 @@
 
     - id: product-analytics
       name: '@deepseek-ai/dsh-client-product-analytics'
-      # plus：同上——桌面专属采集（环境探测 + 压缩事件上报）一并随 opt-out 禁用。
-      disabled: !!js "ctx.get('profileContext')?.name !== 'desktop' || process.env.DSH_PLUS_DISABLE_TELEMETRY === '1'"
+      disabled: !!js "ctx.get('profileContext')?.name !== 'desktop'"
       config:
         enabled: true
         appVersion: !!js process.env.DSH_CLIENT_VERSION
@@ -332,10 +330,6 @@
     # Official occupants for the generic sidebar and conversation brand slots.
     - id: ui-brand-official
       name: '@deepseek-ai/dsh-client-ui-brand-official'
-
-    # Plus desktop brand: shows DSH Desktop Plus with the plus build version badge.
-    - id: desktop-plus-brand
-      name: '@deepseek-ai/dsh-desktop-plus-brand'
 
     - id: ui-attachment
       name: '@deepseek-ai/dsh-client-ui-attachment'

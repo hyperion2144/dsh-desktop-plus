@@ -2,7 +2,7 @@
 import { constants } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { access, mkdir, readFile } from 'node:fs/promises'
-import { dirname, join, resolve, sep } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { withFileLock, writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
 import type { SubprocessOutcome, SubprocessRuntime } from '@deepseek-ai/dsh-subprocess'
 
@@ -122,17 +122,7 @@ async function compileNative(spec: NativeBuildSpec, signal: AbortSignal, executa
 export async function prepareNativeExecutable(spec: NativeBuildSpec): Promise<string> {
   if (await isSourcePackage(spec.packageRoot)) return buildNativeExecutable(spec)
   const executable = nativeExecutablePath(spec.packageRoot, spec.architecture)
-  await access(unpackedExecutable(executable), constants.X_OK)
+  await access(executable, constants.X_OK)
   spec.signal.throwIfAborted()
-  return unpackedExecutable(executable)
-}
-
-/**
- * Electron 只把 asar 内的文件读取重定向到 unpacked 副本；spawn 的 execve 落在真实
- * 文件系统上，asar 虚拟路径直接 ENOTDIR。打包后的原生可执行必须换成 unpacked 磁盘路径
- * （electron-builder asarUnpack 的配套惯例），源码检出路径不含 app.asar，原样返回。
- */
-function unpackedExecutable(executable: string): string {
-	const marker = `${sep}app.asar${sep}`
-	return executable.includes(marker) ? executable.replace(marker, `${sep}app.asar.unpacked${sep}`) : executable
+  return executable
 }

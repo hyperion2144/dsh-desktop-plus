@@ -1,0 +1,49 @@
+{
+  "app": {
+    "signingConfigs": [
+      {
+        "name": "default",
+        "type": "HarmonyOS",
+        "material": {
+          "certpath": "/Users/mutou/.ohos/config/default_harmony_Y2RZb8DDyYofGlXM2j5WIy7EGueZh2ZPftWI1f0TS4Q=.cer",
+          "keyAlias": "debugKey",
+          "keyPassword": "0000001BB7AAC19D84089AAB45BD0274D1656AA353EB930D1E855CB3054FCC361436FD62FF1F44E79A7E4D",
+          "profile": "/Users/mutou/.ohos/config/default_harmony_Y2RZb8DDyYofGlXM2j5WIy7EGueZh2ZPftWI1f0TS4Q=.p7b",
+          "signAlg": "SHA256withECDSA",
+          "storeFile": "/Users/mutou/.ohos/config/default_harmony_Y2RZb8DDyYofGlXM2j5WIy7EGueZh2ZPftWI1f0TS4Q=.p12",
+          "storePassword": "0000001BA7F050BB776B13CA17826E075A60523AC09C6CD0F6FCC7BFCDB954050F8EEA9DCB05F843B8A548"
+        }
+      }
+    ],
+    "products": [
+      {
+        "name": "default",
+        "compatibleSdkVersion": "5.0.0(12)",
+        "runtimeOS": "HarmonyOS",
+        "signingConfig": "default"
+      }
+    ],
+    "buildModeSet": [
+      {
+        "name": "debug"
+      },
+      {
+        "name": "release"
+      }
+    ]
+  },
+  "modules": [
+    {
+      "name": "entry",
+      "srcPath": "./entry",
+      "targets": [
+        {
+          "name": "default",
+          "applyToProducts": [
+            "default"
+          ]
+        }
+      ]
+    }
+  ]
+}

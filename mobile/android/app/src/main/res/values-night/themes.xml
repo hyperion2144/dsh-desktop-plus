@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  深色主题下的壳主题：底色走 values-night/colors.xml 的深色 token，
+  状态栏 / 导航栏的图标改回浅色（浅色底配浅色图标会看不清）。
+  与 values/themes.xml 同步改动。
+-->
+<resources>
+    <style name="Theme.DshMobile" parent="Theme.AppCompat.DayNight.NoActionBar">
+        <item name="android:windowBackground">@color/dsh_bg_base</item>
+        <item name="android:statusBarColor">@color/dsh_bg_base</item>
+        <item name="android:navigationBarColor">@color/dsh_bg_base</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+    </style>
+</resources>

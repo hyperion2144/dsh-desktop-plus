@@ -2037,17 +2037,13 @@ function RemoteAccessPanel() {
   const refreshLanBase = (0, import_react2.useCallback)(async () => {
     try {
       const info = await hostCall("info");
-      if (info.lanIp) {
-        lanBaseRef.current = {
-          base: info.lanIp + ":" + (info.lanePort ?? lanePort),
-          scheme: "http"
-        };
-      } else {
-        lanBaseRef.current = {
-          base: "127.0.0.1:" + (info.lanePort ?? lanePort),
-          scheme: "http"
-        };
-      }
+      const port = info.lanePort ?? lanePort;
+      const candidates = Array.isArray(info.baseCandidates) ? info.baseCandidates : [];
+      lanBaseRef.current = {
+        base: info.lanIp ? info.lanIp + ":" + port : "127.0.0.1:" + port,
+        candidates,
+        scheme: "http"
+      };
       if (!tunSavedUrlRef.current && info.customTunnelUrl) {
         setTunSavedUrl(info.customTunnelUrl);
         setTunInputValue(info.customTunnelUrl);
@@ -2099,11 +2095,11 @@ function RemoteAccessPanel() {
   const lanQr = (0, import_react2.useMemo)(() => makeQr(lanLink), [lanLink]);
   const tunQr = (0, import_react2.useMemo)(() => makeQr(tunLink), [tunLink]);
   const cfQr = (0, import_react2.useMemo)(() => makeQr(cfLink), [cfLink]);
-  const pairLink = (base, scheme, token) => scheme + "://" + base + "/pair?token=" + encodeURIComponent(token);
-  const mintFor = async (base, scheme, setLink, setHint) => {
+  const pairLink = (base, scheme, token, candidates = []) => scheme + "://" + base + "/pair?token=" + encodeURIComponent(token) + (candidates.length ? "&base=" + encodeURIComponent(candidates.join(",")) : "");
+  const mintFor = async (base, scheme, setLink, setHint, candidates = []) => {
     try {
       const r = await hostCall("token.mint");
-      const link = pairLink(base, scheme, r.token);
+      const link = pairLink(base, scheme, r.token, candidates);
       setLink(link);
       setHint({
         text: t("10 \u5206\u949F\u6709\u6548 \xB7 \u4E00\u6B21\u6027 \xB7 \u626B\u7801/\u6253\u5F00\u5373\u914D\u5BF9"),
@@ -2148,7 +2144,8 @@ function RemoteAccessPanel() {
                         lanBaseRef.current.base,
                         lanBaseRef.current.scheme,
                         setLanLink,
-                        setLanHint
+                        setLanHint,
+                        lanBaseRef.current.candidates
                       );
                     } else {
                       setLanHint({ text: t("\u65E0\u6CD5\u786E\u5B9A\u5C40\u57DF\u7F51\u5730\u5740"), color: "#e5484d" });

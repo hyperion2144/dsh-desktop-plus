@@ -8,9 +8,6 @@ overrides:
   extract-zip>yauzl: 3.4.0
   '@deepseek-ai/cosmokit': link:vendor/cosmokit
   '@deepseek-ai/schemastery': link:vendor/schemastery
-  '@deepseek-ai/dsh-desktop-plus-plugin': link:../packages/plus/desktop-plugin
-  '@deepseek-ai/dsh-desktop-plus-remote-access': link:../packages/plus/desktop-remote-access
-  '@deepseek-ai/dsh-desktop-plus-brand': link:../packages/plus/desktop-brand
 
 patchedDependencies:
   '@botiverse/oar@0.67.0': 65de2ca1966421e30893d8d4fed6a3d88e4247e131e7575fe791246e594538d6
@@ -342,15 +339,6 @@ importers:
       '@deepseek-ai/dsh-cua-bundle':
         specifier: workspace:*
         version: link:../../packages/experimental/cua-bundle
-      '@deepseek-ai/dsh-desktop-plus-brand':
-        specifier: link:../../../packages/plus/desktop-brand
-        version: link:../../../packages/plus/desktop-brand
-      '@deepseek-ai/dsh-desktop-plus-plugin':
-        specifier: link:../../../packages/plus/desktop-plugin
-        version: link:../../../packages/plus/desktop-plugin
-      '@deepseek-ai/dsh-desktop-plus-remote-access':
-        specifier: link:../../../packages/plus/desktop-remote-access
-        version: link:../../../packages/plus/desktop-remote-access
       '@deepseek-ai/dsh-experimental-agent-team-profile':
         specifier: workspace:*
         version: link:../../packages/experimental/agent-team-profile
@@ -3185,9 +3173,6 @@ importers:
       '@deepseek-ai/dsh-deliverable-file-references':
         specifier: workspace:*
         version: link:../../deliverables/deliverable-file-references
-      '@deepseek-ai/dsh-desktop-plus-brand':
-        specifier: link:../../../../packages/plus/desktop-brand
-        version: link:../../../../packages/plus/desktop-brand
       '@deepseek-ai/dsh-file-reference':
         specifier: workspace:*
         version: link:../../context/file-reference
@@ -3227,6 +3212,9 @@ importers:
       '@deepseek-ai/dsh-message-feedback':
         specifier: workspace:*
         version: link:../../feedback/message-feedback
+      '@deepseek-ai/dsh-message-quotes':
+        specifier: workspace:*
+        version: link:../../session/message-quotes
       '@deepseek-ai/dsh-office-to-pdf':
         specifier: workspace:*
         version: link:../../document/office-to-pdf

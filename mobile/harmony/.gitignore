@@ -1,0 +1,16 @@
+# 壳内自带的移动变体 dist：构建产物，由 tools/sync-web-dist.sh 同步，不入库。
+entry/src/main/resources/rawfile/dist/
+
+# hvigor 构建产物
+build/
+.cxx/
+.hvigor/
+oh_modules/
+*/build/
+*/oh_modules/
+
+# 本机 SDK 路径（DevEco Studio 按本机环境生成，不入库）。
+local.properties
+
+# Python 字节码缓存。
+__pycache__/

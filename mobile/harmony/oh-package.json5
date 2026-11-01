@@ -1,0 +1,8 @@
+{
+  "modelVersion": "5.0.0",
+  "name": "dsh-mobile-harmony",
+  "version": "0.0.1",
+  "description": "DSH Desktop Plus 移动端 · 鸿蒙壳",
+  "license": "MIT",
+  "dependencies": {}
+}

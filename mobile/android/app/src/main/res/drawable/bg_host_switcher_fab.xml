@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  浮层切换器胶囊：主色底（dsw-static-deepseek-450，见 values/colors.xml）+ pill 圆角。
+  圆角取 @dimen/dsh_radius_pill（100dp）：比半高大，渲染时自然收成胶囊。
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@color/dsh_deepseek_450" />
+    <corners android:radius="@dimen/dsh_radius_pill" />
+</shape>

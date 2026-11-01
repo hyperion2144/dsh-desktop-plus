@@ -27,7 +27,9 @@
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
-import { adoptFiles, checkPatches, finishUpgrade, listPatches, regenFromTree, runMerge, stageNew } from './sync-merge.mjs'
+import { finishUpgrade, runMerge, stageNew } from './sync-merge.mjs'
+import { listPatches, patchPaths } from './patch-set.mjs'
+import { recordPatches, restoreBaseline } from './patch-recorder.mjs'
 
 const ROOT = resolve(process.cwd())
 const MIRROR = join(ROOT, '.plus', 'mirror')
@@ -80,28 +82,21 @@ const reportRegenerated = (rows) => {
 
 // 已有补丁漏收 upstream 里的 plus 文件时，用它把路径纳入补丁并从合并仓库重生成：
 //   --adopt 0002-desktop-plus-shell-hook.patch=apps/desktop/src/host-process.ts,apps/...
-// 合并仓库的 `official` 分支与 `HEAD` 就是两侧真相，补丁只是记录文件清单。
-if (typeof adopt === 'string') {
-  const separator = adopt.indexOf('=')
-  if (separator === -1) fail('--adopt needs <patch>=<path[,path...]>')
-  const patch = adopt.slice(0, separator)
-  const paths = adopt.slice(separator + 1).split(',').map(path => path.trim()).filter(path => path !== '')
-  const repo = join(ROOT, '.plus', 'tmp', 'sync')
-  if (!existsSync(join(repo, '.git'))) fail('--adopt needs the merge repo from a previous sync; run the sync first')
-  const result = adoptFiles({ repo, hooks: HOOKS, patch, paths, target: TARGET })
-  console.log(`sync-upstream: ${result.patch} now covers ${result.lines} lines; adopted ${result.adopted.join(', ') || '(no new path)'}`)
+// 补丁头里的路径就是归属：新路径必须显式点名给某个补丁，默默丢掉就等于丢改动。
+if (typeof adopt === 'string' || regen) {
+  let rewritten
+  try {
+    rewritten = recordPatches({ root: ROOT, set: 'desktop', adopt: typeof adopt === 'string' ? adopt : undefined })
+  } catch (error) {
+    fail(error instanceof Error ? error.message : String(error))
+  }
+  for (const row of rewritten) {
+    console.log(`sync-upstream: ${row.ok ? 'rewrote' : 'FAILED'} ${row.patch}${row.ok ? ` (${row.lines} lines)` : `: ${row.error}`}`)
+  }
+  if (!rewritten.every(row => row.ok)) fail('the patch set could not be re-recorded')
+  restoreBaseline({ root: ROOT, set: 'desktop' })
+  console.log('sync-upstream: patch set re-recorded; upstream/ restored to the official tree')
   process.exit(0)
-}
-
-// finish 之后的 upstream/ 修改（例如这轮又改了 hook 文件）不在任何补丁里；--regen 把
-// 补丁覆盖的文件回灌进合并仓库并重生成，补丁重新等于活树。
-if (regen) {
-  const repo = join(ROOT, '.plus', 'tmp', 'sync')
-  if (!existsSync(join(repo, '.git'))) fail('--regen needs the merge repo from a previous sync; run the sync first')
-  if (existsSync(join(repo, '.git', 'MERGE_HEAD'))) fail('the merge is still in progress; resolve it and commit, then rerun --regen')
-  const ok = reportRegenerated(regenFromTree({ repo, target: TARGET, hooks: HOOKS, patches }))
-  console.log('sync-upstream: patches now match upstream/; review them, then commit')
-  process.exit(ok ? 0 : 1)
 }
 
 if (finish) {
@@ -153,19 +148,15 @@ if (missing.length > 0) fail(`official tree at ${sha} is missing ${missing.join(
 const subject = run('git', ['-C', MIRROR, 'log', '-1', '--format=%s', sha]).trim()
 console.log(`sync-upstream: ${previous ? previous.slice(0, 10) : '(none)'} -> ${sha.slice(0, 10)} ${subject}`)
 
-// 2. Patch applicability against the new tree. Diagnostic only: a patch that no
-//    longer applies as-is is exactly what the merge exists to resolve.
-for (const row of checkPatches({ root: ROOT, staging: STAGING, patches })) {
-  console.log(`sync-upstream: patch ${row.ok ? 'applies as-is' : 'needs the merge'}: ${row.patch}${row.ok ? '' : ` (${row.error})`}`)
-}
-
-// 3. The real check: a 3-way merge in the scratch repository.
+// 2. The real check: a 3-way merge in the scratch repository. The plus side is
+// the baseline with our patch set applied — `upstream/` is committed clean, so
+// the patches are what carries our changes into the upgrade.
 if (previous === '') fail('no .plus/upstream-base; cannot build a merge base')
-const merge = runMerge({ root: ROOT, mirror: MIRROR, previousBase: previous, newSha: sha, oursTree: TARGET })
-// 真实官方 SHA 与临时仓库的 commit 不同，持久化给 --finish 用。
+const merge = runMerge({ root: ROOT, mirror: MIRROR, previousBase: previous, newSha: sha, patchPaths: patchPaths(ROOT, 'desktop') })
 // 真实官方 SHA 与临时仓库的 commit 不同，持久化给 --finish 用。放在合并仓库之外，免得被当成 upstream 文件搬进去。
 writeFileSync(join(ROOT, '.plus', 'tmp', 'sync-official-sha'), `${sha}\n`)
 
+// 3. Report the merge result.
 if (dry) {
   if (merge.clean) {
     console.log('sync-upstream: --dry, the merge is clean; nothing written')

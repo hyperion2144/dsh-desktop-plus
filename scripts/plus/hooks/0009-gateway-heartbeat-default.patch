@@ -1,0 +1,26 @@
+diff --git a/upstream/packages/api/gateway/src/index.ts b/upstream/packages/api/gateway/src/index.ts
+index 4fe26526..8cc1ea8c 100644
+--- a/upstream/packages/api/gateway/src/index.ts
++++ b/upstream/packages/api/gateway/src/index.ts
+@@ -146,7 +146,7 @@ interface PendingRemoteEvent {
+ type ConnectionRpcResult = Awaited<ReturnType<ConnectionRpcHandler>>
+ type ConnectionRpcError = Extract<ConnectionRpcResult, { readonly ok: false }>['error']
+ const NEVER_ABORTED_SIGNAL = new AbortController().signal
+-const DEFAULT_WEBSOCKET_HEARTBEAT_INTERVAL_MS = 2_000
++const DEFAULT_WEBSOCKET_HEARTBEAT_INTERVAL_MS = 10_000
+ const DEFAULT_STREAM_INBOX_BYTES = 262_144
+ const EMPTY_ASYNC_ITERABLE: AsyncIterable<never> = {
+   [Symbol.asyncIterator]: () => ({ next: () => Promise.resolve({ value: undefined, done: true }) }),
+diff --git a/upstream/packages/api/gateway/tests/gateway-stream.host.spec.ts b/upstream/packages/api/gateway/tests/gateway-stream.host.spec.ts
+index 708b093f..9ced59af 100644
+--- a/upstream/packages/api/gateway/tests/gateway-stream.host.spec.ts
++++ b/upstream/packages/api/gateway/tests/gateway-stream.host.spec.ts
+@@ -418,7 +418,7 @@ describe('Typert Remote streams', () => {
+ 
+   it('validates the WebSocket heartbeat timer range, the stream inbox bound, and the compression mode', () => {
+     expect(TypertGatewayService.Config({})).toEqual({
+-      websocketHeartbeatIntervalMs: 2_000,
++      websocketHeartbeatIntervalMs: 10_000,
+       streamInboxBytes: 262_144,
+       websocketCompression: 'deflate',
+     })
