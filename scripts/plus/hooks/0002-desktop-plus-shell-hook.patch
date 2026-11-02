@@ -669,7 +669,7 @@ index 4770fe83..2fab2d87 100644
  } from 'electron'
 +import { existsSync, rmSync, writeFileSync } from 'node:fs'
 +import { spawn } from 'node:child_process'
-+import { applyLoginItemFromEnv, isLoginItemEnabled, setLoginItemEnabled, remoteProfileName, loadRemoteAddressList, partitionFor, remoteOrigin, listProfileDirs, createProfilesRpcHandlers, createUpdatesRpcHandlers, createSettingsRpcHandlers, createNotificationsRpcHandlers, applyWindowsAppUserModelId, attachDownloads, attachPackagedDevTools, attachPageConsole, collectDiagnostics, clearSelectedRuntime, createDownloadRpcHandlers, createElectronProfileRuntime, createLoggingKernel, createLoggingRpcHandlers, createProfileTray, observeWindowVisibility, createRpcRegistry, createShellKernel, ensurePlusProfileBundles, PLUS_BUNDLE_NAMES, DEFAULT_PROFILE, resolveStartupRuntimeSelection, restartApplicationInPlace, runPlusStartup, loadDesktopSettings, saveDesktopSettings, soundCapabilityReport, playSoundFile, createLifecycleRpcHandlers, resolveProxyEnv, proxyEnvRecord, detectSystemProxy, plusApplicationVersion, type RpcRegistry, type ProfileTray } from '@deepseek-ai/dsh-desktop-plus-shell'
++import { applyLoginItemFromEnv, isLoginItemEnabled, setLoginItemEnabled, remoteProfileName, loadRemoteAddressList, partitionFor, remoteOrigin, listProfileDirs, createProfilesRpcHandlers, createUpdatesRpcHandlers, createSettingsRpcHandlers, createNotificationsRpcHandlers, applyWindowsAppUserModelId, attachDownloads, attachPackagedDevTools, toggleDevTools, windowDevToolsAction, attachPageConsole, collectDiagnostics, clearSelectedRuntime, createDownloadRpcHandlers, createElectronProfileRuntime, createLoggingKernel, createLoggingRpcHandlers, createProfileTray, observeWindowVisibility, createRpcRegistry, createShellKernel, ensurePlusProfileBundles, PLUS_BUNDLE_NAMES, DEFAULT_PROFILE, resolveStartupRuntimeSelection, restartApplicationInPlace, runPlusStartup, loadDesktopSettings, saveDesktopSettings, soundCapabilityReport, playSoundFile, createLifecycleRpcHandlers, resolveProxyEnv, proxyEnvRecord, detectSystemProxy, plusApplicationVersion, type RpcRegistry, type ProfileTray } from '@deepseek-ai/dsh-desktop-plus-shell'
 +import { createBusyLease, createPlusNotifier, createSleepGate, createSplashWindow, deliverHostNotice, loadNotificationConfig, noticePolicyFromConfig, systemDefaultSoundCommand, type RestartAllOutcome } from '@deepseek-ai/dsh-desktop-plus-shell'
 +import { plusShellCopy } from '@deepseek-ai/dsh-desktop-plus-shell'
 +import { installShellConsoleTee } from '@deepseek-ai/dsh-desktop-plus-shell'
@@ -860,13 +860,13 @@ index 4770fe83..2fab2d87 100644
 +app.setPath('userData', join(app.getPath('appData'), 'DSH Desktop Plus'))
 +app.setName('DSH Desktop Plus')
 +
-+// #5：托盘/右键菜单的 DevTools 统一为 detach 弹窗，与 F12 行为一致；已打开则关闭。
++// #5：托盘的应用级 DevTools 入口（desktop 主窗口）统一为 detach 弹窗，与 F12 行为一致；已打开则关闭。窗口内右键菜单走 windowDevToolsAction(window)，按窗口隔离（#83）。
 +function togglePlusDevTools(): void {
++  // 开/关语义复用 toggleDevTools：与 F12、窗口内右键菜单共用同一份实现。
++  // 托盘是应用级入口，目标固定为 desktop 主窗口；窗口内菜单按窗口走 windowDevToolsAction（#83）。
 +  const window = plusDesktopWindow()
 +  if (window === undefined) return
-+  const wc = window.webContents
-+  if (wc.isDevToolsOpened()) wc.closeDevTools()
-+  else wc.openDevTools({ mode: 'detach' })
++  toggleDevTools(window)
 +}
 +
 +// #11：退出流程中断开页面 console 镜像，host 断连的 connection lost 不再写进退出日志。
@@ -1003,7 +1003,7 @@ index 4770fe83..2fab2d87 100644
 +      if (loadPlusDesktopSettings().dev_tools === true) {
 +        items.push(
 +          { type: 'separator' },
-+          { label: copy.openDevTools, click: () => { togglePlusDevTools() } },
++          { label: copy.openDevTools, click: windowDevToolsAction(window) },
 +        )
 +      }
 +    }
