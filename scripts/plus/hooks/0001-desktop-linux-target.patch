@@ -59,6 +59,27 @@ index 31bbbffe..ccf05581 100644
  }
  
  if (import.meta.main) {
+diff --git a/upstream/apps/desktop/cli/dsh b/upstream/apps/desktop/cli/dsh
+index ee657a3d..2d9d456d 100644
+--- a/upstream/apps/desktop/cli/dsh
++++ b/upstream/apps/desktop/cli/dsh
+@@ -11,4 +11,4 @@ while [ -L "$launcher" ]; do
+   esac
+ done
+ resources=$(CDPATH= cd -- "$(dirname -- "$launcher")/../../.." && pwd -P)
+-ELECTRON_RUN_AS_NODE=1 exec "$resources/../MacOS/DeepSeek Harness" --expose-internals "$resources/app.asar/dsh/node_modules/@deepseek-ai/dsh-desktop-host/lib/cli.js" "$@"
++ELECTRON_RUN_AS_NODE=1 exec "$resources/../MacOS/DSH Desktop Plus" --expose-internals "$resources/app.asar/dsh/node_modules/@deepseek-ai/dsh-desktop-host/lib/cli.js" "$@"
+diff --git a/upstream/apps/desktop/cli/dsh.cmd b/upstream/apps/desktop/cli/dsh.cmd
+index 73af3353..ef13bce8 100644
+--- a/upstream/apps/desktop/cli/dsh.cmd
++++ b/upstream/apps/desktop/cli/dsh.cmd
+@@ -1,5 +1,5 @@
+ @echo off
+ setlocal DisableDelayedExpansion
+ set "ELECTRON_RUN_AS_NODE=1"
+-"%~dp0..\..\..\..\DeepSeek Harness.exe" --expose-internals "%~dp0..\..\..\app.asar\dsh\node_modules\@deepseek-ai\dsh-desktop-host\lib\cli.js" %*
++"%~dp0..\..\..\..\DSH Desktop Plus.exe" --expose-internals "%~dp0..\..\..\app.asar\dsh\node_modules\@deepseek-ai\dsh-desktop-host\lib\cli.js" %*
+ exit /b %errorlevel%
 diff --git a/upstream/apps/desktop/scripts/desktop-auto-update-environment.d.mts b/upstream/apps/desktop/scripts/desktop-auto-update-environment.d.mts
 index 4d42b3dd..87b29dee 100644
 --- a/upstream/apps/desktop/scripts/desktop-auto-update-environment.d.mts
@@ -674,3 +695,16 @@ index 613580da..1040e921 100644
 +    verifyMacOSNotarizedApplication(join(extracted, 'DSH Desktop Plus.app'), config.macOS)
    } finally { await rm(extracted, { recursive: true, force: true }) }
  }
+diff --git a/upstream/apps/desktop/tests/cli-launcher.spec.ts b/upstream/apps/desktop/tests/cli-launcher.spec.ts
+index 67e38da2..fa53ed6a 100644
+--- a/upstream/apps/desktop/tests/cli-launcher.spec.ts
++++ b/upstream/apps/desktop/tests/cli-launcher.spec.ts
+@@ -24,7 +24,7 @@ function fixture() {
+   const resources = join(application, ...platform === 'darwin' ? ['Contents', 'Resources'] : ['resources'])
+   const cli = join(resources, 'runtime', 'cli')
+   prepareDesktopCli(cli, platform)
+-  const electron = join(application, ...platform === 'darwin' ? ['Contents', 'MacOS', 'DeepSeek Harness'] : ['DeepSeek Harness.exe'])
++  const electron = join(application, ...platform === 'darwin' ? ['Contents', 'MacOS', 'DSH Desktop Plus'] : ['DSH Desktop Plus.exe'])
+   mkdirSync(dirname(electron), { recursive: true })
+   if (platform === 'win32') copyFileSync(process.execPath, electron)
+   else symlinkSync(process.execPath, electron)
