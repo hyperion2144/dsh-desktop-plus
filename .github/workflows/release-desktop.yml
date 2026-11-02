@@ -186,3 +186,7 @@ jobs:
           else
             gh release create "$TAG" --title "dsh-desktop-plus $TAG" --notes-file combined-notes.md release-assets/*
           fi
+          # 收口成已发布：draft release 的 releases/download/<tag>/<asset> 一律 404，
+          # 移动端发版后的「更新链路校验」会因此挂掉（重发场景踩过），
+          # 而 release 是否处于 draft 不应该靠调用方记得手动改。
+          gh release edit "$TAG" --draft=false

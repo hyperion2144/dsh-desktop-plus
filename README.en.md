@@ -2,130 +2,99 @@
 
 # DSH Desktop Plus
 
-A capability-enhanced distribution built on the official DeepSeek Harness desktop shell: it wraps the DSH Web GUI into a macOS / Windows / Linux desktop app and adds the desktop integrations the official build does not ship — multi-profile, tray residency, system notifications, download management, logging & diagnostics, and remote access.
+DeepSeek Harness as a desktop app — plus a native phone client that connects straight to it.
 
-The official desktop app is a minimal shell locked to a single profile: one window, one DSH, updates by full-package replacement. Plus adds those desktop capabilities without changing official product behavior.
+The official Harness ships as a browser UI only. Plus adds three things: a **desktop shell** (tray, multi-profile, notifications, downloads, logs), a **phone shell** (HarmonyOS / Android / iOS, fully native), and the **remote access** that connects the two.
 
 ## Install
 
-Download the installer for your platform from [GitHub Releases](https://github.com/hyperion2144/dsh-desktop-plus/releases/latest):
+One release carries both halves:
 
-| Platform | Artifacts |
+| Platform | Artifact |
 | --- | --- |
 | macOS (Apple Silicon) | `.dmg` / `.zip` |
 | Windows (x64) | `.exe` installer |
 | Linux (x64) | `.AppImage` / `.tar.gz` |
+| Android | `.apk` (fixed signing key, upgrades in place) |
+| iOS | `.ipa` (unsigned, re-sign with a sideload tool) |
 
-Current releases are unsigned builds: on macOS, right-click the app and choose "Open" the first time; on Windows, choose "Run anyway" when SmartScreen appears.
+HarmonyOS HAP is not shipped in releases; build it locally from `mobile/harmony` (see its README).
 
-## Features
+Builds are unsigned: on macOS right-click → Open the first time; on Windows pick "More info → Run anyway" in SmartScreen.
 
-### Multi-profile
+## Connect a phone to your computer
 
-- Run multiple isolated profiles (independent data directories) side by side in one installation.
-- Create / delete / start / restart / quit entirely from the tray; open profiles are remembered across app restarts.
+Open the desktop "Remote access" panel and it shows an address plus a QR code. Scan it once — after that the phone reconnects without a token.
 
-### Tray residency
+- Works on the LAN, or through a cloudflared / cpolar tunnel from outside.
+- The phone talks to the desktop over a single connection: the page carries a signed token straight back to the desktop and compression is terminated there. The phone shell never relays bytes and never performs a second handshake — the same shape as a browser hitting that machine.
+- Settings, plugin pages and theming behave the same remotely; plugin assets on other local ports are mapped automatically.
+- Drops recover on their own; a reconnecting device replaces its previous connection instead of tripping the "second socket refused" path.
 
-- The tray's first-level menu is profile management: show / focus, full-tree restart (with splash transition), quit, delete; plus app-level restart and quit.
-- Single-instance by default; launch isolated copies when you need several instances at once.
+## Desktop
 
-### Cold-start orchestration
+- **Multi-profile** — several isolated instances from one install, each with its own data directory, port and tray entry; they are remembered across restarts.
+- **Tray as the control surface** — show / focus, restart the whole tree, quit, delete, plus app-level restart and quit. Single instance by default, isolated copies on demand.
+- **Startup choreography** — tray → splash → host → window, with failures explained on the splash instead of a black box.
+- **Notifications and focus** — per-scenario toggles for task completion, pending approvals, session errors and finished downloads; quiet hours, full-screen silence, sleep inhibition while tasks run, custom sounds.
+- **Downloads** — browser downloads land in one queue with live progress and speed; pause, resume and cancel really work; history survives restarts.
+- **Logs and diagnostics** — multi-source log core with level filters, daily/size rotation and gzip archives; one-click diagnostic bundle.
+- **Settings** — profiles, notifications, proxy, sleep inhibition, launch at login, developer tools, privacy and telemetry switches.
+- **Experimental features** — Computer Use (macOS) and the other official experimental components are available straight from the plugin page.
+- 8 installer and in-app locales; the sidebar shows the Plus build version.
 
-- Tray → splash → host → window: every startup stage is visible.
-- Failed startups stop at the splash with the reason, instead of waiting in a black box.
+## Phone
 
-### Quit semantics
+HarmonyOS / Android / iOS share one capability set, each natively implemented:
 
-- Four quit tiers: confirm-quit, skip-confirmation quit, unconditional quit after host teardown, and scheduled restart.
-- A desktop profile's quit is a real quit: stop the process tree and destroy the window, with tray state updated instantly.
+- Loads the official page bundle locally — no dependency on a hosted page.
+- Host management: mDNS discovery, QR pairing, manual address entry, multi-host switching.
+- Connection fallback: retry candidate addresses → silently renew an expired session → only ask to re-pair when the device was removed.
+- Biometric unlock with system-PIN fallback; credentials stay in each platform's secure storage and never reach the page.
+- Follows the system light/dark theme; on narrow screens the settings page goes full-screen with horizontal navigation, and inputs use readable touch sizes.
+- Update notices read the published channel metadata and link straight to the download.
 
-### Notifications & focus
+## Versions and updates
 
-- System notifications for task completion, pending approvals, session errors and finished downloads, toggleable per scenario.
-- Do-not-disturb hours and fullscreen silence; no duplicate notifications while a window is focused.
-- Sleep prevention while an active task is running, released automatically when it ends.
-- Custom alert sounds (wav / mp3 / ogg with format and size validation) or the system default, previewable in settings.
-
-### Download management
-
-- Browser downloads are intercepted into one queue: live progress and speed, working pause / resume / cancel.
-- History persists across restarts; jump straight to the file or its folder when done.
-
-### Logging & diagnostics
-
-- Modular logging kernel: multi-sink writes, level filtering, daily and size-based rotation, gzip archiving, retention cleanup.
-- One-click diagnostics export (tar.gz); "Open log folder" jumps to the file manager.
-- Profile output lands in the unified log with a name prefix; page alerts and renderer crashes are recorded too.
-
-### Settings panel
-
-- Two-column layout: profiles (create / delete / port), notifications, proxy, sleep prevention, login launch, developer tools, and one-click privacy & telemetry opt-out.
-
-### Remote access
-
-- Add a remote DSH lane address (shaped like `http://<host>:<port>/pair?token=…`) to the service addresses and it becomes a remote profile: the window connects straight to the remote origin and no local DSH host is started.
-- A one-time token completes pairing; pairing state persists — remote or local restarts reconnect without a token, and expired pairing credentials renew automatically.
-- Remote profiles can restart the remote desktop from the tray: the local splash waits for the remote to come back, then rebuilds the window.
-- Clicking quit in a remote window only destroys that window and disconnects — the remote desktop itself keeps running.
-- Lane ports are pinned per profile and survive restarts.
-
-### Experimental
-
-- Computer Use (macOS): the official experimental component is listed by default and can be enabled on the plugins page; the native helper ships with the package.
-- NodeJS diagnostics, session-data diagnostics and other official experimental components are optional.
-
-### Branding & localization
-
-- The sidebar shows the DSH Desktop Plus brand with the plus build-version badge.
-- Installer and in-app copy in 8 languages; tray language follows the system.
-
-### Versioning & updates
-
-- Version format `X.Y.Z[-pre].plus.N` (official version + plus number), written into installers, Info.plist and the About page.
-- In-app update checks point at this repository's GitHub Releases, supporting the latest and nightly channels.
-
----
+Versions are `X.Y.Z[-pre].plus.N` (the official version plus a plus counter), written into the installers and the about page. Update checks point at this repository's GitHub Releases; desktop and phone each read their own channel metadata.
 
 ## For maintainers
 
-### Repository layout
+### Layout
 
 ```
 dsh-desktop-plus/
-├─ upstream/        Verbatim snapshot of the official DeepSeek Harness tree (single source of truth)
-├─ packages/plus/   This project's own capability packages
-├─ scripts/plus/    Generators and the upstream sync driver
-├─ .github/         CI, packaging and release pipelines
-└─ pnpm-workspace.yaml   Generated from upstream/pnpm-workspace.yaml — do not hand-edit
+├─ upstream/         official DeepSeek Harness source snapshot (byte-identical, the only copy)
+├─ packages/plus/    our capability packages
+│  ├─ desktop-shell/          shell services: core, tray, notifications, downloads, logs, runtime
+│  ├─ desktop-plugin/         desktop settings panel as a dsh plugin (page → shell via shell.invoke)
+│  └─ desktop-remote-access/  remote access host: lane reverse proxy, pairing, direct tokens, compression
+├─ mobile/           HarmonyOS / Android / iOS native shells
+├─ scripts/plus/     generators, patch sets, upstream sync and release scripts
+└─ .github/          verification, packaging and release pipelines
 ```
 
-The plus layer has two parts: `packages/plus/desktop-shell` (shell-side services: shell kernel, startup orchestration, tray, downloads, notifications, logging, runtimes, local and remote profiles) and `packages/plus/desktop-plugin` (the desktop settings panel as a dsh plugin, mounted through the official plugin mechanism, talking to shell services via the official `/api/shell.invoke` route).
-
-### Why the official code lives in `upstream/`
-
-`main` is an orphan-root history: it contains no upstream commits. Upstream code lands as a snapshot under `upstream/`, replayed once per sync commit. Our history stays clean — no burden of twenty-thousand-plus upstream commits — and patches always float on top of the newest upstream instead of drifting into a fork. The cost: root `pnpm-workspace.yaml`, `pnpm-lock.yaml` and `.gitignore` ("there must be exactly one" files) are taken over by this repo and regenerated on every sync.
+`main` has an orphan-root history: upstream lives as a snapshot under `upstream/` and every sync commit replays it, so the history never carries upstream's twenty-thousand-plus commits. Our changes to upstream exist only as patches in `scripts/plus/hooks/` (desktop) and `hooks-mobile/` (mobile), replayed at build time. The cost is that the root `pnpm-workspace.yaml`, `pnpm-lock.yaml` and `.gitignore` are owned here and regenerated on sync.
 
 ### Common commands
 
 ```sh
-pnpm install                 # Install (root pnpm-workspace.yaml is generated)
-pnpm run gen:workspace:check # Verify generated files match upstream
-pnpm run typecheck           # Official typecheck gates
-pnpm run typecheck:plus      # Typecheck for this project's packages
-pnpm run sync:upstream       # Follow new upstream commits
+pnpm run patches:apply        # replay the desktop patch set onto upstream/ (required before building)
+pnpm install                  # install
+pnpm run typecheck:plus       # typecheck our packages
+pnpm run test:plus            # unit tests for our packages
+pnpm run build:web:mobile     # mobile page variant (official tree + mobile patch set)
+pnpm run verify:patches       # upstream/ matches the official tree and every patch replays
+pnpm run sync:upstream        # follow a new upstream release
 ```
 
-### Packaging & releases
+### Packaging and releasing
 
-Packaging runs in the GitHub Actions **Package Desktop** workflow (manual trigger); artifacts are unsigned installers for three platforms, downloadable as workflow artifacts. `linux-x64` is a packaging target upstream does not have, added by this repo.
+- **Package Desktop** (manual dispatch) produces unsigned installers for three platforms as workflow artifacts; `linux-x64` is a target upstream does not ship and that we add.
+- **Releasing** pushes a tag `v<X.Y.Z[-pre].plus.N>`: `Release Desktop` creates the release and uploads desktop assets, `Release Mobile` appends apk / ipa plus channel metadata to the same release. `scripts/plus/version.mjs` derives and validates the version — do not use `+plus.N` build metadata, `electron-updater` ignores it.
+- **Re-cutting** the same tag again covers assets and notes and forces the release back to published; deleting first is no longer needed.
+- Release notes come from `CHANGELOG.md`: either its unreleased section or the published section for that version.
 
-```sh
-gh workflow run package-desktop.yml --repo hyperion2144/dsh-desktop-plus --ref main
-```
+### Touching upstream code
 
-Releases are tag-driven: push a `v<X.Y.Z[-pre].plus.N>` tag and the pipeline validates the version (derived by `scripts/plus/version.mjs` from the upstream version and the CHANGELOG's unreleased section), packages all three platforms, and publishes a GitHub Release whose notes come from the CHANGELOG's unreleased section. Do not use the `+plus.N` build-metadata form: `electron-updater` ignores it and version comparison would treat two builds as the same one.
-
-### Rules for changing upstream code
-
-Avoid it when possible. Necessary changes live as patches in `scripts/plus/hooks/` and must pass the sync replay check — once a patch no longer replays, syncing breaks; this is the easiest way to break this repository. Any `upstream/` change not captured in a patch silently disappears at the next sync.
+Change as little as possible. Anything you must change belongs in a patch under `scripts/plus/hooks/`, and it has to keep replaying under `pnpm run verify:patches` — a patch that stops replaying breaks the sync. Unpatched edits inside `upstream/` vanish silently on the next sync.
