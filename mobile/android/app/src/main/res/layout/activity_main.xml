@@ -45,6 +45,15 @@
                 android:textSize="12sp" />
 
             <TextView
+                android:id="@+id/btn_reload"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:background="?android:attr/selectableItemBackground"
+                android:padding="8dp"
+                android:text="@string/page_reload"
+                android:textColor="@color/dsh_label_tertiary"
+                android:textSize="15sp" />
+            <TextView
                 android:id="@+id/btn_manage"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"

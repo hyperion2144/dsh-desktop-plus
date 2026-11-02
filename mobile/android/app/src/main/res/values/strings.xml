@@ -34,6 +34,7 @@
     <!-- 原生管理页 -->
     <string name="management_title">主机管理</string>
     <string name="management_entry">主机</string>
+    <string name="page_reload">⟳</string>
     <string name="management_no_host">未配置主机</string>
     <string name="management_group_hosts">主机</string>
     <string name="management_group_prefs">偏好</string>

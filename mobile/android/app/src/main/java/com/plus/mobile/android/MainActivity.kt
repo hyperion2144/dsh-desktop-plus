@@ -209,6 +209,11 @@ class MainActivity : AppCompatActivity(), MobileBridgeHost {
         findViewById<TextView>(R.id.btn_manage).setOnClickListener {
             startActivity(Intent(this, ManagementActivity::class.java))
         }
+        findViewById<TextView>(R.id.btn_reload).setOnClickListener {
+            // 手动整页重载：页面加载失败（如插件 boot 失败）时的壳层恢复入口。
+            // 仅在页面已装载且不在换主机窗口期生效，避免空载或旧载荷重载。
+            if (pageLoaded && !switching) loadPage()
+        }
         updateBar = findViewById(R.id.update_notice)
         updateBar.onDownload = { startUpdateDownload() }
         updateBar.onIgnore = { ignoreUpdateVersion() }
