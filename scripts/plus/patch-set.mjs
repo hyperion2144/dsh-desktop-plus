@@ -107,7 +107,10 @@ export function patchPaths(root, name) {
 export function applyPatches({ cwd, patches, include, reverse }) {
   const rows = []
   for (const patch of patches) {
-    const argv = ['apply', '--whitespace=nowarn']
+    // `--ignore-whitespace` lets eol-smudged work trees (e.g. `eol=crlf` cmd
+    // scripts) match hunks recorded in blob space; applyPatches also runs in
+    // attribute-less scratch directories where no such matching would happen.
+    const argv = ['apply', '--whitespace=nowarn', '--ignore-whitespace']
     if (reverse) argv.push('--reverse')
     for (const pattern of include ?? []) argv.push(`--include=${pattern}`)
     argv.push(patch)
