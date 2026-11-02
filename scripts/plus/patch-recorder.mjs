@@ -61,11 +61,10 @@ export function restoreBaseline({ root, set }) {
 
 /**
  * Re-record the patch set from the current `upstream/` tree.
- *
  * Every patch keeps the paths it already owns; a path nobody owns is an
  * error, because silently dropping it would lose the change. `--adopt` names
- * the patch that takes such a path over.
- *
+ * the patch that takes such a path over; a name the set has no file for is
+ * recorded as a new patch file, which is how an empty set gets its first one.
  * @param {object} options - Repository root, patch-set name, and adoption.
  * @param {string} options.root - Repository root.
  * @param {string} options.set - Patch-set name.
@@ -103,12 +102,17 @@ export function recordPatches({ root, set, adopt }) {
     for (const patch of patches) {
       for (const path of patchFiles(patch)) owners.set(path, patch)
     }
+    // Adopted patch names that no file owns yet join the rewrite set below, so
+    // the first patch of an empty set can be recorded from its claimed paths.
+    const adopted = new Map()
     if (typeof adopt === 'string') {
       const separator = adopt.indexOf('=')
       if (separator === -1) throw new Error('--adopt needs <patch>=<path[,path...]>')
       const patch = adopt.slice(0, separator)
       const paths = adopt.slice(separator + 1).split(',').map(path => path.trim()).filter(path => path !== '')
       for (const path of paths) owners.set(path, patch)
+      const file = patch.endsWith('.patch') ? patch : `${patch}.patch`
+      if (!patches.some(existing => basename(existing) === file)) adopted.set(file, paths)
     }
     const orphans = changed.filter(path => !owners.has(path))
     if (orphans.length > 0) {
@@ -117,9 +121,9 @@ export function recordPatches({ root, set, adopt }) {
     }
 
     const rewritten = []
-    for (const patch of patches) {
-      const name = basename(patch)
-      const paths = patchFiles(patch)
+    const targets = new Map(patches.map(patch => [basename(patch), patchFiles(patch)]))
+    for (const [name, paths] of adopted) if (!targets.has(name)) targets.set(name, paths)
+    for (const [name, paths] of targets) {
       if (paths.length === 0) continue
       // `--abbrev=8` keeps the recorded blob ids the same length as the ones the
       // official sync wrote, so a re-recorded patch only differs where it must.

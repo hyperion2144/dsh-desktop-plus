@@ -1,0 +1,798 @@
+diff --git a/upstream/packages/client/web/README.md b/upstream/packages/client/web/README.md
+index 93f6bb95..ba586664 100644
+--- a/upstream/packages/client/web/README.md
++++ b/upstream/packages/client/web/README.md
+@@ -39,7 +39,7 @@ Boot runs in two stages: the module stage adopts the parser-loaded bootstrap bat
+ 
+ ### The boot page
+ 
+-The boot page uses plain DOM and local CSS, so bundle and plugin-activation failures remain visible: it shows one spinner node whose CSS arc grows as entries activate, and reports per-entry status. The spinner and its animation phase persist until the full UI replaces the boot page. A plugin that fails import or activation is reported by name with the reason (missing service, import failure, or state) instead of a blank page. The console contains the original import error.
++The boot page uses plain DOM and local CSS, so bundle and plugin-activation failures remain visible: it shows one spinner node whose CSS arc grows as entries activate, and reports per-entry status. The spinner and its animation phase persist until the full UI replaces the boot page. A plugin that fails import or activation is reported by name with the reason (missing service, import failure, or state) instead of a blank page. The console contains the original import error. Failed entries first get a bounded retry with exponential backoff; entries that still have not activated and are neither stage-one infrastructure (`immediately`) nor foreign to the manifest are skipped so the application can mount, and a framework-free notice above the mounted page names them with reload-to-retry and dismiss controls. Infrastructure rows keep the fatal boot-page report.
+ 
+ <a id="the-shared-module-table"></a>
+ ### The shared module table
+@@ -125,6 +125,8 @@ None; this package neither assembles nor sends a provider request.
+ 
+ These limits define what the boot kernel does not support. They are current package constraints, not a task backlog.
+ 
++When an entry fails, the retry policy is fixed (`DEFAULT_BOOT_RETRY` in `src/boot-client.ts`); deployment-varying tuning would have to ride the boot graph. Skipped entries stay recorded as failed, so a later successful graph reconciliation can revive them.
++
+ - **The application waits for the full roster** — one failed entry keeps the framework-free boot page visible with a per-entry report; partial UI availability is not supported.
+ 
+ <a id="dev-note"></a>
+diff --git a/upstream/packages/client/web/README.zh.md b/upstream/packages/client/web/README.zh.md
+index c9133620..1b9712b3 100644
+--- a/upstream/packages/client/web/README.zh.md
++++ b/upstream/packages/client/web/README.zh.md
+@@ -39,7 +39,7 @@ Web 和 Desktop 的数学公式渲染要求支持 WOFF2。[Web 构建](../../../
+ 
+ ### 启动页
+ 
+-启动页只使用原生 DOM 与本地 CSS，因此 bundle 与插件激活失败保持可见：它显示一个 spinner 节点，其 CSS 圆弧随 entry 激活而增长，并逐 entry 报告状态。spinner 及其动画相位会一直保留，直到完整 UI 替换启动页。导入或激活失败的插件会按名称报告并给出原因（缺失服务、导入失败或状态），而不是白屏。控制台包含原始导入错误。
++启动页只使用原生 DOM 与本地 CSS，因此 bundle 与插件激活失败保持可见：它显示一个 spinner 节点，其 CSS 圆弧随 entry 激活而增长，并逐 entry 报告状态。spinner 及其动画相位会一直保留，直到完整 UI 替换启动页。导入或激活失败的插件会按名称报告并给出原因（缺失服务、导入失败或状态），而不是白屏。控制台包含原始导入错误。失败的 entry 先经过有界的指数退避重试；仍未激活且既非 `immediately` 基础设施行、也非 manifest 之外条目的插件会被跳过，让应用得以挂载，挂载后的页面上方会出现一条免框架提示，列出被跳过的插件并提供「重试（整页刷新）」与「关闭」。基础设施行保持启动页上的致命报告。
+ 
+ <a id="the-shared-module-table"></a>
+ ### 共享模块表
+@@ -125,6 +125,8 @@ Web 和 Desktop 的数学公式渲染要求支持 WOFF2。[Web 构建](../../../
+ 
+ 这些限制说明启动内核不支持什么。它们是当前包约束，不是任务积压。
+ 
++entry 失败时的重试策略是固定的（`src/boot-client.ts` 中的 `DEFAULT_BOOT_RETRY`）；按部署调整需要走 boot graph 传递。被跳过的 entry 仍记录为失败，后续成功的 graph 对账可以将其复活。
++
+ - **应用会等待全部 entry 就绪**——只要一个 entry 失败，无框架启动页就会保留并逐项报告；不支持部分 UI 可用。
+ 
+ <a id="dev-note"></a>
+diff --git a/upstream/packages/client/web/src/boot-client.ts b/upstream/packages/client/web/src/boot-client.ts
+index bbc8e215..58c444d1 100644
+--- a/upstream/packages/client/web/src/boot-client.ts
++++ b/upstream/packages/client/web/src/boot-client.ts
+@@ -1,17 +1,62 @@
+ /**
+  * Production client composition without the page: mount the Loader over a
+- * module system, create every manifest row, wait for quiescence, and audit
+- * activation. `AppWebEntry` and the whole-client test carrier both call it.
++ * module system, create every manifest row, wait for quiescence, retry failed
++ * entries against a bounded backoff, and settle either by auditing activation
++ * or by skipping entries that still have not activated. `AppWebEntry` and the
++ * whole-client test carrier both call it.
+  * @module @deepseek-ai/dsh-client-web/src/boot-client
+  */
+ import type { Context } from '@deepseek-ai/cordis'
++import type { Entry } from '@deepseek-ai/cordis-plugin-loader'
+ import Loader from '@deepseek-ai/cordis-plugin-loader'
+ import type { BootManifest, ClientModuleLoader } from '@deepseek-ai/dsh-client-modules/client'
+ import { STATE_LABELS } from './loader-status.ts'
+ 
++/** Entry state label as the boot page renders it. */
+ /** Entry state label as the boot page renders it. */
+ export type EntryStateLabel = (typeof STATE_LABELS)[keyof typeof STATE_LABELS] | 'loading' | 'failed'
+ 
++/** One entry that never activated and was removed so the application could mount. */
++export interface SkippedEntry {
++  /** Entry name == package name. */
++  readonly name: string
++  /** Why the entry did not activate, as the audit reports it. */
++  readonly reason: string
++}
++
++/** Result of a settled boot. */
++export interface ClientBootResult {
++  /** Entries skipped by the degraded-boot path; empty when every entry activated. */
++  readonly skipped: readonly SkippedEntry[]
++}
++
++/** Bounded retry policy for entries whose import or activation failed. */
++export interface ClientBootRetryPolicy {
++  /** Retry rounds after the initial import pass. */
++  readonly attempts: number
++  /** Delay before the first retry round; each later round waits twice as long. */
++  readonly backoffMs: number
++}
++
++/**
++ * Retry applied when {@link ClientBootOptions.retry} omits fields. The boot kernel
++ * runs before any configuration surface exists (the bootstrap exception), so the
++ * policy is fixed here; deployment-varying tuning would have to ride the boot graph.
++ */
++export const DEFAULT_BOOT_RETRY: ClientBootRetryPolicy = { attempts: 2, backoffMs: 1000 }
++
++/**
++ * Fill omitted policy fields with {@link DEFAULT_BOOT_RETRY}.
++ * @param policy - caller policy; every field optional.
++ * @returns the complete policy.
++ */
++export function resolveBootRetry(policy?: Partial<ClientBootRetryPolicy>): ClientBootRetryPolicy {
++  return {
++    attempts: policy?.attempts ?? DEFAULT_BOOT_RETRY.attempts,
++    backoffMs: policy?.backoffMs ?? DEFAULT_BOOT_RETRY.backoffMs,
++  }
++}
++
+ /** Inputs of {@link bootClient}. */
+ export interface ClientBootOptions {
+   /** Fresh root Context that will own the plugin tree. */
+@@ -22,18 +67,30 @@ export interface ClientBootOptions {
+   readonly manifest: BootManifest
+   /** Per-entry state reporting (the boot page); omitted when no one renders progress. */
+   readonly onEntryState?: (name: string, state: EntryStateLabel) => void
++  /** Bounded retry for failed entries; omitted fields fall back to {@link DEFAULT_BOOT_RETRY}. */
++  readonly retry?: Partial<ClientBootRetryPolicy>
++}
++
++/** One entry the audit found not active. */
++interface BootFailure {
++  readonly name: string
++  readonly reason: string
++  /** Stage-one infrastructure row, or a row the page does not own: its failure stays fatal. */
++  readonly critical: boolean
+ }
+ 
+ /**
+  * Compose the client: `ctx.plugin(Loader)`, `loader.internal = modules`, one
+- * `loader.create({ name })` per manifest row, `loader.await()`, then
+- * {@link assertEntriesActive}. A row whose module cannot be imported is marked
+- * failed; the Loader logs its import error, the module system records it, and
+- * the audit rejects startup with that error text per entry.
+- * @param options - context, module system, manifest, optional progress sink.
+- * @returns resolves after every entry is active; rejects with the audit report otherwise.
++ * `loader.create({ name })` per manifest row, `loader.await()`, then retry
++ * failed entries with a bounded backoff. Entries that still have not activated
++ * and are neither stage-one infrastructure (`immediately`) nor foreign to the
++ * manifest are torn down and reported as skipped, so one flaky plugin cannot
++ * keep the application from mounting; every remaining failure rejects startup
++ * with that error text per entry.
++ * @param options - context, module system, manifest, optional progress sink and retry policy.
++ * @returns resolves with the skipped entries after every required entry is active; rejects with the audit report otherwise.
+  */
+-export async function bootClient(options: ClientBootOptions): Promise<void> {
++export async function bootClient(options: ClientBootOptions): Promise<ClientBootResult> {
+   const { ctx, manifest, onEntryState } = options
+   await ctx.plugin(Loader)
+   const loader = ctx.loader
+@@ -53,7 +110,44 @@ export async function bootClient(options: ClientBootOptions): Promise<void> {
+   }
+ 
+   await loader.await()
+-  assertEntriesActive(ctx, options.modules)
++
++  const criticalOf = (name: string): boolean => {
++    const row = manifest.plugins.find(candidate => candidate.id === name)
++    return row === undefined || row.immediately
++  }
++  const policy = resolveBootRetry(options.retry)
++  let failures = auditEntries(ctx, options.modules, criticalOf)
++  for (let attempt = 0; failures.length > 0 && attempt < policy.attempts; attempt++) {
++    await delay(policy.backoffMs * 2 ** attempt)
++    await options.modules.entries.retry()
++    await loader.await()
++    failures = auditEntries(ctx, options.modules, criticalOf)
++  }
++
++  const skipped = new Map<string, string>()
++  let fatal: BootFailure[] = []
++  for (; ;) {
++    const remaining = failures.filter(failure => !skipped.has(failure.name))
++    const skipNow = remaining.filter(failure => !failure.critical)
++    if (skipNow.length === 0) {
++      fatal = remaining
++      break
++    }
++    for (const failure of skipNow) {
++      const entry = entryNamed(ctx, failure.name)
++      if (entry !== undefined) {
++        // The Loader-native removal is the same teardown reconcile uses for
++        // graph-removed entries; a skipped entry may be revived by a later
++        // successful graph reconciliation.
++        ctx.loader.remove(entry.id)
++        while (entry.fiber?.inertia !== undefined) await entry.fiber.inertia
++      }
++      skipped.set(failure.name, failure.reason)
++    }
++    failures = auditEntries(ctx, options.modules, criticalOf)
++  }
++  if (fatal.length > 0) throw new Error(bootFailureReport(fatal))
++  return { skipped: [...skipped].map(([name, reason]) => ({ name, reason })) }
+ }
+ 
+ /**
+@@ -64,26 +158,69 @@ export async function bootClient(options: ClientBootOptions): Promise<void> {
+  * @throws {Error} listing every non-active entry with its reason.
+  */
+ export function assertEntriesActive(ctx: Context, modules: Pick<ClientModuleLoader, 'importError'>): void {
+-  const failures: string[] = []
++  const failures = auditEntries(ctx, modules, () => false)
++  if (failures.length > 0) throw new Error(bootFailureReport(failures))
++}
++
++/** Wait helper for the bounded retry backoff. */
++function delay(ms: number): Promise<void> {
++  return new Promise(resolve => { setTimeout(resolve, ms) })
++}
++
++/** Render the fatal audit report in the boot failure message format. */
++function bootFailureReport(failures: readonly BootFailure[]): string {
++  return `web boot: ${String(failures.length)} entr${failures.length === 1 ? 'y' : 'ies'} did not activate\n${failures.map(failure => failure.reason).join('\n')}`
++}
++
++/**
++ * Collect every non-active entry with its reason and criticality.
++ * @param ctx - root Context carrying the Loader.
++ * @param modules - the module system whose recorded import failures name why an entry has no fiber.
++ * @param criticalOf - criticality per entry name; critical failures cannot be skipped.
++ * @returns one failure per non-active entry; empty when all are active.
++ */
++function auditEntries(
++  ctx: Context,
++  modules: Pick<ClientModuleLoader, 'importError'>,
++  criticalOf: (name: string) => boolean,
++): BootFailure[] {
++  const failures: BootFailure[] = []
+   for (const entry of ctx.loader.entries()) {
+     const name = entry.options.name
++    const critical = criticalOf(name)
+     if (entry.fiber === undefined) {
+       const importError = modules.importError(name)
+-      failures.push(importError === undefined
+-        ? `${name}: import failed (see console for the import error)`
+-        : `${name}: import failed: ${importError.message}`)
++      failures.push({
++        name,
++        critical,
++        reason: importError === undefined
++          ? `${name}: import failed (see console for the import error)`
++          : `${name}: import failed: ${importError.message}`,
++      })
+       continue
+     }
+     const state = STATE_LABELS[entry.fiber.state]
+     if (state === 'active') continue
+     if (state === 'pending') {
+       const missing = Object.keys(entry.fiber.inject).filter(service => ctx.get(service) === undefined)
+-      failures.push(`${name}: pending (waiting for service${missing.length === 1 ? '' : 's'}: ${missing.join(', ') || 'unknown'})`)
++      failures.push({ name, critical, reason: `${name}: pending (waiting for service${missing.length === 1 ? '' : 's'}: ${missing.join(', ') || 'unknown'})` })
+     } else {
+-      failures.push(`${name}: ${state}`)
++      failures.push({ name, critical, reason: `${name}: ${state}` })
+     }
+   }
+-  if (failures.length > 0) {
+-    throw new Error(`web boot: ${String(failures.length)} entr${failures.length === 1 ? 'y' : 'ies'} did not activate\n${failures.join('\n')}`)
++  return failures
++}
++
++/**
++ * Find the Loader entry with the given name.
++ * @param ctx - root Context carrying the Loader.
++ * @param name - entry name to look up.
++ * @returns the entry, or undefined when the Loader has no such entry.
++ */
++function entryNamed(ctx: Context, name: string): Entry | undefined {
++  for (const entry of ctx.loader.entries()) {
++    if (entry.options.name === name) return entry
+   }
++  /* v8 ignore next -- audit derives names from the same entry list, so the lookup always hits. */
++  return undefined
+ }
+diff --git a/upstream/packages/client/web/src/boot-degraded.ts b/upstream/packages/client/web/src/boot-degraded.ts
+new file mode 100644
+index 00000000..115900da
+--- /dev/null
++++ b/upstream/packages/client/web/src/boot-degraded.ts
+@@ -0,0 +1,58 @@
++/**
++ * Framework-free degraded-boot notice: names the client entries that never
++ * activated and were skipped, with reload-to-retry and dismiss controls. It
++ * mounts at the document body so it survives the boot page disposal and does
++ * not depend on any client plugin having loaded.
++ * @module @deepseek-ai/dsh-client-web/src/boot-degraded
++ */
++import type { SkippedEntry } from './boot-client.ts'
++import css from './boot-page.module.css'
++
++/** Create a div with one module class and optional text. */
++function div(className: string | undefined, text?: string): HTMLDivElement {
++  const el = document.createElement('div')
++  el.className = className ?? ''
++  if (text !== undefined) el.textContent = text
++  return el
++}
++
++/** Create a button with one module class, a data attribute hook and a click action. */
++function button(className: string | undefined, hook: 'retry' | 'dismiss', label: string, action: () => void): HTMLButtonElement {
++  const el = document.createElement('button')
++  el.type = 'button'
++  el.className = className ?? ''
++  if (hook === 'retry') el.dataset.dshBootDegradedRetry = ''
++  else el.dataset.dshBootDegradedDismiss = ''
++  el.textContent = label
++  el.addEventListener('click', () => { action() })
++  return el
++}
++
++/**
++ * Mount the degraded notice under `parent`.
++ * @param parent - Element the notice attaches to (the document body in production).
++ * @param skipped - Entries the boot skipped, in audit order.
++ * @param reload - Retry action; reloads the page by default.
++ * @returns the mounted notice root.
++ */
++export function mountDegradedNotice(
++  parent: HTMLElement,
++  skipped: readonly SkippedEntry[],
++  reload: () => void = () => { location.reload() },
++): HTMLElement {
++  const root = div(css.degraded)
++  root.dataset.dshBootDegraded = ''
++  const text = div(css.degradedText, skipped.length === 1
++    ? '1 plugin failed to load and was skipped:'
++    : `${String(skipped.length)} plugins failed to load and were skipped:`)
++  const list = div(css.degradedList)
++  for (const entry of skipped) list.append(div(css.degradedItem, entry.name))
++  const actions = div(css.degradedActions)
++  actions.append(
++    button(css.degradedButton, 'retry', 'Retry', () => { reload() }),
++    button(css.degradedButton, 'dismiss', 'Dismiss', () => { root.remove() }),
++  )
++  root.append(text, list, actions)
++  parent.append(root)
++  return root
++}
+diff --git a/upstream/packages/client/web/src/boot-page.module.css b/upstream/packages/client/web/src/boot-page.module.css
+index f154c427..080be1bf 100644
+--- a/upstream/packages/client/web/src/boot-page.module.css
++++ b/upstream/packages/client/web/src/boot-page.module.css
+@@ -101,3 +101,69 @@
+   color: var(--dsw-alias-label-secondary, var(--dsh-boot-label-secondary));
+   white-space: pre-wrap;
+ }
++
++.degraded {
++  position: fixed;
++  inset-inline: 16px;
++  bottom: 16px;
++  z-index: 50;
++  max-width: 480px;
++  margin-inline: auto;
++  padding: 12px 14px;
++  display: flex;
++  flex-direction: column;
++  gap: 8px;
++  background: var(--dsw-alias-bg-base, var(--dsh-boot-bg, Canvas));
++  border: 1px solid var(--dsw-alias-border-l2, var(--dsh-boot-border));
++  border-radius: 10px;
++  box-shadow: 0 8px 24px rgb(0 0 0 / 12%);
++}
++
++.degradedText {
++  font-size: 13px;
++  line-height: 20px;
++  font-weight: 600;
++  color: var(--dsw-alias-label-primary, var(--dsh-boot-label-primary));
++}
++
++.degradedList {
++  display: flex;
++  flex-direction: column;
++  gap: 2px;
++}
++
++.degradedItem {
++  font-family: var(
++    --ds-font-family-code,
++    'SF Mono',
++    'JetBrains Mono',
++    'Fira Code',
++    Consolas,
++    'Liberation Mono',
++    Menlo,
++    Courier,
++    'PingFang SC',
++    'Microsoft YaHei'
++  );
++  font-size: 12px;
++  line-height: 18px;
++  color: var(--dsw-alias-label-secondary, var(--dsh-boot-label-secondary));
++  white-space: pre-wrap;
++}
++
++.degradedActions {
++  display: flex;
++  gap: 8px;
++  justify-content: flex-end;
++}
++
++.degradedButton {
++  font-size: 12px;
++  line-height: 18px;
++  padding: 4px 12px;
++  border-radius: 6px;
++  border: 1px solid var(--dsw-alias-border-l2, var(--dsh-boot-border));
++  background: transparent;
++  color: var(--dsw-alias-label-primary, var(--dsh-boot-label-primary));
++  cursor: pointer;
++}
+diff --git a/upstream/packages/client/web/src/boot.ts b/upstream/packages/client/web/src/boot.ts
+index 6515ed16..c81f494d 100644
+--- a/upstream/packages/client/web/src/boot.ts
++++ b/upstream/packages/client/web/src/boot.ts
+@@ -9,7 +9,8 @@ import { Context } from '@deepseek-ai/cordis'
+ import type {
+   BootManifest, ClientModuleCreateOptions, ClientModuleSystem, DshWindow,
+ } from '@deepseek-ai/dsh-client-modules/client'
+-import { bootClient } from './boot-client.ts'
++import { bootClient, type ClientBootRetryPolicy } from './boot-client.ts'
++import { mountDegradedNotice } from './boot-degraded.ts'
+ import { BootPage } from './boot-page.ts'
+ import { mountClient } from './mount.ts'
+ import { getStaticModules } from './seed.ts'
+@@ -23,6 +24,7 @@ export type BootSeams = Pick<ClientModuleCreateOptions, 'loadBundle' | 'resolveA
+ export class AppWebEntry {
+   private readonly container: HTMLElement
+   private readonly seams: BootSeams | undefined
++  private readonly retry: ClientBootRetryPolicy | undefined
+   private readonly page: BootPage
+   private ctx: Context | undefined
+   private stopDragRecall: (() => void) | undefined
+@@ -33,16 +35,20 @@ export class AppWebEntry {
+    * Draw the boot page; {@link run} starts the loader.
+    * @param container - Application mount point.
+    * @param seams - Optional module transport replacement.
++   * @param retry - Optional bounded retry policy for failed entries; defaults apply when omitted.
+    */
+-  constructor(container: HTMLElement, seams?: BootSeams) {
++  constructor(container: HTMLElement, seams?: BootSeams, retry?: ClientBootRetryPolicy) {
+     this.container = container
+     this.seams = seams
++    this.retry = retry
+     this.page = new BootPage(container)
+   }
+ 
+   /**
+    * Load and activate every client entry, then hand the mount point to the
+-   * UI renderer. Plugin failures remain visible on the boot page.
++   * UI renderer. Infrastructure failures stay fatal on the boot page; other
++   * entries that exhaust the bounded retry are skipped, and a degraded notice
++   * names them above the mounted application.
+    * @param onFailure - Optional carrier-owned fatal presentation; keeps the boot page visible.
+    * @returns Resolves after application mount or failure reporting.
+    */
+@@ -82,13 +88,14 @@ export class AppWebEntry {
+       this.ctx = ctx
+       this.page.setTotal(this.manifest.plugins.length)
+       await prefetching
+-      await bootClient({
++      const result = await bootClient({
+         ctx,
+         modules: this.modules,
+         manifest: this.manifest,
+         onEntryState: (name, state) => {
+           if (onFailure === undefined || state !== 'failed') this.page.setState(name, state)
+         },
++        ...(this.retry === undefined ? {} : { retry: this.retry }),
+       })
+       // The shell owns the one watcher that keeps Electron's window drag rects in
+       // step with the rows that own them (electron#32341), so no chrome row has to
+@@ -96,6 +103,9 @@ export class AppWebEntry {
+       // renderer draws is the one the first frame measures.
+       this.stopDragRecall = installWindowDragRecall({ document: this.container.ownerDocument })
+       await mountClient(ctx, this.container)
++      if (result.skipped.length > 0) {
++        mountDegradedNotice(this.container.ownerDocument.body, result.skipped)
++      }
+     } catch (reason) {
+       console.error(reason)
+       if (onFailure !== undefined) onFailure(reason)
+diff --git a/upstream/packages/client/web/tests/boot-client.client.spec.ts b/upstream/packages/client/web/tests/boot-client.client.spec.ts
+index 17503e32..84eb44d6 100644
+--- a/upstream/packages/client/web/tests/boot-client.client.spec.ts
++++ b/upstream/packages/client/web/tests/boot-client.client.spec.ts
+@@ -5,7 +5,7 @@ import {
+   type ClientBundleRegistration, type ClientModuleLoader, type ClientModuleLoaderTarget, type WebBootEntry, type WebBootGraph,
+ } from '@deepseek-ai/dsh-client-modules/client'
+ import { describe, expect, it, onTestFinished, vi } from 'vitest'
+-import { assertEntriesActive, bootClient, type EntryStateLabel } from '../src/boot-client.ts'
++import { assertEntriesActive, bootClient, resolveBootRetry, type EntryStateLabel } from '../src/boot-client.ts'
+ import { FIBER_STATE } from '../src/loader-status.ts'
+ 
+ const BOOTSTRAP_ID = '@deepseek-ai/dsh-client-modules'
+@@ -20,7 +20,11 @@ function graphOf(ids: readonly string[]): WebBootGraph {
+ }
+ 
+ /** Module system seeded with inline plugin modules; `loaded` records every transport call. */
+-function modulesOf(graph: WebBootGraph, staticModules: Record<string, unknown>): { modules: ClientModuleLoader; loaded: string[] } {
++function modulesOf(
++  graph: WebBootGraph,
++  staticModules: Record<string, unknown>,
++  loadBundle?: (url: string) => Promise<void>,
++): { modules: ClientModuleLoader; loaded: string[]; target: ClientModuleLoaderTarget } {
+   const loaded: string[] = []
+   const pendingQueue: ClientBundleRegistration[] = []
+   const target: ClientModuleLoaderTarget = {
+@@ -32,9 +36,9 @@ function modulesOf(graph: WebBootGraph, staticModules: Record<string, unknown>):
+   const modules = target.create({
+     boot: graph,
+     staticModules,
+-    loadBundle: async (url) => { loaded.push(url) },
++    loadBundle: loadBundle ?? (async (url) => { loaded.push(url) }),
+   })
+-  return { modules, loaded }
++  return { modules, loaded, target }
+ }
+ 
+ /** Recording progress sink. */
+@@ -46,6 +50,8 @@ function stateSink(): { states: Map<string, EntryStateLabel[]>; onEntryState: (n
+   }
+ }
+ 
++const FAST_RETRY = { attempts: 1, backoffMs: 1 }
++
+ describe('bootClient', () => {
+   it('activates every seeded row without touching the bundle transport', async () => {
+     const graph = graphOf(['provider', 'consumer'])
+@@ -56,9 +62,10 @@ describe('bootClient', () => {
+     const ctx = new Context()
+     const sink = stateSink()
+ 
+-    await bootClient({ ctx, modules, manifest: modules.manifest, onEntryState: sink.onEntryState })
++    const result = await bootClient({ ctx, modules, manifest: modules.manifest, onEntryState: sink.onEntryState })
+ 
+     expect(loaded).toEqual([])
++    expect(result.skipped).toEqual([])
+     const consumer = sink.states.get('consumer') ?? []
+     expect(consumer[0]).toBe('loading')
+     expect(consumer.at(-1)).toBe('active')
+@@ -66,32 +73,79 @@ describe('bootClient', () => {
+     await ctx.fiber.dispose()
+   })
+ 
+-  it('reports a row waiting on a service the roster never provides', async () => {
++  it('skips a row waiting on a service the roster never provides', async () => {
+     const graph = graphOf(['orphan'])
+-    const { modules } = modulesOf(graph, { orphan: { inject: ['nothing'], apply: () => {} } })
++    const { modules } = modulesOf(graph, { orphan: { inject: ['nothing'], apply: () => { } } })
+     const ctx = new Context()
+ 
+-    await expect(bootClient({ ctx, modules, manifest: modules.manifest })).rejects.toThrow(
+-      'orphan: pending (waiting for service: nothing)',
+-    )
++    const result = await bootClient({ ctx, modules, manifest: modules.manifest, retry: FAST_RETRY })
++
++    expect(result.skipped.map(entry => entry.name)).toEqual(['orphan'])
++    expect(result.skipped[0]?.reason).toContain('orphan: pending (waiting for service: nothing)')
+     await ctx.fiber.dispose()
+   })
+ 
+-  it('reports and logs an import failure for a row that is neither seeded nor a graph row', async () => {
+-    const { modules } = modulesOf(graphOf(['seeded']), { seeded: { apply: () => {} } })
++  it('skips and reports an import failure for a row the module system cannot materialize', async () => {
++    const { modules } = modulesOf(graphOf(['seeded']), { seeded: { apply: () => { } } })
+     const manifest = parseBootManifest(graphOf(['ghost']))
+     const ctx = new Context()
+     onTestFinished(() => ctx.fiber.dispose())
+-    const error = vi.spyOn(ctx.logger, 'error').mockImplementation(() => {})
++    const error = vi.spyOn(ctx.logger, 'error').mockImplementation(() => { })
+     onTestFinished(() => { error.mockRestore() })
+     const sink = stateSink()
+ 
+-    await expect(bootClient({ ctx, modules, manifest, onEntryState: sink.onEntryState })).rejects.toThrow(
+-      'web boot: 1 entry did not activate\nghost: import failed (see console for the import error)',
+-    )
++    const result = await bootClient({ ctx, modules, manifest, onEntryState: sink.onEntryState, retry: FAST_RETRY })
++
++    expect(result.skipped.map(entry => entry.name)).toEqual(['ghost'])
++    expect(result.skipped[0]?.reason).toContain('ghost: import failed')
+     expect(sink.states.get('ghost')).toEqual(['loading', 'failed'])
+-    expect(error).toHaveBeenCalledOnce()
+-    expect(error.mock.calls[0]?.[0]).toHaveProperty('message', expect.stringContaining('client-modules: cannot resolve'))
++    expect(error).toHaveBeenCalled()
++  })
++
++  it('retries a transiently failing bundle until the entry activates', async () => {
++    let calls = 0
++    const { modules, target } = modulesOf(graphOf(['late']), {}, async () => {
++      calls++
++      if (calls === 1) throw new Error('client-modules: could not load "/application.js": bundle script failed to load')
++      target.load({ id: 'late', factory: () => ({ apply: () => { } }) })
++    })
++    const ctx = new Context()
++    onTestFinished(() => ctx.fiber.dispose())
++    const sink = stateSink()
++
++    const result = await bootClient({ ctx, modules, manifest: modules.manifest, onEntryState: sink.onEntryState, retry: FAST_RETRY })
++
++    expect(calls).toBe(2)
++    expect(result.skipped).toEqual([])
++    expect(sink.states.get('late')?.at(-1)).toBe('active')
++  })
++
++  it('keeps the fatal report when an immediately row never activates', async () => {
++    const graph: WebBootGraph = {
++      rev: 'graph',
++      entries: [{ id: 'core', url: '/core.js', rev: '1', immediately: true }],
++      batches: [{ phase: 'application', url: '/application.js', rev: 'batch', entries: ['core'] }],
++    }
++    const { modules } = modulesOf(graph, {})
++    const ctx = new Context()
++    onTestFinished(() => ctx.fiber.dispose())
++    const error = vi.spyOn(ctx.logger, 'error').mockImplementation(() => { })
++    onTestFinished(() => { error.mockRestore() })
++
++    await expect(bootClient({ ctx, modules, manifest: modules.manifest, retry: FAST_RETRY })).rejects.toThrow(
++      'web boot: 1 entry did not activate\ncore: import failed',
++    )
++  })
++
++  it('skips a pending consumer alongside the provider that never loaded', async () => {
++    const graph = graphOf(['svc', 'user'])
++    const { modules } = modulesOf(graph, { user: { inject: ['svc-marker'], apply: () => { } } })
++    const ctx = new Context()
++    onTestFinished(() => ctx.fiber.dispose())
++
++    const result = await bootClient({ ctx, modules, manifest: modules.manifest, retry: FAST_RETRY })
++
++    expect(result.skipped.map(entry => entry.name).sort()).toEqual(['svc', 'user'])
+   })
+ })
+ 
+@@ -147,3 +201,12 @@ describe('assertEntriesActive', () => {
+     ].join('\n'))
+   })
+ })
++
++describe('resolveBootRetry', () => {
++  it('fills omitted fields with the documented defaults', () => {
++    expect(resolveBootRetry(undefined)).toEqual({ attempts: 2, backoffMs: 1000 })
++    expect(resolveBootRetry({})).toEqual({ attempts: 2, backoffMs: 1000 })
++    expect(resolveBootRetry({ attempts: 5 })).toEqual({ attempts: 5, backoffMs: 1000 })
++    expect(resolveBootRetry({ attempts: 5, backoffMs: 50 })).toEqual({ attempts: 5, backoffMs: 50 })
++  })
++})
+diff --git a/upstream/packages/client/web/tests/boot-degraded.client.spec.ts b/upstream/packages/client/web/tests/boot-degraded.client.spec.ts
+new file mode 100644
+index 00000000..a1a31acf
+--- /dev/null
++++ b/upstream/packages/client/web/tests/boot-degraded.client.spec.ts
+@@ -0,0 +1,47 @@
++// @vitest-environment jsdom
++import { describe, expect, it, vi } from 'vitest'
++import { mountDegradedNotice } from '../src/boot-degraded.ts'
++
++describe('mountDegradedNotice', () => {
++  it('lists skipped entries and retries by reloading', () => {
++    const reload = vi.fn()
++    const parent = document.createElement('div')
++    document.body.append(parent)
++
++    const notice = mountDegradedNotice(parent, [
++      { name: 'ghost', reason: 'ghost: import failed: bundle script failed to load' },
++      { name: 'lost', reason: 'lost: pending (waiting for service: ghost)' },
++    ], reload)
++
++    expect(parent.querySelector('[data-dsh-boot-degraded]')).toBe(notice)
++    expect(notice.textContent).toContain('2 plugins failed to load')
++    expect(notice.textContent).toContain('ghost')
++    expect(notice.textContent).toContain('lost')
++    const retry = notice.querySelector<HTMLButtonElement>('[data-dsh-boot-degraded-retry]')
++    expect(retry).not.toBeNull()
++    retry!.click()
++    expect(reload).toHaveBeenCalledOnce()
++    expect(parent.contains(notice)).toBe(true)
++  })
++
++  it('removes itself when dismissed', () => {
++    const parent = document.createElement('div')
++    document.body.append(parent)
++
++    const notice = mountDegradedNotice(parent, [{ name: 'ghost', reason: 'gone' }], vi.fn())
++
++    const dismiss = notice.querySelector<HTMLButtonElement>('[data-dsh-boot-degraded-dismiss]')
++    expect(dismiss).not.toBeNull()
++    dismiss!.click()
++    expect(parent.contains(notice)).toBe(false)
++  })
++
++  it('uses the singular copy for one skipped entry', () => {
++    const parent = document.createElement('div')
++    document.body.append(parent)
++
++    const notice = mountDegradedNotice(parent, [{ name: 'ghost', reason: 'gone' }], vi.fn())
++
++    expect(notice.textContent).toContain('1 plugin failed to load')
++  })
++})
+diff --git a/upstream/packages/client/web/tests/boot.client.spec.ts b/upstream/packages/client/web/tests/boot.client.spec.ts
+index 9ac94507..f7c5d270 100644
+--- a/upstream/packages/client/web/tests/boot.client.spec.ts
++++ b/upstream/packages/client/web/tests/boot.client.spec.ts
+@@ -70,35 +70,75 @@ describe('bootstrap failure rendering', () => {
+     await entry.dispose()
+   })
+ 
+-  it.each([false, true])('routes failed plugin activation with carrier presentation=%s', async (carrier) => {
+-    vi.spyOn(console, 'error').mockImplementation(() => {})
++  it.each([false, true])('skips a failed plugin, mounts, and shows the degraded notice with carrier presentation=%s', async (carrier) => {
++    vi.spyOn(console, 'error').mockImplementation(() => { })
+     const container = document.createElement('div')
+     document.body.append(container)
+     const target = installFacade()
+     win.__DSH_BOOT__ = {
+       rev: 'graph',
+-      entries: [{ id: 'broken', url: '/broken.js', rev: '1' }],
+-      batches: [{ phase: 'application', url: '/application.js', rev: '1', entries: ['broken'] }],
++      entries: [
++        { id: 'renderer', url: '/renderer.js', rev: '1', immediately: true },
++        { id: 'broken', url: '/broken.js', rev: '1' },
++      ],
++      batches: [{ phase: 'application', url: '/application.js', rev: '1', entries: ['renderer', 'broken'] }],
+     }
+     const entry = new AppWebEntry(container, {
+       loadBundle: async () => {
+-        target.load({ id: 'broken', factory: () => ({ apply() { throw new Error('plugin activation failed') } }) })
++        target.load({
++          id: 'renderer',
++          factory: () => ({
++            apply: (ctx: Context) => {
++              ctx.reflect.provide('uiRenderer', {
++                mount: (element: HTMLElement) => {
++                  element.textContent = 'mounted'
++                  return () => { }
++                },
++              })
++            },
++          }),
++        })
++        target.load({
++          id: 'broken',
++          factory: () => ({ apply() { throw new Error('plugin activation failed') } }),
++        })
+       },
+-    })
++    }, { attempts: 1, backoffMs: 1 })
+     const report = vi.fn<(reason: unknown) => void>()
+     try {
+       await entry.run(carrier ? report : undefined)
+-      if (carrier) {
+-        expect(report).toHaveBeenCalledOnce()
+-        expect(String(report.mock.calls[0]![0])).toContain('broken')
+-        expect(container.querySelector('[data-dsh-boot-spinner]')).not.toBeNull()
+-        expect(container.textContent).not.toContain('Failed to load plugins')
+-      } else {
+-        expect(report).not.toHaveBeenCalled()
+-        expect(container.textContent).toContain('Failed to load plugins')
+-        expect(container.textContent).toContain('broken')
+-      }
++      expect(report).not.toHaveBeenCalled()
++      expect(container.textContent).toContain('mounted')
++      expect(container.textContent).not.toContain('Failed to load plugins')
++      const notice = document.querySelector('[data-dsh-boot-degraded]')
++      expect(notice).not.toBeNull()
++      expect(notice?.textContent).toContain('broken')
++    } finally {
++      await entry.dispose()
++    }
++  })
++
++  it('keeps the fatal error page when an immediately row fails to activate', async () => {
++    const error = vi.spyOn(console, 'error').mockImplementation(() => { })
++    installFacade()
++    const container = document.createElement('div')
++    document.body.append(container)
++    win.__DSH_BOOT__ = {
++      rev: 'graph',
++      entries: [{ id: 'core', url: '/core.js', rev: '1', immediately: true }],
++      batches: [{ phase: 'application', url: '/application.js', rev: '1', entries: ['core'] }],
++    }
++    const entry = new AppWebEntry(container, {
++      loadBundle: async () => {
++        throw new Error('client-modules: bundle script failed to load')
++      },
++    }, { attempts: 1, backoffMs: 1 })
++    try {
++      await entry.run()
++      expect(container.textContent).toContain('Failed to load plugins')
++      expect(container.textContent).toContain('core')
+     } finally {
++      expect(error).toHaveBeenCalled()
+       await entry.dispose()
+     }
+   })

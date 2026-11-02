@@ -2,7 +2,9 @@
 
 ## 未发布
 - Windows「注册命令」修复：注入的 dsh.cmd 指向本桌面可执行名 DSH Desktop Plus.exe（原硬编码官方 DeepSeek Harness.exe），macOS shim 同步修正 (#73)。
-
+- 弱网/第三方隧道下插件加载失败自动重试并降级跳过，不再阻塞进入 DSH（#76）。
+- 鸿蒙壳主机管理页两处 toast 补上 %1$s 占位符替换（#75）。
+- 鸿蒙与 Android 壳顶栏新增手动整页重载入口（#77）。
 ## 已发布
 
 ### 0.2.2-alpha.2.plus.1
