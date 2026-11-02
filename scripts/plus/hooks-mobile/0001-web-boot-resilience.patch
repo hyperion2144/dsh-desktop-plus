@@ -1,5 +1,5 @@
 diff --git a/upstream/packages/client/web/README.md b/upstream/packages/client/web/README.md
-index 93f6bb95..ba586664 100644
+index 93f6bb95..4c1c519a 100644
 --- a/upstream/packages/client/web/README.md
 +++ b/upstream/packages/client/web/README.md
 @@ -39,7 +39,7 @@ Boot runs in two stages: the module stage adopts the parser-loaded bootstrap bat
@@ -7,7 +7,7 @@ index 93f6bb95..ba586664 100644
  ### The boot page
  
 -The boot page uses plain DOM and local CSS, so bundle and plugin-activation failures remain visible: it shows one spinner node whose CSS arc grows as entries activate, and reports per-entry status. The spinner and its animation phase persist until the full UI replaces the boot page. A plugin that fails import or activation is reported by name with the reason (missing service, import failure, or state) instead of a blank page. The console contains the original import error.
-+The boot page uses plain DOM and local CSS, so bundle and plugin-activation failures remain visible: it shows one spinner node whose CSS arc grows as entries activate, and reports per-entry status. The spinner and its animation phase persist until the full UI replaces the boot page. A plugin that fails import or activation is reported by name with the reason (missing service, import failure, or state) instead of a blank page. The console contains the original import error. Failed entries first get a bounded retry with exponential backoff; entries that still have not activated and are neither stage-one infrastructure (`immediately`) nor foreign to the manifest are skipped so the application can mount, and a framework-free notice above the mounted page names them with reload-to-retry and dismiss controls. Infrastructure rows keep the fatal boot-page report.
++Built-in `@deepseek-ai/*` rows keep the fatal boot-page report; market and third-party rows are skipped.
  
  <a id="the-shared-module-table"></a>
  ### The shared module table
@@ -21,7 +21,7 @@ index 93f6bb95..ba586664 100644
  
  <a id="dev-note"></a>
 diff --git a/upstream/packages/client/web/README.zh.md b/upstream/packages/client/web/README.zh.md
-index c9133620..1b9712b3 100644
+index c9133620..1fb77d71 100644
 --- a/upstream/packages/client/web/README.zh.md
 +++ b/upstream/packages/client/web/README.zh.md
 @@ -39,7 +39,7 @@ Web 和 Desktop 的数学公式渲染要求支持 WOFF2。[Web 构建](../../../
@@ -29,7 +29,7 @@ index c9133620..1b9712b3 100644
  ### 启动页
  
 -启动页只使用原生 DOM 与本地 CSS，因此 bundle 与插件激活失败保持可见：它显示一个 spinner 节点，其 CSS 圆弧随 entry 激活而增长，并逐 entry 报告状态。spinner 及其动画相位会一直保留，直到完整 UI 替换启动页。导入或激活失败的插件会按名称报告并给出原因（缺失服务、导入失败或状态），而不是白屏。控制台包含原始导入错误。
-+启动页只使用原生 DOM 与本地 CSS，因此 bundle 与插件激活失败保持可见：它显示一个 spinner 节点，其 CSS 圆弧随 entry 激活而增长，并逐 entry 报告状态。spinner 及其动画相位会一直保留，直到完整 UI 替换启动页。导入或激活失败的插件会按名称报告并给出原因（缺失服务、导入失败或状态），而不是白屏。控制台包含原始导入错误。失败的 entry 先经过有界的指数退避重试；仍未激活且既非 `immediately` 基础设施行、也非 manifest 之外条目的插件会被跳过，让应用得以挂载，挂载后的页面上方会出现一条免框架提示，列出被跳过的插件并提供「重试（整页刷新）」与「关闭」。基础设施行保持启动页上的致命报告。
++内置（`@deepseek-ai/*`）行保持启动页上的致命报告；市场与第三方行会被跳过。
  
  <a id="the-shared-module-table"></a>
  ### 共享模块表
@@ -43,7 +43,7 @@ index c9133620..1b9712b3 100644
  
  <a id="dev-note"></a>
 diff --git a/upstream/packages/client/web/src/boot-client.ts b/upstream/packages/client/web/src/boot-client.ts
-index bbc8e215..58c444d1 100644
+index bbc8e215..27de78b9 100644
 --- a/upstream/packages/client/web/src/boot-client.ts
 +++ b/upstream/packages/client/web/src/boot-client.ts
 @@ -1,17 +1,62 @@
@@ -111,7 +111,7 @@ index bbc8e215..58c444d1 100644
  /** Inputs of {@link bootClient}. */
  export interface ClientBootOptions {
    /** Fresh root Context that will own the plugin tree. */
-@@ -22,18 +67,30 @@ export interface ClientBootOptions {
+@@ -22,18 +67,31 @@ export interface ClientBootOptions {
    readonly manifest: BootManifest
    /** Per-entry state reporting (the boot page); omitted when no one renders progress. */
    readonly onEntryState?: (name: string, state: EntryStateLabel) => void
@@ -123,7 +123,7 @@ index bbc8e215..58c444d1 100644
 +interface BootFailure {
 +  readonly name: string
 +  readonly reason: string
-+  /** Stage-one infrastructure row, or a row the page does not own: its failure stays fatal. */
++  /** Built-in (`@deepseek-ai/*`) row, or a row the page does not own: its failure stays fatal. */
 +  readonly critical: boolean
  }
  
@@ -137,7 +137,8 @@ index bbc8e215..58c444d1 100644
 - * @returns resolves after every entry is active; rejects with the audit report otherwise.
 + * `loader.create({ name })` per manifest row, `loader.await()`, then retry
 + * failed entries with a bounded backoff. Entries that still have not activated
-+ * and are neither stage-one infrastructure (`immediately`) nor foreign to the
++  * and are outside the built-in `@deepseek-ai/*` scope — market and third-party
++  * plugins — are torn down and reported as skipped, so one flaky plugin cannot
 + * manifest are torn down and reported as skipped, so one flaky plugin cannot
 + * keep the application from mounting; every remaining failure rejects startup
 + * with that error text per entry.
@@ -149,15 +150,18 @@ index bbc8e215..58c444d1 100644
    const { ctx, manifest, onEntryState } = options
    await ctx.plugin(Loader)
    const loader = ctx.loader
-@@ -53,7 +110,44 @@ export async function bootClient(options: ClientBootOptions): Promise<void> {
+@@ -53,7 +111,47 @@ export async function bootClient(options: ClientBootOptions): Promise<void> {
    }
  
    await loader.await()
 -  assertEntriesActive(ctx, options.modules)
 +
++  // Only built-in plugins (the official @deepseek-ai/* scope) are critical:
++  // market and third-party entries degrade, so one flaky plugin cannot keep
++  // the page down. A row the page does not own stays fatal too.
 +  const criticalOf = (name: string): boolean => {
 +    const row = manifest.plugins.find(candidate => candidate.id === name)
-+    return row === undefined || row.immediately
++    return row === undefined || name.startsWith('@deepseek-ai/')
 +  }
 +  const policy = resolveBootRetry(options.retry)
 +  let failures = auditEntries(ctx, options.modules, criticalOf)
@@ -195,7 +199,7 @@ index bbc8e215..58c444d1 100644
  }
  
  /**
-@@ -64,26 +158,69 @@ export async function bootClient(options: ClientBootOptions): Promise<void> {
+@@ -64,26 +162,69 @@ export async function bootClient(options: ClientBootOptions): Promise<void> {
   * @throws {Error} listing every non-active entry with its reason.
   */
  export function assertEntriesActive(ctx: Context, modules: Pick<ClientModuleLoader, 'importError'>): void {
@@ -483,7 +487,7 @@ index 6515ed16..c81f494d 100644
        console.error(reason)
        if (onFailure !== undefined) onFailure(reason)
 diff --git a/upstream/packages/client/web/tests/boot-client.client.spec.ts b/upstream/packages/client/web/tests/boot-client.client.spec.ts
-index 17503e32..84eb44d6 100644
+index 17503e32..87f68285 100644
 --- a/upstream/packages/client/web/tests/boot-client.client.spec.ts
 +++ b/upstream/packages/client/web/tests/boot-client.client.spec.ts
 @@ -5,7 +5,7 @@ import {
@@ -541,7 +545,7 @@ index 17503e32..84eb44d6 100644
      const consumer = sink.states.get('consumer') ?? []
      expect(consumer[0]).toBe('loading')
      expect(consumer.at(-1)).toBe('active')
-@@ -66,32 +73,79 @@ describe('bootClient', () => {
+@@ -66,32 +73,94 @@ describe('bootClient', () => {
      await ctx.fiber.dispose()
    })
  
@@ -605,7 +609,7 @@ index 17503e32..84eb44d6 100644
 +    expect(sink.states.get('late')?.at(-1)).toBe('active')
 +  })
 +
-+  it('keeps the fatal report when an immediately row never activates', async () => {
++  it('skips a stage-one row that never activates', async () => {
 +    const graph: WebBootGraph = {
 +      rev: 'graph',
 +      entries: [{ id: 'core', url: '/core.js', rev: '1', immediately: true }],
@@ -614,11 +618,26 @@ index 17503e32..84eb44d6 100644
 +    const { modules } = modulesOf(graph, {})
 +    const ctx = new Context()
 +    onTestFinished(() => ctx.fiber.dispose())
++
++    const result = await bootClient({ ctx, modules, manifest: modules.manifest, retry: FAST_RETRY })
++
++    expect(result.skipped.map(entry => entry.name)).toEqual(['core'])
++  })
++
++  it('keeps the fatal report when a built-in row never activates', async () => {
++    const graph: WebBootGraph = {
++      rev: 'graph',
++      entries: [{ id: '@deepseek-ai/core', url: '/core.js', rev: '1', immediately: true }],
++      batches: [{ phase: 'application', url: '/application.js', rev: 'batch', entries: ['@deepseek-ai/core'] }],
++    }
++    const { modules } = modulesOf(graph, {})
++    const ctx = new Context()
++    onTestFinished(() => ctx.fiber.dispose())
 +    const error = vi.spyOn(ctx.logger, 'error').mockImplementation(() => { })
 +    onTestFinished(() => { error.mockRestore() })
 +
 +    await expect(bootClient({ ctx, modules, manifest: modules.manifest, retry: FAST_RETRY })).rejects.toThrow(
-+      'web boot: 1 entry did not activate\ncore: import failed',
++      'web boot: 1 entry did not activate\n@deepseek-ai/core: import failed',
 +    )
 +  })
 +
@@ -634,7 +653,7 @@ index 17503e32..84eb44d6 100644
    })
  })
  
-@@ -147,3 +201,12 @@ describe('assertEntriesActive', () => {
+@@ -147,3 +216,12 @@ describe('assertEntriesActive', () => {
      ].join('\n'))
    })
  })
@@ -701,7 +720,7 @@ index 00000000..a1a31acf
 +  })
 +})
 diff --git a/upstream/packages/client/web/tests/boot.client.spec.ts b/upstream/packages/client/web/tests/boot.client.spec.ts
-index 9ac94507..f7c5d270 100644
+index 9ac94507..33d084a6 100644
 --- a/upstream/packages/client/web/tests/boot.client.spec.ts
 +++ b/upstream/packages/client/web/tests/boot.client.spec.ts
 @@ -70,35 +70,75 @@ describe('bootstrap failure rendering', () => {
@@ -779,8 +798,8 @@ index 9ac94507..f7c5d270 100644
 +    document.body.append(container)
 +    win.__DSH_BOOT__ = {
 +      rev: 'graph',
-+      entries: [{ id: 'core', url: '/core.js', rev: '1', immediately: true }],
-+      batches: [{ phase: 'application', url: '/application.js', rev: '1', entries: ['core'] }],
++      entries: [{ id: '@deepseek-ai/core', url: '/core.js', rev: '1', immediately: true }],
++      batches: [{ phase: 'application', url: '/application.js', rev: '1', entries: ['@deepseek-ai/core'] }],
 +    }
 +    const entry = new AppWebEntry(container, {
 +      loadBundle: async () => {
