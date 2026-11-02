@@ -50,7 +50,9 @@ const fail = (message) => {
 
 const hooks = patchSetDir(ROOT, setName)
 const patches = patchPaths(ROOT, setName)
-if (patches.length === 0) fail(`no patches in ${hooks}`)
+// An empty set is extractable when --adopt names the set's first patch;
+// the patch-consumption modes have nothing to do without one.
+if (patches.length === 0 && adopt === undefined) fail(`no patches in ${hooks}`)
 
 
 

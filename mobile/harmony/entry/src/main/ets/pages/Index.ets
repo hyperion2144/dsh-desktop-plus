@@ -276,6 +276,18 @@ struct Index {
     return parts.join(' · ');
   }
 
+  /** 手动整页重载：对页面加载失败（如插件 boot 失败）做壳层恢复，与换主机同一 reload 原语。 */
+  reloadPage(): void {
+    if (!this.pageArmed) {
+      return;
+    }
+    try {
+      this.controller.loadUrl(this.pageUrl);
+    } catch (error) {
+      // 控制器尚未附着（arm 与附着之间的窗口）时无页面可重载，忽略。
+    }
+  }
+
   build() {
     Stack({ alignContent: Alignment.BottomEnd }) {
       Column() {
@@ -289,6 +301,13 @@ struct Index {
             .margin({ left: 8 })
             .maxLines(1)
             .layoutWeight(1)
+          Text('⟳')
+            .fontSize(15)
+            .fontColor($r('app.color.dsh_label_secondary'))
+            .padding({ left: 12, right: 4, top: 10, bottom: 10 })
+            .onClick(() => {
+              this.reloadPage();
+            })
           Text($r('app.string.management_entry'))
             .fontSize(13)
             .fontColor($r('app.color.dsh_deepseek_400'))

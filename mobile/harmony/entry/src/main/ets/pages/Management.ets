@@ -369,8 +369,10 @@ struct Management {
 
   /** 真正移除（已过确认与生物锁）。 */
   confirmRemove(id: string): void {
+    const host = this.shell.registry.find(id);
+    const name = host === null ? id : host.displayName();
     this.shell.registry.remove(id).then(() => {
-      promptAction.showToast({ message: this.str($r('app.string.toast_host_removed')) });
+      promptAction.showToast({ message: this.str($r('app.string.toast_host_removed')).replace('%1$s', name) });
       this.render();
     });
   }
@@ -491,7 +493,7 @@ struct Management {
                     return;
                   }
                   this.shell.registry.setCurrent(row.id).then(() => {
-                    promptAction.showToast({ message: this.str($r('app.string.toast_switching_host')) });
+                    promptAction.showToast({ message: this.str($r('app.string.toast_switching_host')).replace('%1$s', row.label) });
                     router.back();
                   });
                 })
