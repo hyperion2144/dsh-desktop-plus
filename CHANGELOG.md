@@ -1,6 +1,7 @@
 # Changelog
 
 ## 未发布
+- Windows「注册命令」修复：注入的 dsh.cmd 指向本桌面可执行名 DSH Desktop Plus.exe（原硬编码官方 DeepSeek Harness.exe），macOS shim 同步修正 (#73)。
 
 ## 已发布
 
