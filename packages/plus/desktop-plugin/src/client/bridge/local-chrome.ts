@@ -1,13 +1,7 @@
-import type { DesktopClientPlatform } from '../features/environment.ts'
 import { shellRpc } from '../shell/shell-rpc.ts'
 import { invokeCommand } from '../desktop-settings/rpc.ts'
 import type { PlusT } from '../i18n/namespace.ts'
 
-/** macOS 侧栏顶部拖拽带高度（CSS px）。win32/linux 顶部 chrome 已上收壳 preload（#112）。 */
-const DARWIN_STRIP_HEIGHT = 28
-
-/** macOS 折叠态拖拽带宽度：只铺红绿灯区（官方 shell.leading 座位按钮在 x≈88 起，#23）。 */
-const TRAFFIC_LIGHT_BAND = 76
 
 /** ui-layout 原生 frame 的 overlay 层稳定标记（AppFrame 固定渲染 data-shell-overlay）。 */
 const FRAME_LAYER_SELECTOR = '[data-shell-overlay]'
@@ -22,35 +16,19 @@ function locateLayout(): { frame: HTMLElement; sidebar: HTMLElement; center: HTM
 }
 
 /**
- * 高级模式局部窗口 chrome。
+ * 高级模式局部窗口 chrome（#74 收缩后只剩 plus 自己的能力）：
+ * 底部状态条——DSH 服务状态 + 悬停「退出本窗口」交互（官方没有这个表面）。
+ * 窗口拖拽、标题栏空间、侧栏、折叠态全部走官方路径（壳 preload 标 data-platform；
+ * ui-web 的 data-window-drag chrome 行 + recall watcher；官方 AppFrame 的 darwin 折叠与
+ * clearance 变量），本模块不再自绘拖拽带/侧栏修复/折叠覆盖。
  *
- * 不动 ui-layout（不禁用、不接管 root、不提供 layout 服务），只在原生布局的
- * 局部放拖拽区与自绘窗口按钮：
- * - darwin：sidebar 顶部一条拖拽区（透明），并把 sidebar 内容下移对应高度；
- *   折叠时把侧栏网格轨道加宽到 90px（红绿灯始终在侧栏内），内部 56px 窄栏水平居中，
- *   并禁用 frame 的慢速网格过渡（避免我们的覆盖与过渡互相重启导致折叠卡慢）；
- * - win32/linux：不再绘制顶部 chrome（#112）：标题栏带与三键上收壳 preload
- *
- * 挂点范式照搬 better-sidebar：往 document.body 追加 fixed host，子元素绝对定位；
- * frame / 三列用 ui-layout 的稳定标记定位（不依赖 hash 类名）。
+ * 挂点范式照搬 better-sidebar：往 document.body 追加 fixed host，状态条绝对定位；
+ * frame / 侧栏用 ui-layout 的稳定标记定位（不依赖 hash 类名）。
  */
-export function installLocalChrome(platform: DesktopClientPlatform, t: PlusT): () => void {
+export function installLocalChrome(t: PlusT): () => void {
 
   const host = document.createElement('div')
   host.className = 'dshDesktopChromeHost'
-  const strip = document.createElement('div')
-  strip.className = 'dshDesktopChromeStrip'
-  const drag = document.createElement('div')
-  drag.className = 'dshDesktopChromeDrag'
-  // 拖拽区：Electrobun 认 preload/dragRegions 的类名，官方 Electron 壳认 CSS 属性
-  // -webkit-app-region: drag。两个都挂上，两种壳都能拖窗口（按钮是 drag 的兄弟节点，不受影响）。
-  drag.classList.add('electrobun-webkit-app-region-drag')
-  drag.style.setProperty('-webkit-app-region', 'drag')
-  strip.appendChild(drag)
-  // #112：win32/linux 的标题栏带与三键上收壳 preload，页面内只在 darwin 铺拖拽带；
-  // strip/drag 在 win/linux 保持游离节点不进 DOM（只有 sync 的 darwin 分支触达）；
-  // host 全平台承载底部状态条，dispose 统一移除。
-  if (platform === 'darwin') host.appendChild(strip)
   document.body.appendChild(host)
 
   /** 底部状态条高度（sidebar 内容用 padding-bottom 让出一整行）。 */
@@ -201,73 +179,6 @@ export function installLocalChrome(platform: DesktopClientPlatform, t: PlusT): (
     })
   }
 
-  /**
-   * 侧边栏宽度修复（浏览器元素定位实证）：`div[data-slot="sidebar"]` 下第一个 div
-   * （.hHd-Xa_root）带内联 `flex-wrap: wrap; width: 420px`——flex-wrap 让超长标题
-   * 折行并把整段撑宽到 420px，超过外层侧边栏宽度被裁断（勾掉 flex-wrap 即正常）。
-   * 主修复：定位 [data-slot="sidebar"] 的 first-child → flex-wrap:nowrap（消除折行
-   * 撑宽），叠加 width/max-width 锁（内容死盯外层宽度，外层可拖拽跟随）、
-   * overflow-x:auto 兜底（个别元素不收缩时出横向滚动条）；子树铺 min-width:0
-   * 让标题回到 ellipsis。打稳定标记 + 内联样式，dispose 时全部还原。
-   */
-  const SIDEBAR_SCROLL_MARK = 'data-dsh-desktop-scroll'
-  let scrollRegion: HTMLElement | null = null
-  let scrollRoot: HTMLElement | null = null
-  const minWidthPatched: HTMLElement[] = []
-  const overflowXPatched: HTMLElement[] = []
-  const isScrollableY = (el: HTMLElement): boolean => {
-    const oy = getComputedStyle(el).overflowY
-    return oy === 'auto' || oy === 'scroll'
-  }
-  const ensureSidebarScroll = (sidebar: HTMLElement): void => {
-    // 【定位】优先稳定 slot 标记 [data-slot="sidebar"] 的 first-child（.hHd-Xa_root）；
-    // 兜底结构定位（sidebar 列的第一子元素）。
-    let root: HTMLElement | null = null
-    const slot = document.querySelector('[data-slot="sidebar"]')
-    if (slot !== null) {
-      root = Array.from(slot.children).find((el): el is HTMLElement => el instanceof HTMLElement) ?? null
-    }
-    if (root === null) {
-      root = Array.from(sidebar.children).find((el): el is HTMLElement => el instanceof HTMLElement) ?? null
-    }
-    if (root === null) return
-    // 【主修复】flex-wrap:wrap → nowrap（用户实证根因）；宽度锁到外层；overflow-x 兜底
-    root.style.flexWrap = 'nowrap'
-    root.style.width = '100%'
-    root.style.maxWidth = '100%'
-    root.style.minWidth = '0'
-    root.style.overflowX = 'auto'
-    scrollRoot = root
-    // region = SidebarRoot 里 flex:1 的内容区（logoRow/newSession/footArea 均 flex:none）
-    const region = Array.from(root.children).find((el): el is HTMLElement => {
-      return el instanceof HTMLElement && getComputedStyle(el).flexGrow === '1'
-    })
-    if (region === undefined) return
-    scrollRegion = region
-    // 【辅修复】收缩链：子树所有 flex 容器铺 min-width:0；纵向滚动容器补 overflow-x:auto
-    minWidthPatched.length = 0
-    const visit = (el: HTMLElement): void => {
-      const style = getComputedStyle(el)
-      if (style.display.includes('flex')) {
-        el.style.minWidth = '0'
-        minWidthPatched.push(el)
-      }
-      if (isScrollableY(el)) {
-        el.style.overflowX = 'auto'
-        overflowXPatched.push(el)
-      }
-      for (const child of el.children) {
-        if (child instanceof HTMLElement) visit(child)
-      }
-    }
-    for (const child of Array.from(region.children)) {
-      if (child instanceof HTMLElement) visit(child)
-    }
-    if (root.getAttribute(SIDEBAR_SCROLL_MARK) === null) {
-      root.setAttribute(SIDEBAR_SCROLL_MARK, '')
-    }
-  }
-
   const sync = () => {
     const layout = locateLayout()
     if (layout === null) {
@@ -276,37 +187,15 @@ export function installLocalChrome(platform: DesktopClientPlatform, t: PlusT): (
       return
     }
     attempts = 0
-    const { frame, sidebar } = layout
-    ensureSidebarScroll(sidebar)
+    const { sidebar } = layout
     const sidebarWidth = sidebar.offsetWidth
     // 底部状态条：内容行让出一整行（所有平台），状态条覆盖其上
     sidebar.style.paddingBottom = `${STATUS_BAR_HEIGHT}px`
+    // #74：host 只覆盖状态条自身——官方 darwin 组合规则把 body 直挂元素（body > :not(#root)）
+    // 算作 no-drag，全视口 host 会按几何顺序减掉窗口里所有官方拖拽行（聚焦拖不动的根因）。
+    host.style.cssText = `left:0;bottom:0;width:${sidebarWidth}px;height:${STATUS_BAR_HEIGHT}px;`
     bar.style.cssText = `left:0;bottom:0;width:${sidebarWidth}px;height:${STATUS_BAR_HEIGHT}px;`
 
-    if (platform === 'darwin') {
-      const collapsed = frame.hasAttribute('data-sidebar-collapsed')
-      // 高级模式禁掉 stock 的慢速网格过渡：我们的 important 覆盖若与过渡并行，
-      // 每帧读「动画中间值」写回都会让 CSS 过渡重新开始，折叠会形同卡帧、非常慢。
-      // 直接禁用让宽度即时到位（对应 stock 拖拽时本来就 transition:none 的行为）。
-      frame.style.setProperty('transition', 'none', 'important')
-      if (collapsed) {
-        // 官方桌面语义（html[data-platform='darwin']，advanced-shell 设置）：折叠=0px
-        // 全隐 + shell.leading 座位放官方「打开侧边栏/新会话」按钮（红绿灯旁 x≈88 起）。
-        // 拖拽带只铺红绿灯区（TRAFFIC_LIGHT_BAND），不遮座位按钮；状态条按维护者
-        // 拍板随侧栏隐藏（#23 Q1）。
-        strip.style.cssText = `left:0;top:0;width:${TRAFFIC_LIGHT_BAND}px;height:${DARWIN_STRIP_HEIGHT}px;background:transparent;`
-        drag.style.cssText = 'position:absolute;inset:0;'
-        sidebar.style.paddingTop = ''
-        bar.style.display = 'none'
-      } else {
-        // 官方桌面口径：拖拽带全透明、只铺红绿灯区（76px）——红绿灯浮在侧栏
-        // header 左侧空白区（折叠按钮在右侧，不受遮挡）；透明条带与任何主题
-        // 表面同色（同像素透出），色差从结构上不可能发生（#23）。
-        strip.style.cssText = `left:0;top:0;width:${TRAFFIC_LIGHT_BAND}px;height:${DARWIN_STRIP_HEIGHT}px;`
-        drag.style.cssText = 'position:absolute;inset:0;'
-        bar.style.display = ''
-      }
-    }
   }
 
   try {
@@ -354,35 +243,7 @@ export function installLocalChrome(platform: DesktopClientPlatform, t: PlusT): (
     resizeObserver?.disconnect()
     mutationObserver?.disconnect()
     const found = locateLayout()
-    if (found !== null) {
-      found.sidebar.style.paddingTop = ''
-      found.sidebar.style.paddingBottom = ''
-      // 折叠加宽区残留一并清理（#37）：列内联背景、左右 padding 与 border-right，
-      // 以及 frame 上的 transition / grid-template-columns important 覆盖，
-      // HMR/停用后不留痕。
-      found.sidebar.style.paddingLeft = ''
-      found.sidebar.style.paddingRight = ''
-      found.sidebar.style.removeProperty('border-right')
-      found.frame.style.removeProperty('transition')
-      found.frame.style.removeProperty('grid-template-columns')
-    }
-    // 还原侧边栏宽度修复（HMR/停用后不留内联样式与标记）
-    for (const el of minWidthPatched) el.style.minWidth = ''
-    for (const el of overflowXPatched) el.style.overflowX = ''
-    minWidthPatched.length = 0
-    overflowXPatched.length = 0
-    if (scrollRoot !== null) {
-      scrollRoot.style.flexWrap = ''
-      scrollRoot.style.width = ''
-      scrollRoot.style.maxWidth = ''
-      scrollRoot.style.minWidth = ''
-      scrollRoot.style.overflowX = ''
-      scrollRoot.removeAttribute(SIDEBAR_SCROLL_MARK)
-      scrollRoot = null
-    }
-    if (scrollRegion !== null) {
-      scrollRegion = null
-    }
+    if (found !== null) found.sidebar.style.paddingBottom = ''
     host.remove()
   }
 }

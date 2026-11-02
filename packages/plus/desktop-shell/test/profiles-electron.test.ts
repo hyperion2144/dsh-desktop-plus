@@ -83,7 +83,7 @@ const native = vi.hoisted(() => {
 			this.emit('close')
 		}
 	}
-	return { windows, partitions, FakeWindow }
+	return { windows, partitions, FakeWindow, registerPreloadScript: vi.fn(), unregisterPreloadScript: vi.fn(() => { throw new Error('plus preload id not registered yet') }) }
 })
 
 vi.mock('electron', () => ({
@@ -91,7 +91,7 @@ vi.mock('electron', () => ({
 	session: {
 		fromPartition: vi.fn((partition: string) => {
 			native.partitions.push(partition)
-			return { partition }
+			return { partition, registerPreloadScript: native.registerPreloadScript, unregisterPreloadScript: native.unregisterPreloadScript }
 		}),
 	},
 }))
@@ -123,6 +123,8 @@ describe('createElectronProfileRuntime', () => {
 		native.partitions.length = 0
 		app.getPath.mockClear()
 		app.on.mockClear()
+		native.registerPreloadScript.mockClear()
+		native.unregisterPreloadScript.mockClear()
 	})
 
 	afterEach(() => {
@@ -177,6 +179,33 @@ describe('createElectronProfileRuntime', () => {
 		expect(window.loaded).toEqual(['http://127.0.0.1:7777/work'])
 		// #③：窗口建好即显示（此前只能从托盘点「显示」才看得到）。
 		expect(window.shown).toBe(1)
+	})
+
+	it('marks the local profile window via its partition session preload (#74)', async () => {
+		const { created } = runtime()
+		await created.manager.open('work')
+		expect(native.registerPreloadScript).toHaveBeenCalledWith({
+			id: 'plus-local-window-work',
+			type: 'frame',
+			filePath: join(userDataDir, 'plus-preloads', 'work.js'),
+		})
+		const source = readFileSync(join(userDataDir, 'plus-preloads', 'work.js'), 'utf8')
+		expect(source).toContain('__DSH_PLUS_LOCAL_WINDOW__')
+		expect(source).toContain('"work"')
+	})
+
+	it('re-registers the marker preload after a restart without stacking (#74)', async () => {
+		const { created } = runtime()
+		await created.manager.open('work')
+		await created.restartProfile('work')
+		expect(native.unregisterPreloadScript).toHaveBeenCalledWith('plus-local-window-work')
+		expect(native.registerPreloadScript).toHaveBeenCalledTimes(2)
+	})
+
+	it('does not mark the default profile session (#74)', async () => {
+		const { created } = runtime()
+		await created.manager.open('desktop')
+		expect(native.registerPreloadScript).not.toHaveBeenCalled()
 	})
 
 	it('hides the window instead of closing it, and keeps the host running', async () => {

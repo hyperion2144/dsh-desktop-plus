@@ -35,5 +35,12 @@ describe('createRpcRegistry', () => {
 		await expect(registry.dispatch('known', undefined)).resolves.toEqual({ value: 1 })
 		expect(seen).toEqual([{}])
 	})
+	it('forwards the call context to the handler (#74)', async () => {
+		const seen: unknown[] = []
+		const registry = createRpcRegistry([{ known: (_params, ctx) => (seen.push(ctx), 1) }])
+		await expect(registry.dispatch('known', {}, { profile: 'work' })).resolves.toEqual({ value: 1 })
+		expect(seen).toEqual([{ profile: 'work' }])
+		await expect(registry.dispatch('known', {}, undefined)).resolves.toEqual({ value: 1 })
+		expect(seen).toEqual([{ profile: 'work' }, undefined])
+	})
 })
-

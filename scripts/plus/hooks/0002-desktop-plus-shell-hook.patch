@@ -463,7 +463,7 @@ index 8508730b..d4811d75 100644
    if (prototype[patched]) return
    prototype[patched] = true
 diff --git a/upstream/apps/desktop/src/host-process.ts b/upstream/apps/desktop/src/host-process.ts
-index 338f93bd..451c568d 100644
+index 338f93bd..ab6492fc 100644
 --- a/upstream/apps/desktop/src/host-process.ts
 +++ b/upstream/apps/desktop/src/host-process.ts
 @@ -45,9 +45,57 @@ type DesktopHostEvent = ReadyEvent | FatalEvent | PlatformSessionEvent | {
@@ -508,7 +508,7 @@ index 338f93bd..451c568d 100644
 +type DesktopHostControlResponse = Exclude<Extract<DesktopHostEvent, { readonly requestId: number }>, { readonly type: 'plus-shell-rpc' }>
 +
 +/** 宿主插件发起、壳注册表派发的 RPC（main 在注册表就绪后设置）。 */
-+let plusShellRpcHandler: ((method: string, params: unknown) => Promise<{ value?: unknown, error?: unknown }>) | undefined
++let plusShellRpcHandler: ((method: string, params: unknown, profile?: string) => Promise<{ value?: unknown, error?: unknown }>) | undefined
 +
 +/** 设置宿主→壳的 RPC 处理函数（main 只有一次注册表）。 */
 +export function setPlusShellRpcHandler(handler: typeof plusShellRpcHandler): void {
@@ -564,11 +564,13 @@ index 338f93bd..451c568d 100644
    private nextControlId = 1
    private readonly controlRequests = new Map<number, {
      resolve: (response: DesktopHostControlResponse) => void
-@@ -200,8 +264,38 @@ export class DesktopHostProcess {
+@@ -200,8 +264,40 @@ export class DesktopHostProcess {
  
      private readonly onPlatformSession?: (session: PlatformSession | null) => void,
      private readonly onPluginOperation?: (record: PluginOperationRecord) => void,
 +    private readonly onHostOutput?: (line: string) => void,
++    /** plus：本宿主服务的 profile 名（缺省 = 默认桌面宿主）；随 `plus-shell-rpc` 分派回填注册表上下文。 */
++    private readonly plusProfile?: string,
    ) {}
  
 +  /**
@@ -603,7 +605,7 @@ index 338f93bd..451c568d 100644
    /**
     * Start this child once and await its Web application URL.
     * @returns Ready facts supplied by the child after application startup.
-@@ -226,6 +320,17 @@ export class DesktopHostProcess {
+@@ -226,6 +322,17 @@ export class DesktopHostProcess {
      child.stderr?.setEncoding('utf8')
      child.stderr?.on('data', (chunk: string) => { this.stderr = (this.stderr + chunk).slice(-MAX_HOST_DIAGNOSTIC_CHARS) })
      child.stdout?.pipe(process.stdout)
@@ -621,7 +623,7 @@ index 338f93bd..451c568d 100644
      child.on('message', (message: unknown) => {
        if (typeof message === 'object' && message !== null && 'type' in message && message.type === 'plugin-operation') {
          const record = 'record' in message ? parsePluginOperationRecord(message.record) : undefined
-@@ -251,6 +356,27 @@ export class DesktopHostProcess {
+@@ -251,6 +358,27 @@ export class DesktopHostProcess {
          else this.fail(new Error('dsh desktop host acknowledged an unrequested shutdown'))
        }
        else if (message.type === 'fatal') this.fail(new DesktopHostFatalError(message.message, message.diagnostic))
@@ -630,7 +632,7 @@ index 338f93bd..451c568d 100644
 +        void (async () => {
 +          const result = plusShellRpcHandler === undefined
 +            ? { error: 'shell rpc handler unavailable' }
-+            : await plusShellRpcHandler(message.method, message.params)
++            : await plusShellRpcHandler(message.method, message.params, this.plusProfile)
 +          if (child.connected) child.send({ type: 'plus-shell-rpc-result', requestId: message.requestId, ...result })
 +        })()
 +      }
@@ -650,7 +652,7 @@ index 338f93bd..451c568d 100644
          const request = this.controlRequests.get(message.requestId)
          if (message.error === undefined) request?.resolve(message)
 diff --git a/upstream/apps/desktop/src/main.ts b/upstream/apps/desktop/src/main.ts
-index 4770fe83..2fab2d87 100644
+index 4770fe83..11fea76a 100644
 --- a/upstream/apps/desktop/src/main.ts
 +++ b/upstream/apps/desktop/src/main.ts
 @@ -13,6 +13,7 @@ import {
@@ -1149,7 +1151,7 @@ index 4770fe83..2fab2d87 100644
          })
          operationJournal.enqueue(JSON.stringify(record))
 -      })
-+      }, (line) => { plusLogger.append(`[${DEFAULT_PROFILE}] ${line}`); onHostOutput?.(line) })
++      }, (line) => { plusLogger.append(`[${DEFAULT_PROFILE}] ${line}`); onHostOutput?.(line) }, DEFAULT_PROFILE)
 +    plusPrimaryHost = host
      return {
        start: async () => {
@@ -1296,16 +1298,19 @@ index 4770fe83..2fab2d87 100644
        ]
        const zoom = mainWindow.webContents.getZoomFactor()
        return new Promise<void>((resolve) => {
-@@ -1143,14 +1499,21 @@ async function main(): Promise<void> {
+@@ -1143,14 +1499,23 @@ async function main(): Promise<void> {
        })
      })
      ipcMain.on(DESKTOP_IPC.windowsAppearance, (event, _language: unknown, color: unknown, symbolColor: unknown) => {
 -      if (mainWindow === undefined || event.sender !== mainWindow.webContents
 -        || event.senderFrame !== mainWindow.webContents.mainFrame) return
+-      if (!event.senderFrame.url.startsWith(`${SCHEME}://app/`)) return
 +      // 每个桌面窗口（主窗 + profile 窗）都跑同一 dsh 页面并上报自己的主题色；
 +      // overlay 必须落在上报来源的窗口上，否则 profile 窗的控制按钮底色停在初始值。
 +      if (event.senderFrame === null || event.senderFrame !== event.sender.mainFrame) return
-       if (!event.senderFrame.url.startsWith(`${SCHEME}://app/`)) return
++      // #74：官方文档（dsh-app://app/）与本地 profile host（回环 http）都跑同一 dsh 页面并上报。
++      const appearanceUrl = event.senderFrame.url
++      if (!appearanceUrl.startsWith(`${SCHEME}://app/`) && !/^https?:\/\/(?:127\.0\.0\.1|localhost)(?::\d+)?\//.test(appearanceUrl)) return
        // Document lang starts as English before Host locale bootstrap; only localeChanged owns shell language.
        // Empty colors precede client stylesheet installation; only CSS color values cross IPC.
        const validColor = (value: unknown): value is string => typeof value === 'string'
@@ -1321,7 +1326,7 @@ index 4770fe83..2fab2d87 100644
      })
    }
  
-@@ -1166,6 +1529,10 @@ async function main(): Promise<void> {
+@@ -1166,6 +1531,10 @@ async function main(): Promise<void> {
    const createMainWindow = (): BrowserWindow => {
      const window = createWindow(appPreload, false, true)
      mainWindow = window
@@ -1332,7 +1337,7 @@ index 4770fe83..2fab2d87 100644
      browserGuests.bind(window, (guest, name) => shortcuts.attachGuest(window, guest, name))
      shortcuts.attach(window)
      window.on('focus', automaticCheck)
-@@ -1175,7 +1542,7 @@ async function main(): Promise<void> {
+@@ -1175,7 +1544,7 @@ async function main(): Promise<void> {
        event.preventDefault()
        if (updateDialog.isOpen) { updateDialog.focus(); return }
        const hide = (): void => {
@@ -1341,7 +1346,7 @@ index 4770fe83..2fab2d87 100644
        }
        if (backgroundNotice === undefined) hide()
        else backgroundNotice.close(hide)
-@@ -1190,7 +1557,7 @@ async function main(): Promise<void> {
+@@ -1190,7 +1559,7 @@ async function main(): Promise<void> {
        window.on('focus', () => { sessionEnding = false })
        window.on('show', () => { sessionEnding = false })
      }
@@ -1350,7 +1355,7 @@ index 4770fe83..2fab2d87 100644
      window.webContents.on('console-message', (details) => {
        if (details.level !== 'error') return
        rendererConsole.push(`${details.sourceId}:${String(details.lineNumber)} ${details.message}`)
-@@ -1317,7 +1684,7 @@ async function main(): Promise<void> {
+@@ -1317,7 +1686,7 @@ async function main(): Promise<void> {
      const window = welcomeWindow ?? mainWindow
      if (window === undefined || window.isDestroyed()) {
        try { createMainWindow() } catch (error) { reportFatal(error, 'main'); return }
@@ -1359,7 +1364,7 @@ index 4770fe83..2fab2d87 100644
        return
      }
      // Startup and sign-out select the visible window before activation may reveal the workspace.
-@@ -1337,6 +1704,8 @@ async function main(): Promise<void> {
+@@ -1337,6 +1706,8 @@ async function main(): Promise<void> {
      if (!hasVisibleWindows) focusPrimaryWindow()
    })
    app.on('window-all-closed', () => {
@@ -1368,7 +1373,7 @@ index 4770fe83..2fab2d87 100644
      if (process.platform !== 'darwin') app.quit()
    })
    if (process.platform !== 'win32') powerMonitor.on('shutdown', () => { sessionEnding = true })
-@@ -1358,6 +1727,8 @@ async function main(): Promise<void> {
+@@ -1358,6 +1729,8 @@ async function main(): Promise<void> {
          await operationJournal?.drain(500)
          throw error
        }),
@@ -1377,7 +1382,7 @@ index 4770fe83..2fab2d87 100644
        platformView.dispose(),
        disposeFileDrag(),
      ].map(cleanup => cleanup.catch((error: unknown) => { console.error(error) })))
-@@ -1388,6 +1759,41 @@ async function main(): Promise<void> {
+@@ -1388,6 +1761,41 @@ async function main(): Promise<void> {
    })
  
    mainWindow = createMainWindow()
@@ -1419,7 +1424,7 @@ index 4770fe83..2fab2d87 100644
    if (typeof manifest !== 'object' || manifest === null) throw new Error('desktop policy: invalid application manifest')
    const developmentPolicy = app.isPackaged ? undefined : process.env.DSH_DESKTOP_MANDATORY_UPDATE_CONFIG
    const policyInput: unknown = app.isPackaged
-@@ -1440,15 +1846,672 @@ async function main(): Promise<void> {
+@@ -1440,15 +1848,672 @@ async function main(): Promise<void> {
    publishUpdate(updateState)
  }
  
@@ -1809,7 +1814,7 @@ index 4770fe83..2fab2d87 100644
 +])
 +
 +// 宿主里的插件（页面 client 的 host 半区）经宿主 IPC 发起 RPC：用同一张注册表派发。
-+setPlusShellRpcHandler(async (method, params) => plusRpcRegistry.dispatch(method, params as Record<string, unknown> | undefined))
++setPlusShellRpcHandler(async (method, params, profile) => plusRpcRegistry.dispatch(method, params as Record<string, unknown> | undefined, profile === undefined ? undefined : { profile }))
 +
 +// ── 宿主插件单向事件（plus-shell-notify）：通知投递 + 防休眠忙租约 ──
 +const plusNotifier = createPlusNotifier({
@@ -1862,8 +1867,7 @@ index 4770fe83..2fab2d87 100644
 +  const proxy = resolveProxyEnv(loadDesktopSettings(resolveDshHome()), detectSystemProxy({ platform: process.platform, env: process.env }))
 +  return proxy === null ? {} : proxyEnvRecord(proxy)
 +}
- 
--if (ownsDesktopInstance) void app.whenReady().then(main).catch(async (error: unknown) => {
++
 +
 +
 +
@@ -1948,7 +1952,8 @@ index 4770fe83..2fab2d87 100644
 +function plusProfileHostEnv(base: NodeJS.ProcessEnv, name: string): NodeJS.ProcessEnv {
 +  return { ...base, ...resolvedProxyEnvRecord(), DSH_CLIENT_VERSION: desktopClientVersion(), DSH_REMOTE_LANE_PORT: String(lanePortFor(name)), ...plusTelemetryOptOutEnv() }
 +}
-+
+ 
+-if (ownsDesktopInstance) void app.whenReady().then(main).catch(async (error: unknown) => {
 +/** 远程重启 API：带配对 cookie 调远端 restart_desktop_app（lane 反代与 dsh 直连都靠 cookie 鉴权）。 */
 +async function restartRemoteProfileApp(remoteUrl: string, name: string): Promise<string> {
 +  const origin = remoteOrigin(remoteUrl)
@@ -2034,7 +2039,7 @@ index 4770fe83..2fab2d87 100644
 +    (line) => {
 +      plusLogger.append(`[${name}] ${line}`)
 +      plusProfileSplashes.get(name)?.setStage({ stage: 'host', detail: line.length > 200 ? `${line.slice(0, 200)}…` : line })
-+    })
++    }, name)
 +  const ready = await host.start()
 +  const port = parsePort(ready.url)
 +  if (port !== undefined) plusProfilePorts.set(name, port)
@@ -2095,10 +2100,28 @@ index 4770fe83..2fab2d87 100644
  }).catch(async (error: unknown) => {
    console.error(error)
 diff --git a/upstream/apps/desktop/src/preload-app.ts b/upstream/apps/desktop/src/preload-app.ts
-index c9937a30..1c79731b 100644
+index c9937a30..cd8cb192 100644
 --- a/upstream/apps/desktop/src/preload-app.ts
 +++ b/upstream/apps/desktop/src/preload-app.ts
-@@ -105,7 +105,9 @@ if (location.protocol === `${SCHEME}:` && location.hostname === 'app') {
+@@ -70,6 +70,9 @@ function createProductApi(): DshDesktopProductApi {
+   }
+ }
+ 
++// #74：Windows 桌面 chrome（标题栏带 + caption 配色 + 原生菜单）属于壳，不属于文档来源。
++// profile 窗口加载本地 host 的回环 http 文档，同样需要预留条与配色上报；非 win32 早退。
++syncWindowsAppearance()
+ if (location.protocol === `${SCHEME}:` && location.hostname === 'app') {
+   contextBridge.exposeInMainWorld('dshOnboarding', {
+     hasApiKey: () => ipcRenderer.invoke(DESKTOP_IPC.onboardingApiKey) as Promise<boolean>,
+@@ -83,7 +86,6 @@ if (location.protocol === `${SCHEME}:` && location.hostname === 'app') {
+     if (previous === null) body.removeAttribute('tabindex')
+     else body.setAttribute('tabindex', previous)
+   })
+-  syncWindowsAppearance()
+   if (process.platform === 'win32') installMandatoryUpdateOverlay()
+   contextBridge.exposeInMainWorld('__DSH_DIRECTORY_PICKER__', {
+     pick: () => ipcRenderer.invoke(DESKTOP_IPC.directoryPick) as Promise<string | null>,
+@@ -105,11 +107,22 @@ if (location.protocol === `${SCHEME}:` && location.hostname === 'app') {
    })
  }
  
@@ -2109,6 +2132,20 @@ index c9937a30..1c79731b 100644
  syncWindowFullscreen()
  syncNativeTheme()
  // Main-process IPC also verifies the owning window and top frame.
+-contextBridge.exposeInMainWorld('dshDesktop', location.protocol === `${SCHEME}:` && location.hostname === 'app' && process.isMainFrame ? createProductApi() : { protocolVersion: 1 })
++// #74：profile 窗口（本地 host 回环 http）也是真实桌面窗口——platform 已标，dsh-client-shortcuts
++// 构造要求原生键盘桥（#④），因此给它们补 keyboard；browser/fileDrag 仍只给产品窗口，
++// 避免覆盖 plus 插件在 profile 窗口里的浏览器桥实现。
++const plusDesktopApi = createProductApi()
++const plusProductWindow = process.isMainFrame === true && location.protocol === `${SCHEME}:` && location.hostname === 'app'
++const plusProfileWindow = process.isMainFrame === true && location.protocol === 'http:'
++  && (location.hostname === '127.0.0.1' || location.hostname === 'localhost')
++contextBridge.exposeInMainWorld('dshDesktop', plusProductWindow
++  ? plusDesktopApi
++  : plusProfileWindow ? { protocolVersion: 1, keyboard: plusDesktopApi.keyboard } : { protocolVersion: 1 })
+ 
+ if (location.protocol === `${SCHEME}:` && location.hostname === 'app') {
+   contextBridge.exposeInMainWorld('__DSH_LOCALE__', {
 diff --git a/upstream/apps/desktop/src/preload-profile-delete.ts b/upstream/apps/desktop/src/preload-profile-delete.ts
 new file mode 100644
 index 00000000..187850d0

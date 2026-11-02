@@ -29,6 +29,8 @@ export interface ProxySnapshot {
 
 export interface SettingsCommands {
   /** 渲染环境：客户端插件的第一步；壳回不出 platform/profile 时整片桌面 chrome 不激活。 */
+  /** 渲染环境：客户端插件的第一步；壳回不出 platform/profile 时整片桌面 chrome 不激活。
+   *  `profile` 是发起调用方所属 profile：主宿主恒为 `desktop`，profile 宿主按宿主子进程身份回填真实名（#74）。 */
   get_desktop_client_environment: {
     args: {}
     result: { platform: string; profile: string; locale: 'en' | 'zh-CN' }
