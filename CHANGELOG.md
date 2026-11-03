@@ -1,6 +1,11 @@
 # Changelog
 
 ## 未发布
+
+## 已发布
+
+### 0.2.2-alpha.3.plus.1
+
 - 移除 Computer Use 的「默认列出 + asar 原生路径」两处自建改动，回归官方按需安装行为。
 - Windows「注册命令」修复：注入的 dsh.cmd 指向本桌面可执行名 DSH Desktop Plus.exe（原硬编码官方 DeepSeek Harness.exe），macOS shim 同步修正 (#73)。
 - 弱网/第三方隧道下插件加载失败自动重试并降级跳过，不再阻塞进入 DSH（#76）。
@@ -10,8 +15,6 @@
 - 右键菜单「开发者工具」改为按窗口打开：非 desktop profile 窗口不再错开 desktop 主窗口的 DevTools（#83）。
 - 修复非默认 profile 窗口的桌面语义缺失（Windows 三键压内容、macOS 无法拖动）：官方 preload 对所有窗口标 platform 并为 profile 窗口补键盘桥（与主窗口一致），删除插件自绘拖拽带/侧栏修复/折叠覆盖，拖拽与侧栏全部走官方模型；环境 RPC 返回真实 profile 名（#74）。
 - 内核升级到官方 dsh-v0.2.2-alpha.3（05b1cae8）：补丁集随上游重新生成，依赖图同步更新。
-
-## 已发布
 
 ### 0.2.2-alpha.2.plus.1
 
