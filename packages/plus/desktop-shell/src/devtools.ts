@@ -36,6 +36,16 @@ export function toggleDevTools(window: DevToolsWindow): void {
   else window.webContents.openDevTools({ mode: 'detach' })
 }
 
+/**
+ * The click action for a window's in-page DevTools menu entry: toggles the DevTools of the
+ * window that owns the menu, so every profile window controls only its own page.
+ * @param window - the window whose context menu opened.
+ * @returns a click handler bound to that window.
+ */
+export function windowDevToolsAction(window: DevToolsWindow): () => void {
+  return () => { toggleDevTools(window) }
+}
+
 /** Disposes the input listener installed by {@link attachPackagedDevTools}. */
 export interface DevToolsAttachment {
   dispose(): void

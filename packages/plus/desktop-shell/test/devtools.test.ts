@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { attachPackagedDevTools, toggleDevTools, type DevToolsInput, type DevToolsWindow } from '../src/devtools.ts'
+import { attachPackagedDevTools, toggleDevTools, windowDevToolsAction, type DevToolsInput, type DevToolsWindow } from '../src/devtools.ts'
 
 const key = (overrides: Partial<DevToolsInput> = {}): DevToolsInput => ({
     type: 'keyDown', key: 'F12', alt: false, meta: false, control: false, ...overrides,
@@ -74,5 +74,42 @@ describe('devtools toggle', () => {
         const before = window.log.length
         window.emit(key())
         expect(window.log.length).toBe(before)
+    })
+})
+
+describe('per-window DevTools menu action', () => {
+    const statefulWindow = (): DevToolsWindow & { log: string[] } => {
+        let opened = false
+        const log: string[] = []
+        return {
+            webContents: {
+                on() { },
+                off() { },
+                isDevToolsOpened: () => opened,
+                openDevTools: () => { opened = true; log.push('open') },
+                closeDevTools: () => { opened = false; log.push('close') },
+            },
+            log,
+        }
+    }
+
+    it('targets the window that owns the menu, never a global one', () => {
+        const owner = statefulWindow()
+        const bystander = statefulWindow()
+        windowDevToolsAction(owner)()
+        expect(owner.log).toEqual(['open'])
+        expect(bystander.log).toEqual([])
+    })
+
+    it('toggles its own window while another window stays open', () => {
+        const first = statefulWindow()
+        const second = statefulWindow()
+        windowDevToolsAction(first)()
+        windowDevToolsAction(second)()
+        expect(first.log).toEqual(['open'])
+        expect(second.log).toEqual(['open'])
+        windowDevToolsAction(first)()
+        expect(first.log).toEqual(['open', 'close'])
+        expect(second.log).toEqual(['open'])
     })
 })
