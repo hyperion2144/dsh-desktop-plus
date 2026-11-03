@@ -1,6 +1,6 @@
 /** Electron profile runtime: partitions, window lifecycle, restore, and quit persistence. */
 
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -13,26 +13,31 @@ const native = vi.hoisted(() => {
 		readonly loaded: string[] = []
 		hidden = 0
 		shown = 0
+		restored = 0
 		focused = 0
 		visible = false
 		hasFocus = false
 		minimized = false
 		destroyed = false
 		closePrevented = 0
-		private readonly closeListeners: ((event: { preventDefault(): void }) => void)[] = []
+		private readonly listeners = new Map<string, ((event: { preventDefault(): void }) => void)[]>()
 		constructor(readonly options: FakeWindowOptions) {
 			windows.push(this)
 		}
 		on(event: string, listener: (event: { preventDefault(): void }) => void): void {
-			if (event === 'close') this.closeListeners.push(listener)
+			const list = this.listeners.get(event) ?? []
+			list.push(listener)
+			this.listeners.set(event, list)
 		}
 		hide(): void {
 			this.hidden += 1
 			this.visible = false
+			this.emit('hide')
 		}
 		show(): void {
 			this.shown += 1
 			this.visible = true
+			this.emit('show')
 		}
 		focus(): void {
 			this.focused += 1
@@ -47,6 +52,16 @@ const native = vi.hoisted(() => {
 		isMinimized(): boolean {
 			return this.minimized
 		}
+		restore(): void {
+			this.minimized = false
+			this.restored += 1
+			this.emit('restore')
+		}
+
+		minimize(): void {
+			this.minimized = true
+			this.emit('minimize')
+		}
 		close(): void {
 			this.emitClose()
 		}
@@ -59,9 +74,13 @@ const native = vi.hoisted(() => {
 		async loadURL(url: string): Promise<void> {
 			this.loaded.push(url)
 		}
+		emit(event: string): void {
+			const payload = { preventDefault: () => { this.closePrevented += 1 } }
+			for (const listener of this.listeners.get(event) ?? []) listener(payload)
+		}
+
 		emitClose(): void {
-			const event = { preventDefault: () => { this.closePrevented += 1 } }
-			for (const listener of this.closeListeners) listener(event)
+			this.emit('close')
 		}
 	}
 	return { windows, partitions, FakeWindow }
@@ -111,7 +130,11 @@ describe('createElectronProfileRuntime', () => {
 		vi.restoreAllMocks()
 	})
 
-	function runtime(options: { failOn?: (name: string) => boolean, urlOf?: (name: string, attempt: number) => string } = {}, onChanged?: () => void) {
+	function runtime(
+		options: { failOn?: (name: string) => boolean, urlOf?: (name: string, attempt: number) => string } = {},
+		onChanged?: () => void,
+		onWindowVisibilityChanged?: (name: string, event: string) => void,
+	) {
 		const hosts: string[] = []
 		const stopped: string[] = []
 		let launches = 0
@@ -130,6 +153,7 @@ describe('createElectronProfileRuntime', () => {
 			},
 			userDataDir,
 			...(onChanged === undefined ? {} : { onChanged }),
+			...(onWindowVisibilityChanged === undefined ? {} : { onWindowVisibilityChanged }),
 		})
 		return { created, hosts, stopped }
 	}
@@ -165,11 +189,51 @@ describe('createElectronProfileRuntime', () => {
 		expect(stopped).toEqual([])
 	})
 
+	it('reports every visibility transition of a profile window to the shell', async () => {
+		const seen: string[] = []
+		const { created } = runtime({}, undefined, (name, event) => { seen.push(`${name}:${event}`) })
+		await created.manager.open('work')
+		seen.length = 0 // the open flow shows the window once; count only the tray interactions below
+		const window = native.windows[0]!
+		window.emitClose() // the close button: preventDefault + hide()
+		window.minimize()
+		created.showProfile('work') // restore() → restore, then show() → show
+		expect(seen).toEqual(['work:hide', 'work:minimize', 'work:restore', 'work:show'])
+	})
+
+	it('keeps visibility transitions out of the open-set change and its persistence', async () => {
+		const changed = vi.fn()
+		const visibility = vi.fn()
+		const { created } = runtime({}, changed, visibility)
+		await created.openProfile('work')
+		expect(changed).toHaveBeenCalledTimes(1)
+		const window = native.windows[0]!
+		window.emitClose()
+		window.minimize()
+		created.showProfile('work')
+		expect(visibility).toHaveBeenCalled()
+		expect(changed).toHaveBeenCalledTimes(1)
+		expect(existsSync(join(userDataDir, 'plus-profiles.json'))).toBe(false)
+	})
+
 	it('hides a profile window on request', async () => {
 		const { created } = runtime()
 		await created.manager.open('work')
 		expect(created.manager.hideOrClose('work')).toBe(true)
 		expect(native.windows[0]!.hidden).toBe(1)
+	})
+
+	it('restores a minimized window when the tray shows it', async () => {
+		const { created } = runtime()
+		await created.manager.open('work')
+		const window = native.windows[0]!
+		window.minimized = true
+		window.visible = false
+		created.showProfile('work')
+		expect(window.minimized).toBe(false)
+		expect(window.restored).toBe(1)
+		expect(window.visible).toBe(true)
+		expect(window.focused).toBe(1)
 	})
 
 	it('reopens the profiles recorded by the last run', async () => {

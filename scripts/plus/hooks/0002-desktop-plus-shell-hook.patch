@@ -650,7 +650,7 @@ index 338f93bd..451c568d 100644
          const request = this.controlRequests.get(message.requestId)
          if (message.error === undefined) request?.resolve(message)
 diff --git a/upstream/apps/desktop/src/main.ts b/upstream/apps/desktop/src/main.ts
-index 4770fe83..7827f858 100644
+index 4770fe83..2fab2d87 100644
 --- a/upstream/apps/desktop/src/main.ts
 +++ b/upstream/apps/desktop/src/main.ts
 @@ -13,6 +13,7 @@ import {
@@ -669,7 +669,7 @@ index 4770fe83..7827f858 100644
  } from 'electron'
 +import { existsSync, rmSync, writeFileSync } from 'node:fs'
 +import { spawn } from 'node:child_process'
-+import { applyLoginItemFromEnv, isLoginItemEnabled, setLoginItemEnabled, remoteProfileName, loadRemoteAddressList, partitionFor, remoteOrigin, listProfileDirs, createProfilesRpcHandlers, createUpdatesRpcHandlers, createSettingsRpcHandlers, createNotificationsRpcHandlers, applyWindowsAppUserModelId, attachDownloads, attachPackagedDevTools, attachPageConsole, collectDiagnostics, clearSelectedRuntime, createDownloadRpcHandlers, createElectronProfileRuntime, createLoggingKernel, createLoggingRpcHandlers, createProfileTray, createRpcRegistry, createShellKernel, ensurePlusProfileBundles, PLUS_BUNDLE_NAMES, DEFAULT_PROFILE, resolveStartupRuntimeSelection, restartApplicationInPlace, runPlusStartup, loadDesktopSettings, saveDesktopSettings, soundCapabilityReport, playSoundFile, createLifecycleRpcHandlers, resolveProxyEnv, proxyEnvRecord, detectSystemProxy, plusApplicationVersion, type RpcRegistry, type ProfileTray } from '@deepseek-ai/dsh-desktop-plus-shell'
++import { applyLoginItemFromEnv, isLoginItemEnabled, setLoginItemEnabled, remoteProfileName, loadRemoteAddressList, partitionFor, remoteOrigin, listProfileDirs, createProfilesRpcHandlers, createUpdatesRpcHandlers, createSettingsRpcHandlers, createNotificationsRpcHandlers, applyWindowsAppUserModelId, attachDownloads, attachPackagedDevTools, attachPageConsole, collectDiagnostics, clearSelectedRuntime, createDownloadRpcHandlers, createElectronProfileRuntime, createLoggingKernel, createLoggingRpcHandlers, createProfileTray, observeWindowVisibility, createRpcRegistry, createShellKernel, ensurePlusProfileBundles, PLUS_BUNDLE_NAMES, DEFAULT_PROFILE, resolveStartupRuntimeSelection, restartApplicationInPlace, runPlusStartup, loadDesktopSettings, saveDesktopSettings, soundCapabilityReport, playSoundFile, createLifecycleRpcHandlers, resolveProxyEnv, proxyEnvRecord, detectSystemProxy, plusApplicationVersion, type RpcRegistry, type ProfileTray } from '@deepseek-ai/dsh-desktop-plus-shell'
 +import { createBusyLease, createPlusNotifier, createSleepGate, createSplashWindow, deliverHostNotice, loadNotificationConfig, noticePolicyFromConfig, systemDefaultSoundCommand, type RestartAllOutcome } from '@deepseek-ai/dsh-desktop-plus-shell'
 +import { plusShellCopy } from '@deepseek-ai/dsh-desktop-plus-shell'
 +import { installShellConsoleTee } from '@deepseek-ai/dsh-desktop-plus-shell'
@@ -1321,15 +1321,18 @@ index 4770fe83..7827f858 100644
      })
    }
  
-@@ -1166,6 +1529,7 @@ async function main(): Promise<void> {
+@@ -1166,6 +1529,10 @@ async function main(): Promise<void> {
    const createMainWindow = (): BrowserWindow => {
      const window = createWindow(appPreload, false, true)
      mainWindow = window
 +    refreshPlusTray()
++    // #81：窗口可见性（hide/show/minimize/restore）统一喂给托盘刷新，文案永远跟随窗口真实状态；
++    // 不再依赖每个动作调用点各自记得补刷——profile 窗口的 close→hide 曾漏在那里。
++    observeWindowVisibility(window, () => { refreshPlusTray() })
      browserGuests.bind(window, (guest, name) => shortcuts.attachGuest(window, guest, name))
      shortcuts.attach(window)
      window.on('focus', automaticCheck)
-@@ -1175,7 +1539,7 @@ async function main(): Promise<void> {
+@@ -1175,7 +1542,7 @@ async function main(): Promise<void> {
        event.preventDefault()
        if (updateDialog.isOpen) { updateDialog.focus(); return }
        const hide = (): void => {
@@ -1338,7 +1341,7 @@ index 4770fe83..7827f858 100644
        }
        if (backgroundNotice === undefined) hide()
        else backgroundNotice.close(hide)
-@@ -1190,7 +1554,7 @@ async function main(): Promise<void> {
+@@ -1190,7 +1557,7 @@ async function main(): Promise<void> {
        window.on('focus', () => { sessionEnding = false })
        window.on('show', () => { sessionEnding = false })
      }
@@ -1347,7 +1350,7 @@ index 4770fe83..7827f858 100644
      window.webContents.on('console-message', (details) => {
        if (details.level !== 'error') return
        rendererConsole.push(`${details.sourceId}:${String(details.lineNumber)} ${details.message}`)
-@@ -1317,7 +1681,7 @@ async function main(): Promise<void> {
+@@ -1317,7 +1684,7 @@ async function main(): Promise<void> {
      const window = welcomeWindow ?? mainWindow
      if (window === undefined || window.isDestroyed()) {
        try { createMainWindow() } catch (error) { reportFatal(error, 'main'); return }
@@ -1356,7 +1359,7 @@ index 4770fe83..7827f858 100644
        return
      }
      // Startup and sign-out select the visible window before activation may reveal the workspace.
-@@ -1337,6 +1701,8 @@ async function main(): Promise<void> {
+@@ -1337,6 +1704,8 @@ async function main(): Promise<void> {
      if (!hasVisibleWindows) focusPrimaryWindow()
    })
    app.on('window-all-closed', () => {
@@ -1365,7 +1368,7 @@ index 4770fe83..7827f858 100644
      if (process.platform !== 'darwin') app.quit()
    })
    if (process.platform !== 'win32') powerMonitor.on('shutdown', () => { sessionEnding = true })
-@@ -1358,6 +1724,8 @@ async function main(): Promise<void> {
+@@ -1358,6 +1727,8 @@ async function main(): Promise<void> {
          await operationJournal?.drain(500)
          throw error
        }),
@@ -1374,7 +1377,7 @@ index 4770fe83..7827f858 100644
        platformView.dispose(),
        disposeFileDrag(),
      ].map(cleanup => cleanup.catch((error: unknown) => { console.error(error) })))
-@@ -1388,6 +1756,41 @@ async function main(): Promise<void> {
+@@ -1388,6 +1759,41 @@ async function main(): Promise<void> {
    })
  
    mainWindow = createMainWindow()
@@ -1416,7 +1419,7 @@ index 4770fe83..7827f858 100644
    if (typeof manifest !== 'object' || manifest === null) throw new Error('desktop policy: invalid application manifest')
    const developmentPolicy = app.isPackaged ? undefined : process.env.DSH_DESKTOP_MANDATORY_UPDATE_CONFIG
    const policyInput: unknown = app.isPackaged
-@@ -1440,15 +1843,671 @@ async function main(): Promise<void> {
+@@ -1440,15 +1846,672 @@ async function main(): Promise<void> {
    publishUpdate(updateState)
  }
  
@@ -2057,6 +2060,7 @@ index 4770fe83..7827f858 100644
 +  }),
 +  userDataDir: app.getPath('userData'),
 +  onChanged: () => { refreshPlusTray() },
++  onWindowVisibilityChanged: () => { refreshPlusTray() },
 +  log: (line) => { plusLogger.append(line) },
 +})
 +

@@ -8,6 +8,7 @@ import type { ProfileEntry, ProfileHandles, ProfileHostHandle, ProfileManager, Q
 import { loadOpenProfiles, partitionFor, resolveProfileDir, saveOpenProfiles } from './registry.ts'
 import { loadDesktopSettings, saveDesktopSettings } from '../rpc/desktop-settings.ts'
 
+import { observeWindowVisibility, type WindowVisibilityEvent } from '../tray/window-visibility.ts'
 /** The Host runtime behind a profile window, with the URL that window loads. */
 export interface PlusProfileHost extends ProfileHostHandle {
 	/** The loopback URL this profile's own Host serves. */
@@ -41,6 +42,8 @@ export interface ElectronProfileRuntimeDeps {
 	readonly userDataDir: string
 	/** Called after the open profile set changed, so the shell can refresh its surfaces. */
 	readonly onChanged?: () => void
+	/** Every visibility transition of an open profile window, so the shell can refresh its tray. */
+	readonly onWindowVisibilityChanged?: (name: string, event: WindowVisibilityEvent) => void
 	/** #8：用官方 createWindow 造 profile 窗口（preload/chrome/DevTools/console 全套）；name 用于会话隔离与日志标识。 */
 	readonly createWindow?: (name: string) => BrowserWindow
 	/** Structured shell log sink (plusLogger.append); the runtime never uses console. */
@@ -92,6 +95,10 @@ export function createElectronProfileRuntime(deps: ElectronProfileRuntimeDeps): 
 		const window = deps.createWindow !== undefined ? deps.createWindow(name) : new BrowserWindow({
 			title: `DeepSeek Harness — ${name}`,
 			webPreferences: { partition, contextIsolation: true, nodeIntegration: false },
+		})
+		// 可见性变化统一从这里上报：绑定在运行时创建窗口的地方，壳侧的兜底窗口也一并覆盖。
+		observeWindowVisibility(window, (event) => {
+			deps.onWindowVisibilityChanged?.(name, event)
 		})
 		window.on('close', (event) => {
 			// Closing a profile window only hides it; the Host runtime keeps running behind it.
@@ -230,6 +237,9 @@ export function createElectronProfileRuntime(deps: ElectronProfileRuntimeDeps): 
 		if (state === undefined) return
 		const window = state.window
 		if (window.isDestroyed()) return
+		// 最小化在 windowState 里也算不可见：托盘点「显示」必须把窗口还原，
+		// 不能只 show() 把最小化窗口留在任务栏里（一次点击就该唤回）。
+		if (window.isMinimized()) window.restore()
 		window.show()
 		window.focus()
 	}
