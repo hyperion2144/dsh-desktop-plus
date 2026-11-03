@@ -68,6 +68,13 @@ jobs:
         # 下游 --build-version 缺参直接炸；显式钉 bash。
         shell: bash
         run: echo "version=$(node scripts/plus/version.mjs --print)" >> "$GITHUB_OUTPUT"
+      # Typert 声明是编译的输入：alpha.3 起 `./remote` 等子路径解析到生成的
+      # `lib/typert.*.d.ts`（lib/ 被 gitignore），官方 scripts/build.ts 在编译前
+      # 先跑这个生成器。缺了它，聚合 tsc 会在 api/remotes、ui-* 一片报
+      # "Cannot find module …/remote"。
+      - name: Generate Typert declarations
+        working-directory: upstream
+        run: node --import tsx/esm scripts/generate-typert.ts
       - name: Build desktop shell
         working-directory: upstream
         # The official script caps Node at 4096MB, which a cold full build on CI
@@ -100,17 +107,6 @@ jobs:
           sudo xcode-select -s "$(ls -d /Applications/Xcode*.app | sort -V | tail -1)"
           swift --version | head -1
 
-      # CUA（Computer Use）macOS 原生二进制是 gitignore 的构建产物，官方发布流在打包前现场编译；
-      # 不先建出来，npm pack 的 files 白名单收不到 native/bin，装机后 cua 插件报 ENOENT。
-      - name: Build CUA native helper (macOS)
-        if: runner.os == 'macOS'
-        working-directory: upstream/packages/experimental/cua-macos
-        run: |
-          swift build --package-path native --configuration release --product dsh-cua-native
-          arch=$(uname -m | sed 's/x86_64/x64/')
-          mkdir -p "native/bin/darwin-$arch"
-          cp native/.build/release/dsh-cua-native "native/bin/darwin-$arch/dsh-cua-native"
-          "native/bin/darwin-$arch/dsh-cua-native" --help >/dev/null 2>&1 || true
       - name: Package ${{ matrix.target }}
         working-directory: upstream/apps/desktop
         # 版本号＝官方版本号 + .plus.N（scripts/plus/version.mjs 推导，禁手改）。

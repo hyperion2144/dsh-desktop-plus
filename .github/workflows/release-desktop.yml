@@ -108,17 +108,6 @@ jobs:
         run: |
           sudo xcode-select -s "$(ls -d /Applications/Xcode*.app | sort -V | tail -1)"
           swift --version | head -1
-      # CUA（Computer Use）macOS 原生二进制是 gitignore 的构建产物，官方发布流在打包前现场编译；
-      # 不先建出来，npm pack 的 files 白名单收不到 native/bin，装机后 cua 插件报 ENOENT。
-      - name: Build CUA native helper (macOS)
-        if: runner.os == 'macOS'
-        working-directory: upstream/packages/experimental/cua-macos
-        run: |
-          swift build --package-path native --configuration release --product dsh-cua-native
-          arch=$(uname -m | sed 's/x86_64/x64/')
-          mkdir -p "native/bin/darwin-$arch"
-          cp native/.build/release/dsh-cua-native "native/bin/darwin-$arch/dsh-cua-native"
-
       - name: Package ${{ matrix.target }} (unsigned — no signing secrets on this repo)
         working-directory: upstream/apps/desktop
         env:

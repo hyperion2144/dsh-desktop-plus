@@ -111,7 +111,7 @@ if (finish) {
   const newSha = resolveInMirror(readFileSync(shaFile, 'utf8').trim())
    let ok = false
    try {
-     ok = reportRegenerated(finishUpgrade({ root: ROOT, repo, target: TARGET, hooks: HOOKS, patches, newSha }))
+     ok = reportRegenerated(finishUpgrade({ root: ROOT, repo, mirror: MIRROR, target: TARGET, hooks: HOOKS, patches, newSha }))
    } catch (error) {
      fail(error instanceof Error ? error.message : String(error))
    }
@@ -173,14 +173,14 @@ if (!merge.clean) {
   for (const file of merge.conflicts) console.log(`  ${file}`)
   console.log(`sync-upstream: resolve them in ${merge.repo}`)
   console.log('  <<<<<<< = our plus side, >>>>>>> = incoming official')
-  console.log('  git -C .plus/tmp/sync add -A && git -C .plus/tmp/sync commit --no-edit')
+  console.log('  git -C .plus/tmp/sync add -A --force && git -C .plus/tmp/sync commit --no-edit')
   console.log('  then: node scripts/plus/sync-upstream.mjs --finish')
   process.exit(1)
 }
 
 let ok = false
 try {
-  ok = reportRegenerated(finishUpgrade({ root: ROOT, repo: merge.repo, target: TARGET, hooks: HOOKS, patches, newSha: sha }))
+  ok = reportRegenerated(finishUpgrade({ root: ROOT, repo: merge.repo, mirror: MIRROR, target: TARGET, hooks: HOOKS, patches, newSha: sha }))
 } catch (error) {
   fail(error instanceof Error ? error.message : String(error))
 }

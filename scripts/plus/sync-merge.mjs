@@ -62,6 +62,20 @@ function extract(cwd, mirror, sha) {
 }
 
 /**
+ * Stage everything in the scratch repository, ignored paths included.
+ *
+ * `git add -A` honours the `.gitignore` files the official tree carries, and
+ * the official repository tracks a handful of fixtures those rules match
+ * (`.agents/worktrees/…`, `*.local`). Staging without `--force` therefore
+ * commits a tree smaller than the official one, which is how a sync used to
+ * lose four files and record a tree id nobody could reproduce.
+ * @param repo - Scratch repository.
+ */
+function stageAll(repo) {
+  git(repo, ['add', '-A', '--force'])
+}
+
+/**
  * Replace a directory's contents with another directory's.
  * @param dir - Directory to overwrite.
  * @param source - Directory to copy from.
@@ -100,15 +114,25 @@ export function runMerge({ root, mirror, previousBase, newSha, patchPaths }) {
   if (previousBase === '') throw new Error('sync-merge: .plus/upstream-base is empty; cannot build a merge base')
   extract(baseTree, mirror, previousBase)
   replaceTree(target, baseTree)
-  git(repo, ['add', '-A'])
+  stageAll(repo)
   git(repo, ['commit', '--quiet', '-m', `official base ${previousBase.slice(0, 10)}`])
 
   // official = the tree we are upgrading to.
   git(repo, ['checkout', '--quiet', '-b', 'official'])
   extract(officialTree, mirror, newSha)
   replaceTree(target, officialTree)
-  git(repo, ['add', '-A'])
+  stageAll(repo)
   git(repo, ['commit', '--quiet', '-m', `official ${newSha.slice(0, 10)}`])
+
+  // The staged commit has to be the official tree byte for byte. The force
+  // inside `stageAll` is what makes that true; this check reports the next
+  // way it can stop being true, instead of letting `upstream/` end up short
+  // of files and only `verify:patches` noticing.
+  const stagedTreeId = git(repo, ['rev-parse', 'official:upstream']).trim()
+  const mirrorTreeId = git(mirror, ['rev-parse', `${newSha}^{tree}`]).trim()
+  if (stagedTreeId !== mirrorTreeId) {
+    throw new Error(`sync-merge: the staged official tree is ${stagedTreeId}, the official commit's tree is ${mirrorTreeId}`)
+  }
 
   // plus = the baseline with our patch set applied. `upstream/` is committed as
   // the clean official tree, so the plus side of the merge is not the working
@@ -120,7 +144,7 @@ export function runMerge({ root, mirror, previousBase, newSha, patchPaths }) {
   if (failed.length > 0) {
     throw new Error(`sync-merge: the patch set does not apply to ${previousBase.slice(0, 10)}: ${failed[0].patch} (${failed[0].error})`)
   }
-  git(repo, ['add', '-A'])
+  stageAll(repo)
   git(repo, ['commit', '--quiet', '-m', 'plus patches'])
 
   // The merge itself: real 3-way, conflicts surface as markers in the repo.
@@ -138,10 +162,11 @@ export function runMerge({ root, mirror, previousBase, newSha, patchPaths }) {
  * The patches stay the source of truth and `upstream/` stays the untouched
  * official tree — the two are only ever joined at build time.
  *
- * @param {object} options - Merge repo, target tree, hooks dir, patch names, version SHA.
+ * @param {object} options - Merge repo, mirror, target tree, hooks dir, patch names, version SHA.
+ * @param {string} options.mirror - Bare mirror holding the official commit.
  * @returns {object} Per-patch regeneration summary.
  */
-export function finishUpgrade({ root, repo, target, hooks, patches, newSha }) {
+export function finishUpgrade({ root, repo, mirror, target, hooks, patches, newSha }) {
   const merging = tryGit(repo, ['rev-parse', '--verify', '--quiet', 'MERGE_HEAD'])
   if (merging.ok) throw new Error('sync-merge: the merge is still unresolved; commit it first')
 
@@ -163,12 +188,12 @@ export function finishUpgrade({ root, repo, target, hooks, patches, newSha }) {
     }
   }
 
-  // Put the official tree back: `upstream/` is committed as the official tree,
-  // and the plus changes live in the patch set.
-  const officialTreeId = git(repo, ['rev-parse', 'official:upstream']).trim()
-  rmSync(target, { recursive: true, force: true })
-  mkdirSync(target, { recursive: true })
-  execFileSync('bash', ['-c', `git -C "${repo}" archive "official:upstream" | tar -x -C "${target}"`], { stdio: ['ignore', 'pipe', 'pipe'] })
+  // Put the official tree back from the official commit itself, not from the
+  // scratch repository: `upstream/` is committed byte for byte, and the
+  // scratch repo only ever computes the patches, so it must not decide which
+  // bytes end up committed.
+  const officialTreeId = git(mirror, ['rev-parse', `${newSha}^{tree}`]).trim()
+  extract(target, mirror, newSha)
 
   writeBase(root, newSha, officialTreeId)
   return regenerated
