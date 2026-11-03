@@ -31,6 +31,11 @@ describe('settings rpc handlers', () => {
 		expect(handlers.get_desktop_client_environment({})).toEqual({ platform: 'darwin', profile: 'desktop', locale: 'zh-CN' })
 	})
 
+	it('reports the calling profile from the rpc context (#74)', () => {
+		const { handlers } = harness()
+		expect(handlers.get_desktop_client_environment({}, { profile: 'work' })).toEqual({ platform: 'darwin', profile: 'work', locale: 'zh-CN' })
+	})
+
 	it('serves defaults when no settings file exists and persists a patch atomically', () => {
 		const { home, handlers, applied } = harness()
 		const data = handlers.get_desktop_settings_data({})

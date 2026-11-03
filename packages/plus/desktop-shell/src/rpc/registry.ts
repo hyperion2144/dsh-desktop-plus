@@ -1,9 +1,9 @@
-import type { RpcEnvelope, RpcHandler, RpcHandlers, RpcParams } from './types.ts'
+import type { RpcCallContext, RpcEnvelope, RpcHandler, RpcHandlers, RpcParams } from './types.ts'
 
 /** 方法名 → 处理器 的合并视图。 */
 export interface RpcRegistry {
-	/** 分派一条命令：命中即调用并包 `{ value }`，抛错包 `{ error }`，未注册回稳定错误信息。 */
-	dispatch(method: string, params: RpcParams | undefined): Promise<RpcEnvelope>
+	/** 分派一条命令：命中即调用并包 `{ value }`，抛错包 `{ error }`，未注册回稳定错误信息；`ctx` 为调用来源上下文（宿主子进程身份解析出的 profile 等），原样透传给处理器。 */
+	dispatch(method: string, params: RpcParams | undefined, ctx?: RpcCallContext): Promise<RpcEnvelope>
 	/** 已注册的方法名（诊断/测试用）。 */
 	methods(): string[]
 }
@@ -23,11 +23,11 @@ export function createRpcRegistry(groups: RpcHandlers[]): RpcRegistry {
 		}
 	}
 	return {
-		async dispatch(method, params) {
+		async dispatch(method, params, ctx) {
 			const handler = table.get(method)
 			if (handler === undefined) return { error: `unknown rpc method: ${method}` }
 			try {
-				return { value: await handler(params ?? {}) }
+				return { value: await handler(params ?? {}, ctx) }
 			} catch (error) {
 				return { error: error instanceof Error ? error.message : JSON.stringify(error) }
 			}

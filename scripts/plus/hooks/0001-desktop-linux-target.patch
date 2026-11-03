@@ -328,7 +328,7 @@ index 1461444f..1adda3f1 100644
    readonly platform: NodeJS.Platform
    readonly arch: string
 diff --git a/upstream/apps/desktop/scripts/electron-builder-config.mjs b/upstream/apps/desktop/scripts/electron-builder-config.mjs
-index cf0c19e8..76666e9b 100644
+index cf0c19e8..921126a8 100644
 --- a/upstream/apps/desktop/scripts/electron-builder-config.mjs
 +++ b/upstream/apps/desktop/scripts/electron-builder-config.mjs
 @@ -20,7 +20,7 @@ import {
@@ -349,15 +349,7 @@ index cf0c19e8..76666e9b 100644
    if (resolvedPlatform === 'win32') installWindowsDirectoryInstaller()
    const macOSSigning = packagesMacOS && !unsigned ? resolveMacOSSigningEnvironment(env) : undefined
    if (packagesMacOS && !unsigned && !skipNotarization) resolveMacOSNotarizationEnvironment(env)
-@@ -76,6 +76,7 @@ export function createElectronBuilderConfig(
-   let dshDestination
-   let windowsCode = []
-   const unpack = ['**/*.{node,dylib,dll,so,exe}', '**/*.so.*', '**/spawn-helper', '**/@vscode/ripgrep-*/bin/rg',
-+    `**/node_modules/@deepseek-ai/dsh-experimental-cua-macos/native/**/*`,
-     `**/node_modules/@deepseek-ai/libreoffice-kit-${resolvedPlatform}-${resolvedArch}/**/*`]
-   const windowsSigner = packagesWindows && !unsigned
-     ? createWindowsTokenSigner({
-@@ -96,7 +97,18 @@ export function createElectronBuilderConfig(
+@@ -96,7 +96,18 @@ export function createElectronBuilderConfig(
    if (windowsSigner !== undefined) {
      installWindowsNsisBootstrapSigner({ sign: windowsSigner })
    }
@@ -377,7 +369,7 @@ index cf0c19e8..76666e9b 100644
    if (preparedRuntime !== undefined) buildPaths.dsh = preparedRuntime
    // electron-builder merges extraMetadata into the packaged manifest, so a build version here reaches
    // the artifact names, the update feed, and the installed app.getVersion() the updater compares against.
-@@ -114,11 +126,12 @@ export function createElectronBuilderConfig(
+@@ -114,11 +125,12 @@ export function createElectronBuilderConfig(
        ...buildVersion === productVersion ? {} : { version: buildVersion },
        ...packaged === undefined ? {} : { dshBuildCommit: packaged.commit, dshBuildDirty: packaged.dirty },
      },
@@ -393,7 +385,7 @@ index cf0c19e8..76666e9b 100644
      directories: { output: output.directory },
      asar: true,
      electronDist: buildPaths.electron,
-@@ -143,6 +156,7 @@ export function createElectronBuilderConfig(
+@@ -143,6 +155,7 @@ export function createElectronBuilderConfig(
        'lib/welcome/**/*',
        'lib/preload-app.cjs',
        'lib/preload-mandatory.cjs',
@@ -401,7 +393,7 @@ index cf0c19e8..76666e9b 100644
        'lib/preload-platform-account.cjs',
        'lib/preload-update-dialog.cjs',
        'lib/preload-welcome.cjs',
-@@ -150,9 +164,10 @@ export function createElectronBuilderConfig(
+@@ -150,9 +163,10 @@ export function createElectronBuilderConfig(
        'package.json',
        '!node_modules/**/*.{js,cjs,mjs,ts,cts,mts,css}.map',
        '!node_modules/**/*.tsbuildinfo',
@@ -414,7 +406,7 @@ index cf0c19e8..76666e9b 100644
      ],
      asarUnpack: unpack,
      extraResources: [
-@@ -160,14 +175,24 @@ export function createElectronBuilderConfig(
+@@ -160,14 +174,24 @@ export function createElectronBuilderConfig(
        { from: fileURLToPath(new URL('../resources/icon-windows.png', import.meta.url)), to: 'icon.png' },
        // Windows tray bitmaps; macOS keeps the Dock and ships no menu bar icon.
        ...(packagesWindows ? [{ from: fileURLToPath(new URL('../resources/tray-windows.ico', import.meta.url)), to: 'tray.ico' }] : []),
@@ -440,7 +432,7 @@ index cf0c19e8..76666e9b 100644
        },
        // Ad-hoc signing keeps the modified Electron executable runnable without a Developer ID.
        identity: unsigned ? '-' : macOSSigning?.signingIdentity,
-@@ -178,13 +203,23 @@ export function createElectronBuilderConfig(
+@@ -178,13 +202,23 @@ export function createElectronBuilderConfig(
        // Prepared runtime files retain their signatures; PAK resources are sealed by their enclosing bundle.
        signIgnore: ['/Contents/Resources/app\\.asar\\.unpacked/dsh(?:/|$)', '/Contents/Resources/runtime/primary-runtime(?:/|$)', '\\.pak$'],
        notarize: !unsigned && !skipNotarization,
@@ -465,7 +457,7 @@ index cf0c19e8..76666e9b 100644
      beforePack: async context => {
        const office = await officePackageDirectories(buildPaths.dsh, { platform: resolvedPlatform, arch: resolvedArch })
        const patterns = office.map(directory => `**/${relative(buildPaths.dsh, directory).split(sep).join('/')}/**/*`)
-@@ -253,8 +288,11 @@ export function createElectronBuilderConfig(
+@@ -253,8 +287,11 @@ export function createElectronBuilderConfig(
        target: ['nsis'],
      },
      linux: {

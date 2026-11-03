@@ -1,0 +1,169 @@
+name: Build Desktop
+
+# 桌面构建链只有这一份，release-desktop 与 package-desktop 都调用它。
+#
+# 起因（ticket #74 的发布回归）：两个 workflow 以前各抄一遍同样的构建步骤，release 那份
+# 漏了 Typert 声明生成、上游 workspace 安装与 asar 闭包门禁——macOS/Linux 打包在聚合
+# tsc 阶段报一片 "Cannot find module …/remote"。构建链一旦只有一份，「改了 A 忘了 B」
+# 就没有藏身处。
+on:
+  workflow_call:
+    inputs:
+      update_feed:
+        description: 把本仓库 Releases 的 nightly 更新源写进产物（发版 true，手动打包 false）
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: mac-arm64
+            # macOS 14 镜像 2026-11-02 退役，brownout 窗口会直接取消作业。
+            os: macos-15
+          - target: win-x64
+            os: windows-latest
+          - target: linux-x64
+            os: ubuntu-latest
+    steps:
+      # Windows runner 默认 core.autocrlf=true，会把工作区行尾换成 CRLF，补丁集的上下文行
+      # 就再也对不上（三平台里唯独 win 失败）。必须在签出**之前**关掉，否则签出的补丁
+      # 文件已经带上了 CRLF。
+      - name: Keep LF line endings
+        if: runner.os == 'Windows'
+        run: git config --global core.autocrlf false
+
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.28.5
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      # 构建吃的是「官方树 + 补丁集」：装依赖之前必须先把补丁打上去，
+      # 否则 upstream/apps/cli 等包清单还是官方版，锁文件与 workspace 都会漂移。
+      - name: Apply the desktop patch set
+        run: pnpm run patches:apply
+
+      - name: Install
+        run: pnpm install
+
+      # electron-builder 的依赖收集器在 upstream/apps/desktop 里跑 `pnpm list`，pnpm 按
+      # 最近的 pnpm-workspace.yaml 把它归入 vendored upstream workspace，读取的虚拟仓库是
+      # upstream/node_modules/.pnpm。只做 root 安装时该目录不存在，收集器拿到幻影路径后静默
+      # 丢弃全部 registry 传递依赖（fs-extra/lazy-val/argparse 等），打出的 asar 启动即崩。
+      # 此步补全官方 workspace 的安装状态（frozen，lockfile 无需变更）。
+      - name: Install upstream workspace store
+        working-directory: upstream
+        run: pnpm install --frozen-lockfile --prefer-offline
+
+      - name: Resolve plus version
+        id: plusversion
+        # Windows 默认 shell 是 pwsh：$( ) 与 >> "$GITHUB_OUTPUT" 语义不对会让 outputs.version 变空，
+        # 下游 --build-version 缺参直接炸；显式钉 bash。
+        shell: bash
+        run: echo "version=$(node scripts/plus/version.mjs --print)" >> "$GITHUB_OUTPUT"
+
+      # Typert 声明是编译的输入：alpha.3 起 `./remote` 等子路径解析到生成的
+      # `lib/typert.*.d.ts`（lib/ 被 gitignore），官方 scripts/build.ts 在编译前
+      # 先跑这个生成器。缺了它，聚合 tsc 会在 api/remotes、ui-* 一片报
+      # "Cannot find module …/remote"。
+      - name: Generate Typert declarations
+        working-directory: upstream
+        run: node --import tsx/esm scripts/generate-typert.ts
+
+      - name: Build desktop shell
+        working-directory: upstream
+        # 官方脚本把 Node 卡在 4096MB，CI 上冷启动全量构建会超；这里用同样的命令链、
+        # 更大的堆。
+        run: |
+          node --max-old-space-size=8192 ./node_modules/typescript/bin/tsc -b tsconfig.host.json
+          pnpm exec tsdown --config-loader native --env.DSH_BUILD_FACE host
+          pnpm --filter @deepseek-ai/dsh-desktop run bundle
+        # Windows 上默认 shell 是 pwsh：原生命令非零退出不会中断，tsc 报错会被静默
+        # 放过（这正是三平台里唯独 win 变绿的原因）。钉 bash，让三平台一错即停。
+        shell: bash
+
+      # 插件客户端、品牌客户端与远程访问包的 host lib/ 都是被 gitignore 的构建产物：
+      # 打包前必须现场构建，否则 extraResources 拷过去的包里没有它们，宿主启动会因缺
+      # bundle 整包失败。
+      - name: Build plus plugin client bundles
+        env:
+          DSH_CLIENT_VERSION: ${{ steps.plusversion.outputs.version }}
+        run: |
+          pnpm --filter @deepseek-ai/dsh-desktop-plus-plugin run build:client
+          pnpm --filter @deepseek-ai/dsh-desktop-plus-plugin run build:remote-client
+          pnpm --filter @deepseek-ai/dsh-desktop-plus-brand run build:client
+          pnpm --filter @deepseek-ai/dsh-desktop-plus-remote-access run build
+        # 同上：pwsh 不会因单个 pnpm 命令失败而中断，钉 bash 让失败即停。
+        shell: bash
+
+      - name: Install xvfb (Linux headless smoke)
+        if: matrix.target == 'linux-x64'
+        run: sudo apt-get update && sudo apt-get install -y xvfb
+
+      # CUA 原生构建需要 Swift 6（Package.swift tools 6.0）；macOS 镜像默认 Xcode 15
+      # （Swift 5.10），先选最新 Xcode。
+      - name: Select latest Xcode (Swift 6 for CUA native)
+        if: runner.os == 'macOS'
+        run: |
+          sudo xcode-select -s "$(ls -d /Applications/Xcode*.app | sort -V | tail -1)"
+          swift --version | head -1
+
+      - name: Package ${{ matrix.target }} (unsigned — no signing secrets on this repo)
+        working-directory: upstream/apps/desktop
+        # 版本号＝官方版本号 + .plus.N（scripts/plus/version.mjs 推导，禁手改）。
+        # 官方打包会断言 desktop 版本 == dsh 版本，所以不走 manifest，用官方构建版本入口注入。
+        env:
+          DSH_DESKTOP_BUILD_VERSION: ${{ steps.plusversion.outputs.version }}
+          # 更新源：本仓库 GitHub Releases。plus 版本号必带 prerelease，渠道只能用 nightly
+          # （latest 会被 electron-builder 的 stable-only 校验拒绝）；未签名构建也会写
+          # app-update.yml（electron-builder-config.mjs 的 plus 默认 feed）。手动打包不带更新源。
+          DSH_DESKTOP_UPDATE_PUBLIC_URL: ${{ inputs.update_feed && 'https://github.com/hyperion2144/dsh-desktop-plus/releases/latest/download/' || '' }}
+          DSH_DESKTOP_UPDATE_CHANNEL: ${{ inputs.update_feed && 'nightly' || '' }}
+        # Linux runners have no display server; the packaged smoke launches the Electron
+        # binary, so wrap it in xvfb. The conditional needs an explicit bash shell —
+        # Windows runners default to PowerShell.
+        run: >
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            xvfb-run -a pnpm exec tsx scripts/package-target.ts ${{ matrix.target }} --unsigned --build-version ${{ steps.plusversion.outputs.version }}
+          else
+            pnpm exec tsx scripts/package-target.ts ${{ matrix.target }} --unsigned --build-version ${{ steps.plusversion.outputs.version }}
+          fi
+        shell: bash
+
+      # asar 依赖闭包门禁：任一打包产物缺模块/缺子路径（如 fs-extra、jsonfile/utils）
+      # 直接红，不允许坏产物进 Artifacts。
+      - name: Verify asar dependency closure
+        working-directory: upstream
+        run: node ../scripts/plus/check-asar-closure.mjs "apps/desktop/.desktop-build/targets/${{ matrix.target }}"
+        shell: bash
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          # release 步骤只下载这个 artifact：只装安装包与更新元数据，诊断证据不上传
+          # （packaging-runs 里的 targets 快照与真产物路径形状一致，混传必被通配扫入）。
+          name: desktop-${{ matrix.target }}
+          path: |
+            upstream/apps/desktop/.desktop-build/targets/${{ matrix.target }}/unsigned-artifacts/*.dmg
+            upstream/apps/desktop/.desktop-build/targets/${{ matrix.target }}/unsigned-artifacts/*.zip
+            upstream/apps/desktop/.desktop-build/targets/${{ matrix.target }}/unsigned-artifacts/*.exe
+            upstream/apps/desktop/.desktop-build/targets/${{ matrix.target }}/unsigned-artifacts/*.AppImage
+            upstream/apps/desktop/.desktop-build/targets/${{ matrix.target }}/unsigned-artifacts/*.tar.gz
+            upstream/apps/desktop/.desktop-build/targets/${{ matrix.target }}/unsigned-artifacts/*.blockmap
+            upstream/apps/desktop/.desktop-build/targets/${{ matrix.target }}/unsigned-artifacts/nightly*.yml
+            upstream/apps/desktop/.desktop-build/targets/${{ matrix.target }}/unsigned-artifacts/latest*.yml
+          if-no-files-found: error

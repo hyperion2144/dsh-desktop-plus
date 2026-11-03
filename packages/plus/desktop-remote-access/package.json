@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-desktop-plus-remote-access",
-  "version": "0.2.2-alpha.2",
+  "version": "0.2.2-alpha.3",
   "description": "远程访问服务：Host/Origin 改写反代 + 配对（扫码/输入地址）+ SSE 设备会话 + cloudflared 隧道（DSH Desktop Plus 内置包）",
   "type": "module",
   "main": "lib/index.js",

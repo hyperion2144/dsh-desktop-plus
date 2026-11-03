@@ -11,8 +11,14 @@ export type RpcParams = Record<string, unknown>
 /** `{ value }` 成功回包或 `{ error }` 业务失败回包（二选一，HTTP 200）。 */
 export type RpcEnvelope = { value: unknown } | { error: string }
 
+/** 单条调用的来源上下文：壳半区按宿主子进程身份解析后随分派传入。 */
+export interface RpcCallContext {
+	/** 发起调用的宿主所服务的 profile 名；缺省 = 默认桌面宿主。 */
+	readonly profile?: string
+}
+
 /** 单条命令的处理器：参数已剥信封，返回值将包成 `{ value }`；抛错包成 `{ error }`。 */
-export type RpcHandler = (params: RpcParams) => unknown | Promise<unknown>
+export type RpcHandler = (params: RpcParams, ctx?: RpcCallContext) => unknown | Promise<unknown>
 
 /** 一组命令的处理器表；键为 contracts 命令名（snake_case）。 */
 export type RpcHandlers = Record<string, RpcHandler>

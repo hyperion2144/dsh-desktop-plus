@@ -33,7 +33,8 @@ export interface SettingsRpcDeps {
 export function createSettingsRpcHandlers(deps: SettingsRpcDeps): RpcHandlers {
         const log = deps.log ?? (() => { })
         return {
-		get_desktop_client_environment: () => ({ platform: deps.platform(), profile: deps.profile(), locale: deps.locale() }),
+                // #74：profile 宿主的调用随分派带上宿主子进程身份解析出的真实 profile；缺省 = 默认桌面宿主。
+                get_desktop_client_environment: (_params, ctx) => ({ platform: deps.platform(), profile: ctx?.profile ?? deps.profile(), locale: deps.locale() }),
 
                 get_desktop_settings_data: () => {
                         const settings = loadDesktopSettings(deps.dshHome())

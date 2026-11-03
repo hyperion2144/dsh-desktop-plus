@@ -32,118 +32,14 @@ jobs:
       - name: Validate tag against generated version
         run: node scripts/plus/version.mjs --check "${{ github.ref_name }}"
 
+  # 构建链在 build-desktop.yml：与手动打包（package-desktop.yml）共用同一份步骤。
+  # 以前两份各抄一遍，release 那份漏了 Typert 声明生成、上游 workspace 安装与 asar
+  # 闭包门禁，macOS/Linux 打包在聚合 tsc 阶段报一片 "Cannot find module …/remote"。
   package:
     needs: validate
-    name: ${{ matrix.target }}
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 90
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - target: mac-arm64
-            # macOS 14 镜像 2026-11-02 退役，brownout 窗口会直接取消作业（同 package-desktop）。
-            os: macos-15
-          - target: win-x64
-            os: windows-latest
-          - target: linux-x64
-            os: ubuntu-latest
-    steps:
-      # Windows runner 默认 core.autocrlf=true，会把工作区行尾换成 CRLF，补丁集的上下文行
-      # 就再也对不上（三平台里唯独 win 失败）。必须在签出**之前**关掉，否则签出的补丁文件
-      # 已经带上了 CRLF。package-desktop 同样处理。
-      - name: Keep LF line endings
-        if: runner.os == 'Windows'
-        run: git config --global core.autocrlf false
-      - uses: actions/checkout@v4
-
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 11.28.5
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-      # 构建吃的是「官方树 + 补丁集」：装依赖之前必须先把补丁打上去，
-      # 否则 upstream/apps/cli 等包清单还是官方版，锁文件与 workspace 都会漂移。
-      - name: Apply the desktop patch set
-        run: pnpm run patches:apply
-
-      - name: Install
-        run: pnpm install
-
-      - name: Resolve plus version
-        id: plusversion
-        shell: bash
-        run: echo "version=$(node scripts/plus/version.mjs --print)" >> "$GITHUB_OUTPUT"
-
-      - name: Build desktop shell
-        working-directory: upstream
-        env:
-          NODE_OPTIONS: --max-old-space-size=8192
-        run: |
-          node ./node_modules/typescript/bin/tsc -b tsconfig.host.json
-          pnpm exec tsdown --config-loader native --env.DSH_BUILD_FACE host
-          pnpm --filter @deepseek-ai/dsh-desktop run bundle
-
-      # 同上：插件客户端包不在仓库里，签名/打包前先在 CI 构建。
-      - name: Build plus plugin client bundle
-        run: pnpm --filter @deepseek-ai/dsh-desktop-plus-plugin run build:client
-
-      - name: Build plus brand client bundle
-        run: pnpm --filter @deepseek-ai/dsh-desktop-plus-brand run build:client
-
-      # 远程访问包的 host lib/ 同样是 gitignore 的构建产物（源码在 src/host/*.ts）：
-      # 打包前必须现场构建，否则 files 白名单里的 lib/ 为空，宿主装载 lane 插件会失败。
-      - name: Build plus remote-access host bundle
-        run: pnpm --filter @deepseek-ai/dsh-desktop-plus-remote-access run build
-
-      - name: Install xvfb (Linux headless smoke)
-        if: matrix.target == 'linux-x64'
-        run: sudo apt-get update && sudo apt-get install -y xvfb
-
-      # CUA 原生构建需要 Swift 6；macOS 镜像默认 Xcode 15（Swift 5.10），先选最新 Xcode。
-      - name: Select latest Xcode (Swift 6 for CUA native)
-        if: runner.os == 'macOS'
-        run: |
-          sudo xcode-select -s "$(ls -d /Applications/Xcode*.app | sort -V | tail -1)"
-          swift --version | head -1
-      # CUA（Computer Use）macOS 原生二进制是 gitignore 的构建产物，官方发布流在打包前现场编译；
-      # 不先建出来，npm pack 的 files 白名单收不到 native/bin，装机后 cua 插件报 ENOENT。
-      - name: Build CUA native helper (macOS)
-        if: runner.os == 'macOS'
-        working-directory: upstream/packages/experimental/cua-macos
-        run: |
-          swift build --package-path native --configuration release --product dsh-cua-native
-          arch=$(uname -m | sed 's/x86_64/x64/')
-          mkdir -p "native/bin/darwin-$arch"
-          cp native/.build/release/dsh-cua-native "native/bin/darwin-$arch/dsh-cua-native"
-
-      - name: Package ${{ matrix.target }} (unsigned — no signing secrets on this repo)
-        working-directory: upstream/apps/desktop
-        env:
-          # 更新源：本仓库 GitHub Releases。plus 版本号必带 prerelease，渠道用 nightly
-          # （latest 会被 electron-builder 的 stable-only 校验拒绝）；未签名构建现在也会写
-          # app-update.yml（electron-builder-config.mjs 的 plus 默认 feed）。
-          DSH_DESKTOP_UPDATE_PUBLIC_URL: https://github.com/hyperion2144/dsh-desktop-plus/releases/latest/download/
-          DSH_DESKTOP_UPDATE_CHANNEL: nightly
-        run: >
-          if [ "$RUNNER_OS" = "Linux" ]; then
-            xvfb-run -a pnpm exec tsx scripts/package-target.ts ${{ matrix.target }} --unsigned --build-version ${{ steps.plusversion.outputs.version }}
-          else
-            pnpm exec tsx scripts/package-target.ts ${{ matrix.target }} --unsigned --build-version ${{ steps.plusversion.outputs.version }}
-          fi
-        shell: bash
-
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          # release 步骤只下载这个 artifact：只装安装包产物，诊断证据不上传。
-          # packaging-runs 里的 targets 快照与真产物路径形状一致，混传必被通配扫入）。
-          name: desktop-${{ matrix.target }}
-          path: |
-            upstream/apps/desktop/.desktop-build/targets/${{ matrix.target }}/unsigned-artifacts/**
-          if-no-files-found: error
+    uses: ./.github/workflows/build-desktop.yml
+    with:
+      update_feed: true
 
   release:
     needs: package
