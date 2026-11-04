@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>DSH Desktop Plus · HarmonyOS</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --fg: #e6e9ef;
+        --dim: #8b93a7;
+        --card: #141821;
+        --line: #232a38;
+        --accent: #4f8cff;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        background: radial-gradient(circle at 30% 0%, #16203a 0%, #0b0d12 60%);
+        color: var(--fg);
+        font: 15px/1.6 -apple-system, "HarmonyOS Sans", "PingFang SC", sans-serif;
+      }
+      main {
+        width: min(560px, 88vw);
+        padding: 28px 30px;
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        background: var(--card);
+      }
+      h1 { margin: 0 0 4px; font-size: 20px; font-weight: 600; }
+      p.lead { margin: 0 0 20px; color: var(--dim); }
+      dl { display: grid; grid-template-columns: 88px 1fr; gap: 6px 12px; margin: 0; }
+      dt { color: var(--dim); }
+      dd { margin: 0; font-family: ui-monospace, Menlo, monospace; font-size: 13px; word-break: break-all; }
+      footer { margin-top: 20px; padding-top: 14px; border-top: 1px solid var(--line); color: var(--dim); font-size: 13px; }
+      code { color: var(--accent); }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>DSH Desktop Plus</h1>
+      <p class="lead">鸿蒙 Electron 骨架已启动。这一页是占位页，真实 UI 由下一步接入。</p>
+      <dl>
+        <dt>平台</dt><dd id="platform">—</dd>
+        <dt>UA</dt><dd id="ua">—</dd>
+      </dl>
+      <footer>
+        下一步：把桌面壳的真实 app 产物放进 <code>resources/app</code>，
+        这个占位页就会被真正的 DSH 界面取代。
+      </footer>
+    </main>
+    <script>
+      document.getElementById('platform').textContent = navigator.platform || 'unknown'
+      document.getElementById('ua').textContent = navigator.userAgent
+    </script>
+  </body>
+</html>

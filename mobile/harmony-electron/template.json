@@ -1,0 +1,19 @@
+{
+  "comment": "把 DSH 装进 Electron-on-HarmonyOS 的宿主模板。模板本身不入库：构建脚本按 ref 下载到 .plus/tmp/，再叠上 overlay/ 与 app/。",
+  "template": {
+    "repo": "ohosvscode/ohos_electron_hap",
+    "ref": "0da7eb4c57a21e6ca0cffac247fb26977cb42f9d",
+    "archive": "https://codeload.github.com/ohosvscode/ohos_electron_hap/tar.gz/{ref}",
+    "appDir": "web_engine/src/main/resources/resfile/resources/app",
+    "hapModule": "electron",
+    "runtimeLibs": "electron/libs/arm64-v8a"
+  },
+  "overlay": {
+    "dir": "overlay",
+    "note": "overlay/ 下每个文件都必须能在模板里找到同名目标：模板换了结构就显式失败，不静默跳过。"
+  },
+  "app": {
+    "dir": "app",
+    "note": "默认 app 目录：一个最小 Electron 应用，用来在没有真实产物时也能构建出能开窗的 HAP。"
+  }
+}

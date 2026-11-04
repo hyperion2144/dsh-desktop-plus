@@ -1,0 +1,32 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "鸿蒙上的 DSH Desktop Plus（Electron 运行时）"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "DSH Desktop Plus"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "DSH Desktop Plus"
+    },
+    {
+      "name": "button_ok",
+      "value": "确认"
+    },
+    {
+      "name": "button_cancel",
+      "value": "取消"
+    },
+    {
+      "name": "StatusBarEntryAbility_desc",
+      "value": "DSH 状态栏"
+    },
+    {
+      "name": "StatusBarEntryAbility_label",
+      "value": "DSH 状态栏"
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+{
+  "name": "dsh-desktop-plus-harmony",
+  "version": "0.2.2",
+  "private": true,
+  "description": "DSH Desktop Plus 的鸿蒙 Electron 骨架应用（占位：真实 app 产物另接）",
+  "main": "main.js"
+}

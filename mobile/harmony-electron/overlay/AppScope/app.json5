@@ -1,0 +1,15 @@
+{
+  "app": {
+    "bundleName": "io.github.hyperion2144.dsh.plus.hos",
+    "vendor": "plus",
+    "versionCode": 20200,
+    "versionName": "0.2.2",
+    "icon": "$media:app_icon",
+    "label": "$string:app_name",
+    "configuration": "$profile:configuration",
+    "multiAppMode": {
+      "multiAppModeType": "multiInstance",
+      "maxCount": 1
+    }
+  }
+}

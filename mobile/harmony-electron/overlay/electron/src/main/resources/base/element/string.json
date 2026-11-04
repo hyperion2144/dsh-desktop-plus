@@ -1,0 +1,48 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "DSH Desktop Plus on HarmonyOS (Electron runtime)"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "DSH Desktop Plus"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "DSH Desktop Plus"
+    },
+    {
+      "name": "BrowserAbility_desc",
+      "value": "DSH browser window"
+    },
+    {
+      "name": "BrowserAbility_label",
+      "value": "DSH Browser"
+    },
+    {
+      "name": "button_ok",
+      "value": "ok"
+    },
+    {
+      "name": "button_cancel",
+      "value": "cancel"
+    },
+    {
+      "name": "StatusBarEntryAbility_desc",
+      "value": "DSH status bar"
+    },
+    {
+      "name": "StatusBarEntryAbility_label",
+      "value": "DSH status bar"
+    },
+    {
+      "name": "StatelessAbility_desc",
+      "value": "DSH stateless window"
+    },
+    {
+      "name": "StatelessAbility_label",
+      "value": "DSH Window"
+    }
+  ]
+}
