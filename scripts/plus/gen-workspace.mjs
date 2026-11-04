@@ -16,18 +16,56 @@
 // is the same whether or not the patches happen to be applied on disk.
 //
 // Usage:
-//   node scripts/plus/gen-workspace.mjs [root] [--dry] [--check]
+//   node scripts/plus/gen-workspace.mjs [root] [--dry] [--check] [--target desktop|harmony]
 //
 //   --dry    print the generated file instead of writing it
 //   --check  exit 1 if the file on disk differs from what would be generated
+//
+//   --target which build target to generate for (default: desktop).
+//            desktop pins Electron to the official lockfile version; harmony
+//            pins it to the version the OpenHarmony port publishes, because
+//            no port branch exists for the official version.
 
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { readPatchedFiles } from './patch-set.mjs'
 
+/**
+ * Report an unrecoverable generator error.
+ * @param {string} message - What went wrong; printed verbatim.
+ */
+const fail = (message) => {
+  console.error(`gen-workspace: ${message}`)
+  process.exit(1)
+}
+
 const argv = process.argv.slice(2)
+
+/**
+ * Read the value that follows a flag.
+ * @param {string} name - Flag name.
+ * @returns {string|undefined} The value, when present.
+ */
+function valueOf(name) {
+  const at = argv.indexOf(name)
+  if (at === -1) return undefined
+  const value = argv[at + 1]
+  if (value === undefined || value.startsWith('--')) fail(`${name} needs a value`)
+  return value
+}
+
+/** Desktop target: the official tree plus the desktop patch set. */
+const TARGET_DESKTOP = 'desktop'
+/** HarmonyOS target: the same tree, with the Electron pin the OpenHarmony port has. */
+const TARGET_HARMONY = 'harmony'
+const TARGETS = new Set([TARGET_DESKTOP, TARGET_HARMONY])
+
+const targetArg = valueOf('--target')
+const TARGET = targetArg ?? TARGET_DESKTOP
+if (!TARGETS.has(TARGET)) fail(`unknown --target ${TARGET} — expected one of ${[...TARGETS].join(', ')}`)
+
 const flags = new Set(argv.filter((a) => a.startsWith('--')))
-const rootArg = argv.find((a) => !a.startsWith('--'))
+const rootArg = argv.find((a) => !a.startsWith('--') && a !== targetArg)
 const ROOT = resolve(rootArg ?? process.cwd())
 const SRC = join(ROOT, 'upstream', 'pnpm-workspace.yaml')
 const LOCK = join(ROOT, 'upstream', 'pnpm-lock.yaml')
@@ -71,10 +109,6 @@ const OWN_GLOBS = [
   ['apps/plus', 'apps/plus/*'],
 ]
 
-const fail = (message) => {
-  console.error(`gen-workspace: ${message}`)
-  process.exit(1)
-}
 
 if (!existsSync(SRC)) fail(`missing ${SRC} — is the official tree vendored under upstream/?`)
 if (!existsSync(LOCK)) fail(`missing ${LOCK} — is the official tree vendored under upstream/?`)
@@ -214,14 +248,35 @@ if (pins.length > 0) {
 // app-builder-lib, whose peer graph must resolve as one instance for the
 // directory-installer patch to reach the copy electron-builder runs. Pin both
 // to the exact versions the official lockfile records, like patched deps.
-const lockPins = ['electron', 'dmg-builder']
-  .map((name) => [name, upstreamLockPin(name)])
-  .filter(([, version]) => version !== null)
+//
+// The HarmonyOS target cannot follow that rule. The OpenHarmony Electron port
+// publishes 25 / 34 / 37 / 40 and nothing newer, while the official lockfile
+// pins 44. It cannot take the recommended 34 either: that Electron ships
+// Node 20, and our storage backends are built on node:sqlite, which Node only
+// gained in 22.5. 40 is the oldest acceptable and the newest published port,
+// and its Node 24 carries node:sqlite and FTS5.
+const HARMONY_ELECTRON = '40.10.6'
+const lockPins =
+  TARGET === TARGET_HARMONY
+    ? [
+        ['electron', HARMONY_ELECTRON],
+        ['dmg-builder', upstreamLockPin('dmg-builder')],
+      ].filter(([, version]) => version !== null)
+    : ['electron', 'dmg-builder']
+        .map((name) => [name, upstreamLockPin(name)])
+        .filter(([, version]) => version !== null)
 if (lockPins.length > 0) {
   appendToSection(out, 'overrides', [
-    '  # Pinned to the official lockfile version: a drifted packaging dependency',
-    '  # breaks the desktop build (runtime fingerprint gate, app-builder-lib',
-    '  # peer-instance split), not just the development workspace.',
+    ...(TARGET === TARGET_HARMONY
+      ? [
+          '  # The OpenHarmony Electron port publishes 25 / 34 / 37 / 40 only, and 34',
+          '  # ships Node 20 without node:sqlite; 40 carries Node 24 with it.',
+        ]
+      : [
+          '  # Pinned to the official lockfile version: a drifted packaging dependency',
+          '  # breaks the desktop build (runtime fingerprint gate, app-builder-lib',
+          '  # peer-instance split), not just the development workspace.',
+        ]),
     ...lockPins.map(([name, version]) => `  '${name}': '${String(version)}'`),
   ])
 }
@@ -257,6 +312,9 @@ if (flags.has('--dry')) {
 }
 
 if (flags.has('--check')) {
+  if (TARGET !== TARGET_DESKTOP) {
+    fail('--check validates the committed desktop workspace; harmony is a build-time target — inspect it with --dry')
+  }
   const current = existsSync(OUT) ? readFileSync(OUT, 'utf8') : ''
   if (current !== text) fail('pnpm-workspace.yaml is stale — run scripts/plus/gen-workspace.mjs')
   process.exit(0)
