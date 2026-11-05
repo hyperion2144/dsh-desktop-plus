@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-desktop-plus-brand",
-  "version": "0.2.2-alpha.3",
+  "version": "0.2.2-rc.1",
   "description": "dsh-desktop-plus 品牌包：占据侧边栏品牌 slot，显示 DSH Desktop Plus 名称与 plus 构建版本徽标",
   "type": "module",
   "main": "index.js",
