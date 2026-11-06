@@ -152,6 +152,22 @@ describe('validateSoundFile', () => {
 	})
 })
 
+
+const richRecorder = () => {
+	const calls: Array<{ title: string; body: string; sound?: string; silent?: boolean }> = []
+	const shown: number[] = []
+	let click: (() => void) | undefined
+	const factory = (options: { title: string; body: string; sound?: string; silent?: boolean }) => {
+		calls.push(options)
+		return {
+			show: () => shown.push(1),
+			on: (event: string, listener: () => void) => {
+				if (event === 'click') click = listener
+			},
+		}
+	}
+	return { calls, shown, factory, fireClick: () => click?.() }
+}
 describe('createPlusNotifier', () => {
 	afterEach(() => {
 		vi.restoreAllMocks()
@@ -259,6 +275,147 @@ describe('createPlusNotifier', () => {
 	})
 })
 
+describe('deliverDecided', () => {
+	afterEach(() => {
+		vi.restoreAllMocks()
+	})
+
+	it('silent choice shows a muted notification without any sound path', () => {
+		withPlatform('darwin', () => {
+			spawned.length = 0
+			const rec = richRecorder()
+			const beep = vi.fn()
+			const notifier = createPlusNotifier({
+				policy: () => DEFAULT_POLICY,
+				context: () => ({ windowFocused: false, fullscreen: false }),
+				beep,
+				createNotification: rec.factory,
+			})
+			expect(notifier.deliverDecided({ title: 'x', sound: { kind: 'silent' } })).toBe(true)
+			expect(rec.calls[0]).toMatchObject({ title: 'x', silent: true })
+			expect(rec.calls[0]?.sound).toBeUndefined()
+			expect(beep).not.toHaveBeenCalled()
+			expect(spawned).toHaveLength(0)
+		})
+	})
+
+	it('os-default rides the notification on macOS', () => {
+		withPlatform('darwin', () => {
+			const rec = richRecorder()
+			const beep = vi.fn()
+			const notifier = createPlusNotifier({
+				policy: () => DEFAULT_POLICY,
+				context: () => ({ windowFocused: false, fullscreen: false }),
+				beep,
+				createNotification: rec.factory,
+			})
+			notifier.deliverDecided({ title: 'x', sound: { kind: 'os-default' } })
+			expect(rec.calls[0]?.sound).toBe('default')
+			expect(beep).not.toHaveBeenCalled()
+		})
+	})
+
+	it('os-default falls back to beep on non-macOS', () => {
+		withPlatform('win32', () => {
+			const rec = richRecorder()
+			const beep = vi.fn()
+			const notifier = createPlusNotifier({
+				policy: () => DEFAULT_POLICY,
+				context: () => ({ windowFocused: false, fullscreen: false }),
+				beep,
+				createNotification: rec.factory,
+			})
+			notifier.deliverDecided({ title: 'x', sound: { kind: 'os-default' } })
+			expect(rec.calls[0]?.sound).toBeUndefined()
+			expect(beep).toHaveBeenCalledTimes(1)
+		})
+	})
+
+	it('custom choice plays the named file through the injected backend and mutes the channel', () => {
+		withPlatform('darwin', () => {
+			const rec = richRecorder()
+			const beep = vi.fn()
+			const playCustomSound = vi.fn(() => true)
+			const notifier = createPlusNotifier({
+				policy: () => DEFAULT_POLICY,
+				context: () => ({ windowFocused: false, fullscreen: false }),
+				beep,
+				playCustomSound,
+				createNotification: rec.factory,
+			})
+			expect(notifier.deliverDecided({ title: 'x', sound: { kind: 'custom', name: 'ding.wav' } })).toBe(true)
+			expect(rec.calls[0]?.silent).toBe(true)
+			expect(rec.calls[0]?.sound).toBeUndefined()
+			expect(playCustomSound).toHaveBeenCalledWith('ding.wav')
+			expect(beep).not.toHaveBeenCalled()
+		})
+	})
+
+	it('custom choice degrades silently when no backend is wired', () => {
+		withPlatform('darwin', () => {
+			const rec = richRecorder()
+			const notifier = createPlusNotifier({
+				policy: () => DEFAULT_POLICY,
+				context: () => ({ windowFocused: false, fullscreen: false }),
+				createNotification: rec.factory,
+			})
+			expect(notifier.deliverDecided({ title: 'x', sound: { kind: 'custom', name: 'ding.wav' } })).toBe(true)
+			expect(rec.shown).toHaveLength(1)
+		})
+	})
+
+	it('wires click routing and survives a throwing router', () => {
+		const rec = richRecorder()
+		const routed: Array<{ sessionId?: string; profile?: string }> = []
+		const notifier = createPlusNotifier({
+			policy: () => DEFAULT_POLICY,
+			context: () => ({ windowFocused: false, fullscreen: false }),
+			createNotification: rec.factory,
+			onClickRoute: (target) => {
+				routed.push(target)
+				throw new Error('route exploded')
+			},
+		})
+		notifier.deliverDecided({ title: 'x', sound: { kind: 'silent' }, click: { sessionId: 's1', profile: 'work' } })
+		expect(rec.shown).toHaveLength(1)
+		expect(() => rec.fireClick()).not.toThrow()
+		expect(routed).toEqual([{ sessionId: 's1', profile: 'work' }])
+	})
+
+	it('system quiet suppresses the self-played os-default tone', () => {
+		withPlatform('win32', () => {
+			const rec = richRecorder()
+			const beep = vi.fn()
+			const notifier = createPlusNotifier({
+				policy: () => DEFAULT_POLICY,
+				context: () => ({ windowFocused: false, fullscreen: false }),
+				beep,
+				createNotification: rec.factory,
+				systemMuted: () => true,
+			})
+			expect(notifier.deliverDecided({ title: 'x', sound: { kind: 'os-default' } })).toBe(true)
+			expect(rec.shown).toHaveLength(1)
+			expect(beep).not.toHaveBeenCalled()
+		})
+	})
+
+	it('system quiet suppresses custom sound playback but still shows the notice', () => {
+		const rec = richRecorder()
+		const playCustomSound = vi.fn(() => true)
+		const notifier = createPlusNotifier({
+			policy: () => DEFAULT_POLICY,
+			context: () => ({ windowFocused: false, fullscreen: false }),
+			playCustomSound,
+			createNotification: rec.factory,
+			systemMuted: () => true,
+		})
+		expect(notifier.deliverDecided({ title: 'x', sound: { kind: 'custom', name: 'ding.wav' } })).toBe(true)
+		expect(rec.shown).toHaveLength(1)
+		expect(playCustomSound).not.toHaveBeenCalled()
+		expect(rec.calls[0]?.silent).toBe(true)
+	})
+})
+
 describe('deliverHostNotice', () => {
 	const config = (overrides?: Partial<NotificationsConfig>): NotificationsConfig => ({
 		enabled: true,
@@ -266,32 +423,88 @@ describe('deliverHostNotice', () => {
 		scenarios: {},
 		...overrides,
 	})
-	const fakeNotifier = () => {
-		const delivered: Array<{ scene: string; title: string; body: string }> = []
+	const hostFixture = (overrides?: {
+		config?: NotificationsConfig
+		focused?: boolean
+		fullscreen?: boolean
+		systemMuted?: boolean
+		now?: Date
+	}) => {
+		const rec = richRecorder()
+		const playCustomSound = vi.fn(() => true)
+		const routed: Array<{ sessionId?: string; profile?: string }> = []
+		const notifier = createPlusNotifier({
+			policy: () => DEFAULT_POLICY,
+			context: () => ({ windowFocused: overrides?.focused ?? false, fullscreen: overrides?.fullscreen ?? false }),
+			beep: vi.fn(),
+			playCustomSound,
+			createNotification: rec.factory,
+			onClickRoute: (target) => { routed.push(target) },
+			systemMuted: () => overrides?.systemMuted ?? false,
+		})
 		return {
-			delivered,
-			notifier: {
-				deliver: (scene: Parameters<PlusNotifier['deliver']>[0], options: { title: string; body?: string }): boolean => {
-					delivered.push({ scene, title: options.title, body: options.body ?? '' })
-					return true
-				},
+			rec,
+			playCustomSound,
+			routed,
+			deps: {
+				notifier,
+				config: () => overrides?.config ?? config(),
+				context: () => ({ windowFocused: overrides?.focused ?? false, fullscreen: overrides?.fullscreen ?? false }),
+				now: () => overrides?.now ?? new Date('2026-06-01T12:00:00'),
 			},
 		}
 	}
 
-	it('delivers task-complete through the task.complete scenario gate', () => {
-		const { delivered, notifier } = fakeNotifier()
-		expect(deliverHostNotice({ notifier, config: () => config() }, { type: 'task-complete', body: '回合已结束' })).toBe(true)
-		expect(delivered).toEqual([{ scene: 'host', title: '任务已完成', body: '回合已结束' }])
+	it('delivers task-complete through decide() with routing target and title hint', () => {
+		const { rec, routed, deps } = hostFixture()
+		expect(deliverHostNotice(deps, { type: 'task-complete', body: '已修完', sessionId: 's1', profile: 'work', title: '修通知' })).toBe(true)
+		expect(rec.calls[0]).toMatchObject({ title: '修通知', body: '已修完' })
+		rec.fireClick()
+		expect(routed).toEqual([{ sessionId: 's1', profile: 'work' }])
+	})
+
+	it('falls back to the scenario title without hints', () => {
+		const { rec, deps } = hostFixture()
+		expect(deliverHostNotice(deps, { type: 'task-complete', body: '' })).toBe(true)
+		expect(rec.calls[0]?.title).toBe('任务已完成')
+	})
+
+	it('honours the per-scenario silent choice', () => {
+		const { rec, deps } = hostFixture({ config: config({ scenarios: { 'task.complete': { enabled: true, sound: 'none' } } }) })
+		expect(deliverHostNotice(deps, { type: 'task-complete', body: 'x' })).toBe(true)
+		expect(rec.calls[0]?.silent).toBe(true)
+	})
+
+	it('plays the per-scenario custom sound', () => {
+		const { rec, playCustomSound, deps } = hostFixture({ config: config({ scenarios: { 'task.complete': { enabled: true, sound: 'custom:ding.wav' } } }) })
+		expect(deliverHostNotice(deps, { type: 'task-complete', body: 'x' })).toBe(true)
+		expect(playCustomSound).toHaveBeenCalledWith('ding.wav')
+		expect(rec.calls[0]?.silent).toBe(true)
+	})
+
+	it('deliver-but-silent inside the dnd window, normal outside', () => {
+		const inWindow = hostFixture({ config: config({ dnd: { on: true, from: '22:00', to: '08:00', suppressFullscreen: true } }), now: new Date('2026-06-01T23:30:00') })
+		expect(deliverHostNotice(inWindow.deps, { type: 'task-complete', body: 'x' })).toBe(true)
+		expect(inWindow.rec.calls[0]?.silent).toBe(true)
+		const outWindow = hostFixture({ config: config({ dnd: { on: true, from: '22:00', to: '08:00', suppressFullscreen: true } }), now: new Date('2026-06-01T12:00:00') })
+		expect(deliverHostNotice(outWindow.deps, { type: 'task-complete', body: 'x' })).toBe(true)
+		expect(outWindow.rec.calls[0]?.silent).toBeUndefined()
+	})
+
+	it('drops while a plus window is focused', () => {
+		const { rec, deps } = hostFixture({ focused: true })
+		expect(deliverHostNotice(deps, { type: 'task-complete', body: 'x' })).toBe(false)
+		expect(rec.calls).toHaveLength(0)
 	})
 
 	it('drops disabled scenarios, disabled config, busy-state and unknown types', () => {
-		const { notifier } = fakeNotifier()
-		const gated = config({ scenarios: { 'dsh.approval': { enabled: false, sound: 'default' } } })
-		expect(deliverHostNotice({ notifier, config: () => gated }, { type: 'dsh-approval', body: '' })).toBe(false)
-		expect(deliverHostNotice({ notifier, config: () => config({ enabled: false }) }, { type: 'task-complete', body: '' })).toBe(false)
-		expect(deliverHostNotice({ notifier, config: () => config() }, { type: 'busy-state', profile: 'desktop', busy: true })).toBe(false)
-		expect(deliverHostNotice({ notifier, config: () => config() }, { type: 'mystery', body: '' })).toBe(false)
+		const gated = hostFixture({ config: config({ scenarios: { 'dsh.approval': { enabled: false, sound: 'default' } } }) })
+		expect(deliverHostNotice(gated.deps, { type: 'dsh-approval', body: '' })).toBe(false)
+		const disabled = hostFixture({ config: config({ enabled: false }) })
+		expect(deliverHostNotice(disabled.deps, { type: 'task-complete', body: '' })).toBe(false)
+		const plain = hostFixture()
+		expect(deliverHostNotice(plain.deps, { type: 'busy-state', profile: 'desktop', busy: true })).toBe(false)
+		expect(deliverHostNotice(plain.deps, { type: 'mystery', body: '' })).toBe(false)
 	})
 
 	it('noticePolicyFromConfig projects dnd and fullscreen suppression', () => {

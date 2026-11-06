@@ -5,6 +5,25 @@
 // 转 Electron 壳 plusRpcRegistry（命令名与形状见 contracts/）。
 // 移植自 dsh-desktop-bun 的 desktop-plugin（Electrobun 壳已换成本仓的 Electron 官方壳 fork）。
 
+// 宿主加载器与静态 import 声明不兼容（实测：整插件加载失败，全部路由注册失效）——
+// node 能力一律动态 import 惰性加载，加载失败时优雅降级（无声/不探测，不影响横幅本身）。
+const nodeModules = {}
+void Promise.all([
+  import('node:child_process').then((m) => { nodeModules.cp = m }),
+  import('node:fs').then((m) => { nodeModules.fs = m }),
+  import('node:os').then((m) => { nodeModules.os = m }),
+  import('node:path').then((m) => { nodeModules.path = m }),
+]).catch(() => { /* 无模块能力：静默降级 */ })
+// 宿主诊断走正规壳日志通道：log_diag 命令 → 壳日志内核 shell 源（shell.log，[diag] 前缀），
+// 与壳/页面日志同一时间线；通道不在时静默（诊断不是关键路径）。
+const pluginLog = (line) => {
+  try {
+    const rpc = globalThis.shellChannelRpc
+    if (typeof rpc !== 'function') return
+    const sent = rpc('log_diag', { msg: `dsh-desktop-plus: ${line}` })
+    if (typeof sent?.catch === 'function') sent.catch(() => { })
+  } catch { /* 通道不在：诊断不是关键路径 */ }
+}
 export const name = 'dsh-desktop-plus'
 
 // 注意：不可为 skills 声明 export const inject——skills 在本插件作用域不可见，
@@ -214,13 +233,182 @@ export function apply(ctx) {
           }
       },
     })
-    ctx.logger?.info?.('dsh-desktop-plus: 壳命令桥已注册（/api/shell.invoke）')
+    connection.fetch.register({
+      path: '/api/plus.notify-frame',
+      methods: ['POST'],
+      requestBody: 'buffered',
+      fetch: async (request) => {
+        let rpcId = ''
+        try {
+          const body = await request.json()
+          rpcId = String(body?.rpcId ?? '')
+        } catch { /* 空 body：空 rpcId 回显 */ }
+        const queued = notifyQueue.shift()
+        if (queued !== undefined) return respondNotifyFrame(rpcId, queued)
+        // 触发式长轮询：无帧时请求挂起在宿主，帧一入队立即唤醒返回；25s 无帧空手而归（页面重挂）。
+        const frame = await new Promise((resolve) => {
+          const waiter = (value) => { clearTimeout(timer); notifyWaiters.delete(waiter); resolve(value) }
+          const timer = setTimeout(() => waiter(undefined), 25_000)
+          notifyWaiters.add(waiter)
+        })
+        return respondNotifyFrame(rpcId, frame)
+      },
+    })
+    connection.fetch.register({
+      path: '/api/plus.play-sound',
+      methods: ['POST'],
+      requestBody: 'buffered',
+      fetch: async (request) => {
+        let rpcId = ''
+        try {
+          const body = await request.json()
+          rpcId = String(body?.rpcId ?? '')
+          const sound = String(body?.payload?.sound ?? '')
+          const quiet = systemQuietActive()
+          pluginLog(`play-sound request: sound=${sound} quiet=${quiet}`)
+          if (sound !== '' && sound !== 'none' && !quiet) playNotificationSound(sound)
+          return Response.json({ type: 'server-response', rpcId, result: { ok: true, value: true } })
+        } catch (e) {
+          return Response.json({ type: 'server-response', rpcId, result: { ok: false, error: { code: 'play-sound-failed', message: String(e?.message ?? e), details: {} } } })
+        }
+      },
+    })
+    pluginLog('routes registered: /api/shell.invoke, /api/plus.notify-frame, /api/plus.play-sound')
   }
   try {
     if (typeof ctx.inject === 'function') ctx.inject(['connection'], registerShellRpc)
     else registerShellRpc(ctx)
   } catch (error) {
     ctx.logger?.warn?.(`dsh-desktop-plus: 壳命令桥注册失败（${String(error)}）`)
+  }
+
+  // ── 纯插件侧通知（#116，dsh-pet 照抄）：宿主单槽帧 + 设置决策 + 自播音效 ──
+  // 显示与点击在页面半区（Web Notification + openSession/window.focus/dsh://open iframe——
+  // toast 点击的用户手势落在页面上下文，Windows 前台限制拦不住）；busy 心跳仍走壳；
+  // 设置（总开关/场景/免打扰时段）直接读 desktop-settings.json，不经壳。
+  const NOTIFY_TITLES = {
+    'task-complete': '任务已完成',
+    'dsh-approval': '等待你的审批确认',
+    'session-error': '会话出错',
+  }
+  const notifyQueue = []
+  const notifyWaiters = new Set()
+  const respondNotifyFrame = (rpcId, frame) => {
+    if (frame !== undefined) pluginLog(`frame consumed by page: ${frame.type} sound=${frame.sound}`)
+    return Response.json({ type: 'server-response', rpcId, result: { ok: true, value: frame ?? null } })
+  }
+  let notifyFrameSeq = 0
+  const dshHomeDir = () => process.env.DSH_HOME || (nodeModules.path !== undefined && nodeModules.os !== undefined ? nodeModules.path.join(nodeModules.os.homedir(), '.dsh') : undefined)
+  const readNotificationConfig = () => {
+    const fallback = { enabled: true, dnd: { on: false, from: '22:00', to: '08:00', suppressFullscreen: true }, scenarios: {} }
+    if (nodeModules.fs === undefined || nodeModules.path === undefined) return fallback
+    try {
+      const raw = JSON.parse(nodeModules.fs.readFileSync(nodeModules.path.join(dshHomeDir(), 'desktop-settings.json'), 'utf8'))
+      const config = raw !== null && typeof raw === 'object' ? raw.notification_config : undefined
+      if (config === null || typeof config !== 'object') return fallback
+      return {
+        enabled: config.enabled !== false,
+        dnd: config.dnd !== null && typeof config.dnd === 'object' ? config.dnd : fallback.dnd,
+        scenarios: config.scenarios !== null && typeof config.scenarios === 'object' ? config.scenarios : {},
+      }
+    } catch {
+      return fallback // 读不到设置：按全开处理（fail-open）
+    }
+  }
+  const inDndWindow = (dnd, now) => {
+    if (dnd?.on !== true) return false
+    const minutes = (value) => {
+      const [h, m] = String(value ?? '').split(':').map(Number)
+      return Number.isFinite(h) && Number.isFinite(m) ? h * 60 + m : null
+    }
+    const start = minutes(dnd.from)
+    const end = minutes(dnd.to)
+    if (start === null || end === null || start === end) return false
+    const current = now.getHours() * 60 + now.getMinutes()
+    return start < end ? current >= start && current < end : current >= start || current < end
+  }
+  const systemQuietActive = () => {
+    // 系统级免打扰/静音通知探不到时 fail-open：系统不管自播通道，只能自己探测。
+    if (nodeModules.cp === undefined || nodeModules.path === undefined || nodeModules.os === undefined) return false
+    try {
+      if (process.platform === 'win32') {
+        // Win11 免打扰（DND）状态存 CloudStore blob：键名前缀每台机器可能不同，
+        // 枚举任意 *quiethourssettings* 键并解析 UTF-16LE 规则串——Unrestricted=关，其它规则=免打扰中。
+        const ps = [
+          "$base='HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\CloudStore\\Store\\DefaultAccount\\Current'",
+          "$keys = Get-ChildItem $base -ErrorAction SilentlyContinue | Where-Object { $_.PSChildName -like '*windows.data.notifications.quiethourssettings*' }",
+          "foreach ($k in $keys) {",
+          "  foreach ($sub in @('', 'Current')) {",
+          "    $p = if ($sub -eq '') { $k.PSPath } else { Join-Path $k.PSPath $sub }",
+          "    $d = (Get-ItemProperty $p -Name Data -ErrorAction SilentlyContinue).Data",
+          "    if ($d) { $s = [Text.Encoding]::Unicode.GetString($d); if ($s -match 'Microsoft\\.QuietHoursProfile\\.(\\w+)') { Write-Output ('rule=' + $Matches[1]); exit } }",
+          "  }",
+          "}",
+          "Write-Output 'rule=none'",
+        ].join('; ')
+        const psOut = nodeModules.cp.spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-STA', '-Command', ps], { encoding: 'utf8', timeout: 6000, stdio: ['ignore', 'pipe', 'ignore'] }).stdout ?? ''
+        const ruleMatch = /rule=([A-Za-z]+)/.exec(psOut)
+        const rule = ruleMatch === null ? 'none' : ruleMatch[1]
+        pluginLog(`quiet probe: rule=${rule} -> ${rule === 'none' || rule === 'Unrestricted' ? 'sound allowed' : 'muted'}`)
+        if (rule !== 'none' && rule !== 'Unrestricted') return true
+        if (rule === 'Unrestricted') return false
+        // 回退：Win10/旧版 QuietMode 信号（探不到则按非静音处理）
+        const out = nodeModules.cp.spawnSync('reg', ['query', 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\QuietHours', '/v', 'QuietMode'], { encoding: 'utf8', timeout: 3000, stdio: ['ignore', 'pipe', 'ignore'] }).stdout ?? ''
+        const match = /QuietMode\s+REG_DWORD\s+0x([0-9a-fA-F]+)/.exec(out)
+        return match !== null && Number.parseInt(match[1], 16) !== 0
+      }
+      if (process.platform === 'darwin') {
+        const assertions = nodeModules.path.join(nodeModules.os.homedir(), 'Library', 'DoNotDisturbDB', 'Assertions.json')
+        const out = nodeModules.cp.spawnSync('/usr/bin/plutil', ['-convert', 'json', '-o', '-', assertions], { encoding: 'utf8', timeout: 3000, stdio: ['ignore', 'pipe', 'ignore'] }).stdout ?? ''
+        const parsed = JSON.parse(out)
+        return (Array.isArray(parsed?.data) ? parsed.data : []).some((entry) => (entry?.storeAssertionRecords ?? []).length > 0)
+      }
+    } catch {
+      return false
+    }
+    return false
+  }
+  const playNotificationSound = (sound) => {
+    if (nodeModules.cp === undefined || nodeModules.path === undefined) return
+    const home = dshHomeDir()
+    try {
+      if (process.platform === 'win32') {
+        const file = sound === 'default' ? 'C:\\WINDOWS\\Media\\Windows Notify System Generic.wav' : nodeModules.path.join(home, 'sounds', sound)
+        nodeModules.cp.spawn('powershell', ['-NoProfile', '-NonInteractive', '-STA', '-Command', `$p = New-Object System.Media.SoundPlayer -ArgumentList '${file}'; $p.PlaySync()`], { stdio: 'ignore' })?.unref?.()
+        return
+      }
+      if (process.platform === 'darwin') {
+        nodeModules.cp.spawn('/usr/bin/afplay', [sound === 'default' ? '/System/Library/Sounds/Ping.aiff' : nodeModules.path.join(home, 'sounds', sound)], { stdio: 'ignore' })?.unref?.()
+        return
+      }
+      if (sound !== 'default') nodeModules.cp.spawn('paplay', [nodeModules.path.join(home, 'sounds', sound)], { stdio: 'ignore' })?.unref?.()
+    } catch {
+      // 播放后端缺席：静默降级，不影响横幅本身。
+    }
+  }
+  const pushNotifyFrame = (frame) => {
+    const settings = readNotificationConfig()
+    const scenario = settings.scenarios[frame.type]
+    if (settings.enabled === false || scenario?.enabled === false) return
+    // 声音决策随帧下发，由页面在「确认要弹横幅」后回呼播放——声音与横幅严格同生同灭
+    // （dsh-pet 语义：页面正看着就不弹，此时也不响；免打扰时段内横幅静默进通知中心）。
+    const sound = inDndWindow(settings.dnd, new Date()) || scenario?.sound === 'none' ? 'none' : scenario?.sound ?? 'default'
+    const entry = {
+      id: ++notifyFrameSeq,
+      type: frame.type,
+      title: frame.title ?? NOTIFY_TITLES[frame.type] ?? 'DSH 桌面通知',
+      body: frame.body ?? '',
+      sessionId: frame.sessionId === '' ? undefined : frame.sessionId,
+      sound,
+    }
+    if (notifyWaiters.size > 0) {
+      const wake = notifyWaiters.values().next().value
+      wake(entry)
+    } else {
+      notifyQueue.push(entry)
+      if (notifyQueue.length > 8) notifyQueue.shift() // 防积压：页面长时间无响应时只留最新帧
+    }
+    pluginLog(`frame pushed: ${frame.type} sound=${sound} queue=${notifyQueue.length}`)
   }
 
   // ── dsh 原生事件桥（#142）：session/event → 桌面壳（宿主 IPC plus-shell-notify）──
@@ -233,8 +421,27 @@ export function apply(ctx) {
   const sendShellNotice = (notice) => {
     try { process.send({ type: 'plus-shell-notify', notice }) } catch { /* 壳不在：通知不是关键路径 */ }
   }
-  const report = (type, body) => sendShellNotice({ type, body })
+  const report = (type, body, extra) => {
+    // busy 心跳走壳（托盘防休眠）；三类会话通知走纯插件路径（dsh-pet 照抄）。
+    if (type === 'busy-state') { sendShellNotice({ type, body, ...extra }); return }
+    pushNotifyFrame({ type, title: extra?.title, body, sessionId: extra?.sessionId })
+  }
 
+  // #116：回复摘要缓存（会话 id → 最后一段 assistant 文本）。assistant/message 的
+  // content[] 最后一个 text 块就是给用户看的回复；turn/end 时取出来当通知正文。
+  const lastTextBySession = new Map()
+  const MAX_SUMMARY_CHARS = 200
+  const lastAssistantReplyText = (event) => {
+    const content = event.data?.message?.content
+    if (!Array.isArray(content)) return null
+    for (let i = content.length - 1; i >= 0; i -= 1) {
+      const block = content[i]
+      if (block?.type !== 'text' || typeof block.text !== 'string') continue
+      const text = block.text.replace(/\s+/g, ' ').trim()
+      if (text !== '') return text
+    }
+    return null
+  }
   const lastTurnEndAt = new Map()
   const TURN_END_DEBOUNCE_MS = 10_000
 
@@ -272,6 +479,13 @@ export function apply(ctx) {
           ;({ session, event } = args[0])
         }
         if (!event || typeof event.type !== 'string') return
+        // #116：先攒回复摘要（通知正文用），再走忙状态/通知分发。
+        if (event.type === 'assistant/message') {
+          const sid = session?.id ?? ''
+          const text = lastAssistantReplyText(event)
+          if (sid !== '' && text !== null) lastTextBySession.set(sid, text)
+          return
+        }
 
         // #186：忙状态转移（与通知解耦——busy-state 不投递通知，只驱动防休眠）
         if (event.type === 'turn/start') {
@@ -282,7 +496,7 @@ export function apply(ctx) {
         if (event.type === 'approval/asked') {
           if (session?.id) waitingSessions.add(session.id)
           reportBusy(false)
-          report('dsh-approval', session?.title ? `「${session.title}」等待你的审批确认` : '')
+          report('dsh-approval', '等待你的审批确认', { sessionId: session?.id || undefined, profile: busyProfile || undefined, title: session?.title || undefined })
           return
         }
         if (event.type === 'approval/decided') {
@@ -334,7 +548,12 @@ export function apply(ctx) {
             done: '回合已结束',
           }[kind] ?? '回合已结束'
           const err = kind === 'error' ? (event.data?.reason?.error?.message ?? '') : ''
-          report('task-complete', err ? `${kindText}：${err}`.slice(0, 200) : kindText)
+          const summary = lastTextBySession.get(sid) ?? ''
+          lastTextBySession.delete(sid)
+          const body = kind === 'error' && err !== ''
+            ? `${kindText}：${err}`.slice(0, MAX_SUMMARY_CHARS)
+            : (summary !== '' ? summary : kindText).slice(0, MAX_SUMMARY_CHARS)
+          report('task-complete', body, { sessionId: sid || undefined, profile: busyProfile || undefined, title: session?.title || undefined })
         }
       } catch { /* 单个事件处理失败不影响 dsh */ }
     },
