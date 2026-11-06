@@ -31,6 +31,9 @@ const result = await build({
   external: [
     'react',
     'react/jsx-runtime',
+    // 官方 ui-primitives 是 shell 的 PLATFORM_MODULES 之一（packages/client/web/src/platform.ts），
+    // 由 ModuleLoader 的 require 提供；打进 bundle 会得到第二份 React 组件与第二套 CSS 模块类名。
+    '@deepseek-ai/dsh-client-ui-primitives',
   ],
   banner: {
     js: `window.__ModuleLoader__.load({\n  id: ${JSON.stringify(PACKAGE_NAME)},\n  factory: (require) => {\nvar module = { exports: {} };\nvar exports = module.exports;\n`,

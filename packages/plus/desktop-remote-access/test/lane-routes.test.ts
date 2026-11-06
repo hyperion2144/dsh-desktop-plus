@@ -81,6 +81,12 @@ test('lane 路由：控制面端点集合是显式快照（新增必须同时改
       '/api/pair/stop',
       '/api/pair/events',
       '/api/pair/cloudflared',
+      '/api/remote/sessions',
+      '/api/remote/session.read',
+      '/api/remote/session.import',
+      '/api/remote/stream',
+      '/api/remote/shares',
+      '/api/remote/fs.list',
     ],
     '路由表快照：新增控制端点会在此处显形，提醒同步透传不变式测试',
   );

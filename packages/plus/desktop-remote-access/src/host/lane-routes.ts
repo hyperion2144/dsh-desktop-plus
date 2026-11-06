@@ -39,6 +39,14 @@ export const LANE_ROUTE_PATHS: readonly string[] = Object.freeze([
   '/api/pair/stop',
   '/api/pair/events',
   '/api/pair/cloudflared',
+  // 远端数据面（#93）：已配对主机读取本机会话日志，供对端渲染远端会话。
+  '/api/remote/sessions',
+  '/api/remote/session.read',
+  '/api/remote/session.import',
+  '/api/remote/stream',
+  '/api/remote/shares',
+  // 远端目录浏览（#106）：添加工作区时浏览对端目录树。
+  '/api/remote/fs.list',
 ])
 
 /**

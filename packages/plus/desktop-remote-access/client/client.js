@@ -33,14 +33,14 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 ));
 var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 
-// ../desktop-remote-access/client/client.source.jsx
+// client/client.source.jsx
 var client_source_exports = {};
 __export(client_source_exports, {
   apply: () => apply,
   inject: () => inject
 });
 module.exports = __toCommonJS(client_source_exports);
-var import_react2 = __toESM(require("react"), 1);
+var import_react4 = __toESM(require("react"), 1);
 
 // ../../../node_modules/.pnpm/qrcode-generator@2.0.4/node_modules/qrcode-generator/dist/qrcode.mjs
 var qrcode = function(typeNumber, errorCorrectionLevel) {
@@ -1676,7 +1676,7 @@ var createDataURL = function(width, height, getPixel) {
 var qrcode_default = qrcode;
 var stringToBytes = qrcode.stringToBytes;
 
-// ../desktop-remote-access/src/client/i18n/provider.tsx
+// src/client/i18n/provider.tsx
 var import_react = require("react");
 var import_jsx_runtime = require("react/jsx-runtime");
 var CopyContext = (0, import_react.createContext)(null);
@@ -1689,7 +1689,7 @@ function useRemoteAccessT() {
   return t;
 }
 
-// ../desktop-remote-access/src/client/i18n/dictionary.ts
+// src/client/i18n/dictionary.ts
 var en = {
   // ── 页面外框 ──
   "\u8FDC\u7A0B\u8BBF\u95EE": "Remote access",
@@ -1754,18 +1754,716 @@ var zh = Object.fromEntries(
   Object.keys(en).map((key) => [key, key])
 );
 
-// ../desktop-remote-access/src/client/i18n/namespace.ts
+// src/client/i18n/namespace.ts
 var REMOTE_ACCESS_NAMESPACE = "dsh-remote-access";
 
-// ../desktop-remote-access/src/client/i18n/install.ts
+// src/client/i18n/install.ts
 function installRemoteAccessCopy(ctx) {
   ctx.effect(() => ctx.locale.register(REMOTE_ACCESS_NAMESPACE, { zh, en }), "dsh-remote-access: dictionaries");
   return ctx.locale.bind(REMOTE_ACCESS_NAMESPACE);
 }
 
-// ../desktop-remote-access/client/client.source.jsx
+// client/remote-device-manager.jsx
+var import_react2 = require("react");
 var import_jsx_runtime2 = require("react/jsx-runtime");
-var inject = ["slots", "connection", "locale"];
+var cardStyle = {
+  border: "1px solid var(--dsw-alias-border-secondary, #3a3a3f)",
+  borderRadius: 10,
+  padding: 14,
+  display: "flex",
+  flexDirection: "column",
+  gap: 10
+};
+var inputStyle = {
+  // border-box：width:100% 时 padding 与边框算在宽度内，否则输入框会撑出外层卡片。
+  boxSizing: "border-box",
+  width: "100%",
+  padding: "7px 9px",
+  borderRadius: 8,
+  border: "1px solid var(--dsw-alias-border-secondary, #3a3a3f)",
+  background: "transparent",
+  color: "inherit",
+  fontSize: 13
+};
+var buttonStyle = {
+  font: "inherit",
+  fontSize: 13,
+  padding: "6px 11px",
+  borderRadius: 8,
+  border: "1px solid var(--dsw-alias-border-secondary, #3a3a3f)",
+  background: "transparent",
+  color: "inherit",
+  cursor: "pointer"
+};
+var primaryStyle = {
+  ...buttonStyle,
+  borderColor: "var(--dsw-alias-label-primary, #e7eaf0)",
+  fontWeight: 500
+};
+var ghostStyle = {
+  ...buttonStyle,
+  borderColor: "transparent",
+  color: "var(--dsw-alias-label-secondary, #9aa4b2)"
+};
+var dangerStyle = {
+  ...buttonStyle,
+  borderColor: "transparent",
+  color: "#e5484d"
+};
+var STATE_COLOR = { online: "#16a34a", offline: "#9ca3af", unpaired: "#f59e0b", incompatible: "#ef4444" };
+function Chevron({ open }) {
+  return /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+    "span",
+    {
+      "aria-hidden": "true",
+      style: {
+        display: "inline-block",
+        width: 0,
+        height: 0,
+        borderTop: "4px solid transparent",
+        borderBottom: "4px solid transparent",
+        borderLeft: "5px solid currentColor",
+        transform: open ? "rotate(90deg)" : "none",
+        transition: "transform 160ms ease-out",
+        opacity: 0.6
+      }
+    }
+  );
+}
+function RemoteDeviceManager({ hostCall: hostCall2 }) {
+  const [hosts, setHosts] = (0, import_react2.useState)([]);
+  const [states, setStates] = (0, import_react2.useState)({});
+  const [workspaces, setWorkspaces] = (0, import_react2.useState)([]);
+  const [sessions, setSessions] = (0, import_react2.useState)({});
+  const [open, setOpen] = (0, import_react2.useState)({});
+  const [renaming, setRenaming] = (0, import_react2.useState)(null);
+  const [draft, setDraft] = (0, import_react2.useState)("");
+  const [addr, setAddr] = (0, import_react2.useState)("");
+  const [busy, setBusy] = (0, import_react2.useState)(false);
+  const [notice, setNotice] = (0, import_react2.useState)(null);
+  const refresh = (0, import_react2.useCallback)(async () => {
+    try {
+      const [hostState, wsState] = await Promise.all([
+        hostCall2("remoteHosts.list"),
+        hostCall2("remoteWorkspace.list")
+      ]);
+      const list = Array.isArray(hostState?.hosts) ? hostState.hosts : [];
+      setHosts(list);
+      setWorkspaces(Array.isArray(wsState?.workspaces) ? wsState.workspaces : []);
+      const next = {};
+      await Promise.all(list.map(async (host) => {
+        try {
+          const result = await hostCall2("remoteStatus.probe", { hostId: host.hostId });
+          const state = result?.status?.state;
+          if (typeof state === "string") next[host.hostId] = state;
+        } catch {
+        }
+      }));
+      setStates(next);
+    } catch (error) {
+      setNotice({ kind: "error", text: String(error?.message ?? error) });
+    }
+  }, [hostCall2]);
+  (0, import_react2.useEffect)(() => {
+    void refresh();
+  }, [refresh]);
+  const loadSessions = async (hostId, path) => {
+    try {
+      const result = await hostCall2("remoteSessions.list", { hostId, path });
+      setSessions((prev) => ({ ...prev, [hostId + "|" + path]: Array.isArray(result?.sessions) ? result.sessions : [] }));
+    } catch {
+      setSessions((prev) => ({ ...prev, [hostId + "|" + path]: [] }));
+    }
+  };
+  const toggle = (hostId) => {
+    const next = !open[hostId];
+    setOpen((prev) => ({ ...prev, [hostId]: next }));
+    if (next) {
+      for (const workspace of workspaces.filter((w) => w.hostId === hostId)) {
+        void loadSessions(hostId, workspace.path);
+      }
+    }
+  };
+  const addDevice = async () => {
+    const value = addr.trim();
+    if (value === "") {
+      setNotice({ kind: "error", text: "\u8BF7\u5148\u7C98\u8D34\u8FDE\u63A5\u5730\u5740" });
+      return;
+    }
+    setBusy(true);
+    setNotice({ kind: "info", text: "\u6B63\u5728\u8FDE\u63A5\u2026" });
+    try {
+      const url = new URL(value.replace(/^dsh:\/\//, "http://"));
+      const token = url.searchParams.get("token") ?? "";
+      const origin = url.origin;
+      if (token === "") throw new Error("\u5730\u5740\u91CC\u6CA1\u6709 token");
+      await hostCall2("remoteHosts.pair", { origin, token });
+      setAddr("");
+      setNotice({ kind: "ok", text: "\u8FDE\u63A5\u6210\u529F\uFF0C\u53CC\u65B9\u5DF2\u4E92\u76F8\u767B\u8BB0" });
+      await refresh();
+    } catch (error) {
+      setNotice({ kind: "error", text: String(error?.message ?? error) });
+    } finally {
+      setBusy(false);
+    }
+  };
+  const rename = async (hostId) => {
+    const name = draft.trim();
+    setRenaming(null);
+    if (name === "") return;
+    try {
+      await hostCall2("remoteHosts.rename", { hostId, name });
+      await refresh();
+    } catch (error) {
+      setNotice({ kind: "error", text: String(error?.message ?? error) });
+    }
+  };
+  const [confirming, setConfirming] = (0, import_react2.useState)(null);
+  const remove = async (hostId) => {
+    try {
+      await hostCall2("remoteHosts.remove", { hostId });
+      await refresh();
+    } catch (error) {
+      setNotice({ kind: "error", text: String(error?.message ?? error) });
+    }
+  };
+  const archiveSession = async (sessionId) => {
+    try {
+      await hostCall2("remoteSession.invoke", {
+        namespace: "workspace",
+        method: "archiveSession",
+        args: { request: { sessionId } }
+      });
+      await refresh();
+    } catch (error) {
+      setNotice({ kind: "error", text: String(error?.message ?? error) });
+    }
+  };
+  return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { style: { display: "flex", flexDirection: "column", gap: 12 }, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { style: cardStyle, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { style: { fontSize: 13, fontWeight: 600 }, children: "\u65B0\u589E\u8BBE\u5907" }),
+      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { style: { fontSize: 12, color: "var(--dsw-alias-label-secondary, #9aa4b2)", lineHeight: 1.6 }, children: "\u7C98\u8D34\u5BF9\u7AEF lane \u94F8\u9020\u7684\u8FDE\u63A5\u5730\u5740\u3002\u8FDE\u63A5\u6210\u529F\u624D\u4F1A\u6DFB\u52A0\u2014\u2014\u6DFB\u52A0\u540E\u53CC\u65B9\u4E92\u76F8\u767B\u8BB0\uFF0C\u4EFB\u4F55\u4E00\u65B9\u90FD\u80FD\u53D1\u8D77\u4F1A\u8BDD\u3002" }),
+      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+        "input",
+        {
+          style: inputStyle,
+          value: addr,
+          placeholder: "dsh://192.168.1.42:3091/pair?token=...",
+          onChange: (event) => setAddr(event.target.value)
+        }
+      ),
+      /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { style: { display: "flex", alignItems: "center", gap: 8 }, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("button", { type: "button", style: primaryStyle, disabled: busy, onClick: addDevice, children: "\u8FDE\u63A5\u5E76\u6DFB\u52A0" }),
+        notice !== null ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { style: { fontSize: 12, color: notice.kind === "error" ? "#e5484d" : notice.kind === "ok" ? "#16a34a" : "var(--dsw-alias-label-secondary, #9aa4b2)" }, children: notice.text }) : null
+      ] })
+    ] }),
+    hosts.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { style: cardStyle, children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { style: { fontSize: 12, color: "var(--dsw-alias-label-secondary, #9aa4b2)" }, children: "\u8FD8\u6CA1\u6709\u6DFB\u52A0\u4EFB\u4F55\u8BBE\u5907\u3002" }) }) : null,
+    hosts.map((host) => {
+      const state = states[host.hostId] ?? "offline";
+      const isOpen = open[host.hostId] === true;
+      const mine = workspaces.filter((workspace) => workspace.hostId === host.hostId);
+      return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { style: { ...cardStyle, padding: 0, gap: 0, overflow: "hidden" }, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(
+          "div",
+          {
+            style: { display: "flex", alignItems: "center", gap: 10, padding: "12px 14px", cursor: "pointer" },
+            onClick: () => toggle(host.hostId),
+            children: [
+              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { style: { width: 8, height: 8, borderRadius: "50%", background: STATE_COLOR[state] ?? "#9ca3af", flex: "none" } }),
+              /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { style: { flex: 1, minWidth: 0 }, children: [
+                /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { style: { display: "flex", alignItems: "center", gap: 8, fontSize: 14, fontWeight: 600 }, children: [
+                  renaming === host.hostId ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+                    "input",
+                    {
+                      style: { ...inputStyle, width: 200, padding: "2px 6px", fontSize: 14, fontWeight: 600 },
+                      value: draft,
+                      autoFocus: true,
+                      onChange: (event) => setDraft(event.target.value),
+                      onBlur: () => void rename(host.hostId),
+                      onKeyDown: (event) => {
+                        if (event.key === "Enter") void rename(host.hostId);
+                      },
+                      onClick: (event) => event.stopPropagation()
+                    }
+                  ) : /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { children: host.renamedAt !== void 0 && host.name !== "" ? host.name : host.origin }),
+                  /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { style: { fontSize: 11, padding: "1px 7px", borderRadius: 999, border: "1px solid var(--dsw-alias-border-secondary, #3a3a3f)", color: STATE_COLOR[state] ?? "#9ca3af" }, children: state === "online" ? "\u5DF2\u8FDE\u63A5" : state === "unpaired" ? "\u672A\u914D\u5BF9" : state === "incompatible" ? "\u7248\u672C\u4E0D\u7B26" : "\u5DF2\u65AD\u5F00" })
+                ] }),
+                /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { style: { display: "flex", gap: 14, flexWrap: "wrap", fontSize: 12, color: "var(--dsw-alias-label-secondary, #9aa4b2)", marginTop: 3 }, children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { children: host.origin }),
+                  host.model ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { children: host.model }) : null,
+                  /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("span", { children: [
+                    "ID ",
+                    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("code", { style: { fontFamily: "var(--font-mono, monospace)", fontSize: 11 }, children: host.deviceId })
+                  ] })
+                ] })
+              ] }),
+              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("button", { type: "button", style: ghostStyle, onClick: (event) => {
+                event.stopPropagation();
+                setRenaming(host.hostId);
+                setDraft(host.name ?? "");
+              }, children: "\u91CD\u547D\u540D" }),
+              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("button", { type: "button", style: ghostStyle, onClick: (event) => {
+                event.stopPropagation();
+                void reconnect(host.hostId);
+              }, children: "\u91CD\u8FDE" }),
+              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("button", { type: "button", style: dangerStyle, onClick: (event) => {
+                event.stopPropagation();
+                setConfirming({ kind: "device", id: host.hostId, label: host.renamedAt !== void 0 && host.name !== "" ? host.name : host.origin });
+              }, children: "\u5220\u9664" }),
+              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Chevron, { open: isOpen })
+            ]
+          }
+        ),
+        isOpen ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { style: { borderTop: "1px solid var(--dsw-alias-border-secondary, #3a3a3f)", padding: "12px 14px" }, children: [
+          mine.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { style: { fontSize: 12, color: "var(--dsw-alias-label-secondary, #9aa4b2)" }, children: "\u8FD9\u53F0\u8BBE\u5907\u4E0A\u8FD8\u6CA1\u6709\u767B\u8BB0\u8FDC\u7A0B\u5DE5\u4F5C\u533A\u3002" }) : null,
+          mine.map((workspace) => {
+            const key = host.hostId + "|" + workspace.path;
+            const rows = sessions[key];
+            return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { style: { marginBottom: 12 }, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { style: { display: "flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 500, marginBottom: 4 }, children: [
+                /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { children: workspace.title }),
+                /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { style: { fontFamily: "var(--font-mono, monospace)", fontSize: 11, color: "var(--dsw-alias-label-secondary, #9aa4b2)" }, children: workspace.path })
+              ] }),
+              rows === void 0 ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { style: { fontSize: 12, color: "var(--dsw-alias-label-secondary, #9aa4b2)", padding: "4px 8px" }, children: "\u52A0\u8F7D\u4E2D\u2026" }) : rows.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { style: { fontSize: 12, color: "var(--dsw-alias-label-secondary, #9aa4b2)", padding: "4px 8px" }, children: "\u8FD9\u4E2A\u5DE5\u4F5C\u533A\u8FD8\u6CA1\u6709\u4F1A\u8BDD" }) : rows.map((session) => /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { style: { display: "flex", alignItems: "center", gap: 10, padding: "6px 8px", borderRadius: 8, fontSize: 13 }, children: [
+                /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { style: { flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, children: session.title || session.id }),
+                /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("button", { type: "button", style: dangerStyle, onClick: () => setConfirming({ kind: "session", id: session.id, label: session.title || session.id }), children: "\u5F52\u6863" })
+              ] }, session.id))
+            ] }, workspace.path);
+          })
+        ] }) : null
+      ] }, host.hostId);
+    }),
+    confirming !== null ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+      "div",
+      {
+        style: { position: "fixed", inset: 0, zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.35)" },
+        onClick: () => setConfirming(null),
+        children: /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(
+          "div",
+          {
+            style: { width: 380, maxWidth: "90vw", padding: 18, borderRadius: 12, background: "var(--dsw-alias-bg-layer-1, #171a21)", border: "1px solid var(--dsw-alias-border-l2, #2a2f3a)", display: "flex", flexDirection: "column", gap: 12 },
+            onClick: (event) => event.stopPropagation(),
+            children: [
+              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { style: { fontSize: 14, fontWeight: 600 }, children: confirming.kind === "device" ? "\u5220\u9664\u8BBE\u5907" : "\u5F52\u6863\u4F1A\u8BDD" }),
+              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { style: { fontSize: 13, lineHeight: 1.6, color: "var(--dsw-alias-label-secondary, #9aa4b2)" }, children: confirming.kind === "device" ? `\u786E\u5B9A\u5220\u9664\u300C${confirming.label}\u300D\uFF1F\u8FD9\u53F0\u8BBE\u5907\u7684\u8FDC\u7A0B\u5DE5\u4F5C\u533A\u767B\u8BB0\u4F1A\u4E00\u5E76\u79FB\u9664\uFF0C\u5BF9\u7AEF\u4E0D\u53D7\u5F71\u54CD\u3002` : `\u786E\u5B9A\u5F52\u6863\u300C${confirming.label}\u300D\uFF1F\u5F52\u6863\u540E\u5B83\u4F1A\u4ECE\u4FA7\u8FB9\u680F\u6D88\u5931\u3002` }),
+              /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { style: { display: "flex", justifyContent: "flex-end", gap: 8 }, children: [
+                /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("button", { type: "button", style: buttonStyle, onClick: () => setConfirming(null), children: "\u53D6\u6D88" }),
+                /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+                  "button",
+                  {
+                    type: "button",
+                    style: { ...buttonStyle, borderColor: "#e5484d", color: "#e5484d" },
+                    onClick: async () => {
+                      const target = confirming;
+                      setConfirming(null);
+                      if (target.kind === "device") await remove(target.id);
+                      else await archiveSession(target.id);
+                    },
+                    children: confirming.kind === "device" ? "\u5220\u9664" : "\u5F52\u6863"
+                  }
+                )
+              ] })
+            ]
+          }
+        )
+      }
+    ) : null
+  ] });
+}
+
+// client/remote-directory-flow.jsx
+var import_react3 = __toESM(require("react"), 1);
+var import_dsh_client_ui_primitives = require("@deepseek-ai/dsh-client-ui-primitives");
+var import_jsx_runtime3 = require("react/jsx-runtime");
+var columnStyle = { display: "flex", flexDirection: "column", gap: 12 };
+var pathRowStyle = { display: "flex", gap: 8, alignItems: "center", width: "100%" };
+var pathInputStyle = {
+  flex: "1 1 auto",
+  minWidth: 0,
+  height: 32,
+  padding: "0 10px",
+  borderRadius: 8,
+  border: "1px solid color-mix(in srgb, var(--dsw-alias-label-tertiary) 35%, transparent)",
+  background: "transparent",
+  color: "var(--dsw-alias-label-primary)",
+  font: "inherit",
+  fontSize: 13,
+  outline: "none"
+};
+var listStyle = { display: "flex", flexDirection: "column", maxHeight: 220, overflowY: "auto" };
+var rowButtonStyle = { justifyContent: "flex-start" };
+var chipsStyle = { display: "flex", flexWrap: "wrap", gap: 8 };
+function parentOf(target) {
+  if (typeof target !== "string" || target === "") return "";
+  const trimmed = target.replace(/[\\/]+$/, "");
+  const cut = Math.max(trimmed.lastIndexOf("/"), trimmed.lastIndexOf("\\"));
+  return cut <= 0 ? "/" : trimmed.slice(0, cut);
+}
+function segmentsOf(target) {
+  if (typeof target !== "string" || target === "") return [];
+  const trimmed = target.replace(/[\\/]+$/, "");
+  const parts = trimmed.split(/[\\/]/).filter((part) => part !== "");
+  const out = [{ name: "/", path: "/" }];
+  let acc = "";
+  for (const part of parts) {
+    acc = acc + "/" + part;
+    out.push({ name: part, path: acc });
+  }
+  return out;
+}
+function RemoteDirectoryFlow(props) {
+  const { open, busy, onPicked, onCancel, onError, hostCall: hostCall2, pick } = props;
+  const t = useRemoteAccessT();
+  const [source, setSource] = (0, import_react3.useState)("local");
+  const [hosts, setHosts] = (0, import_react3.useState)([]);
+  const [hostId, setHostId] = (0, import_react3.useState)("");
+  const [listing, setListing] = (0, import_react3.useState)(null);
+  const [current, setCurrent] = (0, import_react3.useState)("");
+  const [draft, setDraft] = (0, import_react3.useState)("");
+  const [error, setError] = (0, import_react3.useState)(null);
+  const [working, setWorking] = (0, import_react3.useState)(false);
+  const browse = (0, import_react3.useCallback)(async (targetHostId, targetPath, quiet = false) => {
+    if (targetHostId === "") return;
+    setWorking(true);
+    if (!quiet) setError(null);
+    try {
+      const result = await hostCall2("remoteWorkspace.browse", { hostId: targetHostId, path: targetPath });
+      setListing(result);
+      const next = result?.path ?? targetPath;
+      setCurrent(next);
+      setDraft(next);
+      setError(null);
+    } catch (reason) {
+      if (!quiet) {
+        const raw = String(reason?.message ?? reason);
+        setError(/HTTP 5\d\d|list-failed|not-found|ENOENT|ENOTDIR/.test(raw) ? `${t("\u76EE\u5F55\u4E0D\u5B58\u5728\u6216\u65E0\u6CD5\u8BBF\u95EE")}\uFF1A${targetPath}` : raw);
+      }
+    } finally {
+      setWorking(false);
+    }
+  }, [hostCall2, t]);
+  (0, import_react3.useEffect)(() => {
+    if (!open) return;
+    setError(null);
+    setListing(null);
+    setCurrent("");
+    void (async () => {
+      try {
+        const state = await hostCall2("remoteHosts.list");
+        const list = Array.isArray(state?.hosts) ? state.hosts : [];
+        setHosts(list);
+        const first = list[0]?.hostId ?? "";
+        setHostId(first);
+        if (first !== "") await browse(first, "");
+      } catch (reason) {
+        setError(String(reason?.message ?? reason));
+      }
+    })();
+  }, [open, hostCall2, browse]);
+  (0, import_react3.useEffect)(() => {
+    if (!open || hostId === "" || draft === "" || draft === current) return;
+    if (!draft.startsWith("/")) return;
+    const timer = setTimeout(() => {
+      void browse(hostId, draft, true);
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [open, hostId, draft, current, browse]);
+  if (!open) return null;
+  const commit = async () => {
+    if (current === "" || hostId === "") return;
+    setWorking(true);
+    setError(null);
+    try {
+      await hostCall2("remoteWorkspace.add", { hostId, path: current });
+      onPicked(current);
+    } catch (reason) {
+      const message = String(reason?.message ?? reason);
+      setError(message);
+      onError(message);
+    } finally {
+      setWorking(false);
+    }
+  };
+  const pickLocalDirectory = async () => {
+    try {
+      const picked = await pick();
+      if (picked === null || picked === void 0) onCancel();
+      else onPicked(picked);
+    } catch (reason) {
+      onError(String(reason?.message ?? reason));
+    }
+  };
+  const tabs = [
+    { value: "local", label: t("\u672C\u673A"), id: "dsh-rdf-tab-local", panelId: "dsh-rdf-panel-local" },
+    { value: "remote", label: t("\u8FDC\u7A0B\u8BBE\u5907"), id: "dsh-rdf-tab-remote", panelId: "dsh-rdf-panel-remote" }
+  ];
+  return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+    import_dsh_client_ui_primitives.Modal,
+    {
+      open,
+      onClose: onCancel,
+      title: t("\u6DFB\u52A0\u5DE5\u4F5C\u533A"),
+      closeLabel: t("\u5173\u95ED"),
+      description: t("\u9009\u4E00\u4E2A\u672C\u673A\u76EE\u5F55\uFF0C\u6216\u4ECE\u5DF2\u914D\u5BF9\u7684\u4E3B\u673A\u4E0A\u6311\u4E00\u4E2A\u76EE\u5F55\u3002"),
+      footer: /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(import_jsx_runtime3.Fragment, { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(import_dsh_client_ui_primitives.Button, { variant: "ghost", onClick: onCancel, children: t("\u53D6\u6D88") }),
+        source === "remote" ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+          import_dsh_client_ui_primitives.Button,
+          {
+            variant: "primary",
+            onClick: () => void commit(),
+            disabled: busy || working || current === "" || hostId === "",
+            children: t("\u4F7F\u7528\u6B64\u76EE\u5F55")
+          }
+        ) : null
+      ] }),
+      children: /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { style: columnStyle, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(import_dsh_client_ui_primitives.SegmentedTabs, { items: tabs, value: source, onChange: setSource, label: t("\u76EE\u5F55\u6765\u6E90"), size: "sm" }),
+        source === "local" ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { id: "dsh-rdf-panel-local", role: "tabpanel", "aria-labelledby": "dsh-rdf-tab-local", style: columnStyle, children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(import_dsh_client_ui_primitives.Button, { variant: "primary", onClick: () => void pickLocalDirectory(), disabled: busy, children: t("\u9009\u62E9\u672C\u673A\u76EE\u5F55\u2026") }) }) : /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { id: "dsh-rdf-panel-remote", role: "tabpanel", "aria-labelledby": "dsh-rdf-tab-remote", style: columnStyle, children: [
+          hosts.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { children: t("\u8FD8\u6CA1\u6709\u5DF2\u914D\u5BF9\u7684\u4E3B\u673A\u3002\u5148\u5230\u300C\u8BBE\u7F6E \u2192 \u8FDC\u7A0B\u8BBF\u95EE\u300D\u914D\u5BF9\u4E00\u53F0\uFF0C\u518D\u56DE\u6765\u6DFB\u52A0\u5B83\u7684\u76EE\u5F55\u3002") }) : /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(import_jsx_runtime3.Fragment, { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { style: chipsStyle, children: hosts.map((host) => /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+              import_dsh_client_ui_primitives.Button,
+              {
+                variant: host.hostId === hostId ? "primary" : "outline",
+                size: "sm",
+                onClick: () => {
+                  setHostId(host.hostId);
+                  void browse(host.hostId, "");
+                },
+                children: host.name || host.origin || host.hostId
+              },
+              host.hostId
+            )) }),
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("nav", { "aria-label": t("\u5F53\u524D\u8DEF\u5F84"), style: chipsStyle, children: segmentsOf(current).map((segment) => /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+              import_dsh_client_ui_primitives.Button,
+              {
+                variant: "ghost",
+                size: "sm",
+                onClick: () => void browse(hostId, segment.path),
+                children: segment.name
+              },
+              segment.path
+            )) }),
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { style: pathRowStyle, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+                "input",
+                {
+                  value: draft,
+                  "aria-label": t("\u76EE\u5F55\u8DEF\u5F84"),
+                  placeholder: t("\u7C98\u8D34\u7EDD\u5BF9\u8DEF\u5F84\uFF0C\u4F8B\u5982 /Users/you/project"),
+                  onChange: (event) => setDraft(event.target.value),
+                  onKeyDown: (event) => {
+                    if (event.key === "Enter") void browse(hostId, draft);
+                  },
+                  style: pathInputStyle
+                }
+              ),
+              /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(import_dsh_client_ui_primitives.Button, { variant: "outline", size: "sm", disabled: working || draft === "", onClick: () => void browse(hostId, draft), children: t("\u524D\u5F80") })
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { style: listStyle, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(import_dsh_client_ui_primitives.Button, { variant: "ghost", size: "sm", style: rowButtonStyle, onClick: () => void browse(hostId, parentOf(current)), children: t(".. \u4E0A\u4E00\u7EA7") }),
+              (listing?.entries ?? []).map((entry) => /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+                import_dsh_client_ui_primitives.Button,
+                {
+                  variant: "ghost",
+                  size: "sm",
+                  style: rowButtonStyle,
+                  onClick: () => void browse(hostId, entry.path),
+                  children: entry.name
+                },
+                entry.path
+              )),
+              (listing?.entries ?? []).length === 0 && !working ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { children: t("\uFF08\u6CA1\u6709\u5B50\u76EE\u5F55\uFF09") }) : null
+            ] })
+          ] }),
+          error === null ? null : /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { children: error })
+        ] })
+      ] })
+    }
+  );
+}
+
+// client/workspace-badge.js
+var BADGE_ATTR = "data-dsh-remote-workspace";
+var LABEL_ATTR = "data-dsh-remote-label";
+var BADGE_PREFIX = "\u8FDC\u7A0B";
+var STATE_COLORS = {
+  online: "#16a34a",
+  offline: "#9ca3af",
+  unpaired: "#f59e0b",
+  incompatible: "#ef4444"
+};
+function paintBadge(label, text, title, state) {
+  const color = STATE_COLORS[state] ?? "";
+  const existing = label.querySelector(`[${BADGE_ATTR}]`);
+  if (existing !== null) {
+    if (existing.getAttribute("title") !== title) existing.setAttribute("title", title);
+    const dot2 = existing.querySelector("[data-dsh-remote-dot]");
+    const caption2 = existing.querySelector("[data-dsh-remote-text]");
+    if (caption2 !== null && caption2.textContent !== text) caption2.textContent = text;
+    if (dot2 !== null) dot2.style.background = color === "" ? "currentColor" : color;
+    return;
+  }
+  const badge = document.createElement("span");
+  badge.setAttribute(BADGE_ATTR, "1");
+  const dot = document.createElement("span");
+  dot.setAttribute("data-dsh-remote-dot", "1");
+  dot.style.cssText = [
+    "display:inline-block",
+    "width:5px",
+    "height:5px",
+    "border-radius:50%",
+    "margin-inline-end:4px",
+    "vertical-align:middle",
+    `background:${color === "" ? "currentColor" : color}`
+  ].join(";");
+  const caption = document.createElement("span");
+  caption.setAttribute("data-dsh-remote-text", "1");
+  caption.textContent = text;
+  badge.style.cssText = [
+    "display:inline-block",
+    "margin-inline-start:6px",
+    "padding:0 5px",
+    "border-radius:999px",
+    "border:1px solid currentColor",
+    "font-size:10px",
+    "line-height:13px",
+    "font-weight:500",
+    "letter-spacing:0.02em",
+    "opacity:0.55",
+    "color:var(--dsw-alias-label-tertiary)",
+    "vertical-align:middle",
+    "white-space:nowrap",
+    "pointer-events:none",
+    "user-select:none"
+  ].join(";");
+  badge.append(dot, caption);
+  label.appendChild(badge);
+}
+function installRemoteWorkspaceBadge({ hostCall: hostCall2, intervalMs = 15e3 }) {
+  if (typeof document === "undefined") return () => {
+  };
+  let titles = /* @__PURE__ */ new Map();
+  let hostIds = /* @__PURE__ */ new Map();
+  let states = /* @__PURE__ */ new Map();
+  let shareCounts = /* @__PURE__ */ new Map();
+  let stopped = false;
+  let observer = null;
+  let timer = null;
+  const repaint = () => {
+    if (stopped || titles.size === 0) return;
+    const labels = document.querySelectorAll(
+      '[role="treeitem"] span, [role="treeitem"] div,[role="menuitem"] span, [role="menuitem"] div,[role="option"] span, [role="option"] div'
+    );
+    for (const label of labels) {
+      const foreign = [...label.children].some((child) => !child.hasAttribute(BADGE_ATTR));
+      if (foreign) continue;
+      const text = label.getAttribute(LABEL_ATTR) ?? (label.textContent ?? "").trim();
+      const entry = titles.get(text);
+      if (entry === void 0) continue;
+      const name = entry.name;
+      const state = states.get(entry.hostId);
+      label.setAttribute(LABEL_ATTR, text);
+      paintBadge(label, name === "" ? BADGE_PREFIX : `${BADGE_PREFIX} \xB7 ${name}`, name, state);
+    }
+  };
+  const repaintShares = () => {
+    if (stopped || shareCounts.size === 0) return;
+    for (const row of document.querySelectorAll('[data-row-key^="session:"]')) {
+      const key = row.getAttribute("data-row-key") ?? "";
+      const sessionId = key.slice("session:".length);
+      const count = shareCounts.get(sessionId);
+      if (count === void 0 || count === 0) continue;
+      const label = row.querySelector("span, div");
+      if (label === null) continue;
+      paintBadge(label, `\u5206\u4EAB \xB7 ${count}`, `\u5DF2\u5206\u4EAB\u7ED9 ${count} \u53F0\u8BBE\u5907`, "online");
+    }
+  };
+  const refresh = async () => {
+    try {
+      const state = await hostCall2("remoteWorkspace.list");
+      const list = Array.isArray(state?.workspaces) ? state.workspaces : [];
+      const next = /* @__PURE__ */ new Map();
+      const hostIdsNext = /* @__PURE__ */ new Set();
+      for (const workspace of list) {
+        if (typeof workspace?.title !== "string" || workspace.title === "") continue;
+        const name = typeof workspace.hostName === "string" && workspace.hostName !== "" ? workspace.hostName : typeof workspace.hostOrigin === "string" ? workspace.hostOrigin : "";
+        const hostId = typeof workspace.hostId === "string" ? workspace.hostId : "";
+        next.set(workspace.title, { name, hostId });
+        const streamState = typeof workspace.streamState === "string" ? workspace.streamState : "";
+        if (streamState !== "") {
+          const mapped = streamState === "connected" ? "online" : streamState === "connecting" ? "unpaired" : "offline";
+          if (hostId !== "") states.set(hostId, mapped);
+          for (const sessionId of workspace.sessionIds ?? []) {
+            if (typeof sessionId === "string") sessionStates.set(sessionId, mapped);
+          }
+        }
+        if (typeof workspace.streamState === "string") {
+          const mapped = workspace.streamState === "connected" ? "online" : workspace.streamState === "connecting" ? "unpaired" : "offline";
+          if (hostId !== "") states.set(hostId, mapped);
+        }
+        if (hostId !== "") hostIdsNext.add(hostId);
+      }
+      titles = next;
+      hostIds = hostIdsNext;
+      const probed = /* @__PURE__ */ new Map();
+      await Promise.all([...hostIds].map(async (hostId) => {
+        try {
+          const result = await hostCall2("remoteStatus.probe", { hostId });
+          const state2 = result?.status?.state;
+          if (typeof state2 === "string") probed.set(hostId, state2);
+        } catch {
+          const previous = states.get(hostId);
+          if (previous !== void 0) probed.set(hostId, previous);
+        }
+      }));
+      states = probed;
+      try {
+        const shareState = await hostCall2("remoteShare.list", {});
+        const shares = Array.isArray(shareState?.shares) ? shareState.shares : [];
+        const counts = /* @__PURE__ */ new Map();
+        for (const share of shares) {
+          if (typeof share?.sessionId !== "string") continue;
+          counts.set(share.sessionId, (counts.get(share.sessionId) ?? 0) + 1);
+        }
+        shareCounts = counts;
+      } catch {
+      }
+      repaint();
+      repaintShares();
+    } catch {
+    }
+  };
+  void refresh();
+  timer = setInterval(() => {
+    void refresh();
+  }, intervalMs);
+  observer = new MutationObserver(() => {
+    repaint();
+  });
+  observer.observe(document.body, { childList: true, subtree: true });
+  return () => {
+    stopped = true;
+    if (timer !== null) clearInterval(timer);
+    observer?.disconnect();
+    for (const badge of document.querySelectorAll(`[${BADGE_ATTR}]`)) badge.remove();
+  };
+}
+
+// client/client.source.jsx
+var import_jsx_runtime4 = require("react/jsx-runtime");
+var inject = [
+  "slots",
+  "connection",
+  "locale",
+  "remote",
+  // 会话级转发要用的远端命名空间：Cordis Guard 对嵌套属性同样要求声明。
+  "remote.session",
+  "remote.commands",
+  "remote.fileUploads",
+  "remote.fileReferences",
+  "remote.permissionPresets"
+];
 function apply(ctx) {
   const t = installRemoteAccessCopy(ctx);
   const rpc = ctx?.connection?.rpc;
@@ -1786,13 +2484,310 @@ function apply(ctx) {
     () => slots.register(
       {
         name: "settings.section",
-        id: "dsh-remote-access",
+        id: "dsh-remote-devices",
         order: 20,
-        label: () => t("\u8FDC\u7A0B\u8BBF\u95EE")
+        label: () => t("\u8FDC\u7A0B\u8BBE\u5907\u7BA1\u7406")
       },
-      () => /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(RemoteAccessI18nProvider, { t, children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(RemoteAccessPanel, {}) })
+      () => /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(RemoteAccessI18nProvider, { t, children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(RemoteDevicesSection, { hostCall }) })
     )
   );
+  slots.inject(
+    "sidebar.workspaces.session.menu.item",
+    () => slots.register(
+      { name: "sidebar.workspaces.session.menu.item", id: "dsh-remote-sync", order: 900 },
+      (menuProps) => /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(RemoteAccessI18nProvider, { t, children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+        RemoteSyncMenu,
+        {
+          sessionId: menuProps.sessionId,
+          hostCall,
+          dismiss: () => menuProps.menuOpenState?.[1]?.(false)
+        }
+      ) })
+    )
+  );
+  const pick = () => {
+    const desktop = globalThis.__DSH_DIRECTORY_PICKER__;
+    if (desktop && typeof desktop.pick === "function") return desktop.pick();
+    const uiWorkspace = ctx.get?.("uiWorkspace");
+    return uiWorkspace?.pickDirectory?.() ?? Promise.resolve(null);
+  };
+  const flowInjected = () => ({ hostCall, pick });
+  for (const hole of ["sidebar.workspaces.directoryFlow", "conversation.hero.workspace.directoryFlow"]) {
+    slots.inject(
+      hole,
+      () => slots.register({ name: hole, priority: -1, inject: flowInjected }, (flowProps) => /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(RemoteAccessI18nProvider, { t, children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(RemoteDirectoryFlow, { ...flowProps }) }))
+    );
+  }
+  try {
+    const uninstallBadge = installRemoteWorkspaceBadge({ hostCall });
+    ctx?.on?.("dispose", uninstallBadge);
+  } catch (error) {
+    ctx?.logger?.warn?.(`dsh-remote-access: \u8FDC\u7A0B\u5DE5\u4F5C\u533A\u5FBD\u6807\u672A\u5B89\u88C5\uFF08${String(error)}\uFF09`);
+  }
+  const installForwarding = () => {
+    try {
+      const remote = ctx?.remote;
+      if (remote) {
+        const forward = async (namespace, method, args) => {
+          const result = await hostCall("remoteSession.invoke", { namespace, method, args });
+          return result && result.value !== void 0 ? result.value : void 0;
+        };
+        const wrap = (name, table) => {
+          const ns = remote[name];
+          if (!ns) return;
+          const wrapped = Object.create(ns);
+          for (const [method, toArgs] of Object.entries(table)) {
+            if (typeof ns[method] !== "function") continue;
+            const original = ns[method].bind(ns);
+            wrapped[method] = async (...args) => {
+              try {
+                const value = await forward(name, method, toArgs(args));
+                if (value !== void 0) {
+                  if (value && value.queued === true) return { commandId: "queued", result: { kind: "success" } };
+                  return value;
+                }
+              } catch (error) {
+                const message = String(error?.message ?? error);
+                if (!message.includes("not-found")) {
+                  console.warn("dsh-remote-access: \u8FDC\u7A0B\u8C03\u7528\u5931\u8D25\uFF0C\u5DF2\u5FFD\u7565\u672C\u5730\u56DE\u9000\uFF1A" + message);
+                  return { commandId: "remote-failed", result: { kind: "success" } };
+                }
+              }
+              return original(...args);
+            };
+          }
+          Object.defineProperty(remote, name, { value: wrapped, configurable: true, writable: true });
+        };
+        const request = (args) => ({ request: args[0] });
+        wrap("session", {
+          rename: request,
+          fork: request,
+          updateQueue: request,
+          attachment: request,
+          openWorkspacePath: request,
+          workspacePathApplications: request
+        });
+        wrap("commands", {
+          execute: (args) => ({ agentId: args[0], line: args[1], submittedAttachments: args[2] ?? [] }),
+          list: (args) => ({ agentId: args[0] })
+        });
+        wrap("fileUploads", {
+          upload: (args) => ({ agentId: args[0], request: args[1] })
+        });
+        wrap("fileReferences", {
+          list: (args) => ({ agentId: args[0], query: args[1] ?? "" })
+        });
+        wrap("permissionPresets", {
+          catalog: () => ({})
+        });
+        ctx?.logger?.info?.("dsh-remote-access: \u4F1A\u8BDD\u7EA7\u8F6C\u53D1\u5DF2\u5B89\u88C5\uFF08session/commands/fileUploads/fileReferences/permissionPresets\uFF09");
+      }
+    } catch (error) {
+      ctx?.logger?.warn?.(`dsh-remote-access: \u4F1A\u8BDD\u7EA7\u8F6C\u53D1\u672A\u5B89\u88C5\uFF08${String(error)}\uFF09`);
+    }
+  };
+  let tries = 0;
+  const timer = setInterval(() => {
+    tries += 1;
+    const ready = ctx?.remote && ctx.remote.session && ctx.remote.commands;
+    if (ready) {
+      clearInterval(timer);
+      installForwarding();
+      return;
+    }
+    if (tries >= 60) clearInterval(timer);
+  }, 500);
+  ctx?.on?.("dispose", () => clearInterval(timer));
+  try {
+    const rpcService = ctx?.connection?.rpc;
+    if (rpcService && typeof rpcService.call === "function") {
+      const originalCall = rpcService.call.bind(rpcService);
+      const FORWARD = /* @__PURE__ */ new Set([
+        "session/rename",
+        "session/fork",
+        "session/updateQueue",
+        "session/attachment",
+        "session/openWorkspacePath",
+        "session/workspacePathApplications",
+        "commands/execute",
+        "commands/list",
+        "fileUploads/upload",
+        "fileReferences/list",
+        "permissionPresets/catalog",
+        // 后台任务：杀掉远端任务必须发到 A 机。
+        "job/kill",
+        // 子代理：提示与打断都在 A 机上执行。
+        "subagents/prompt",
+        "subagents/interruptByParent",
+        // 右侧边栏的工作区文件：读的是 A 机的磁盘。
+        "workspaceFiles/list",
+        "workspaceFiles/read",
+        "workspaceFiles/stat",
+        "workspaceFiles/readBytes",
+        // 终端：pty 必须开在 A 机上。
+        "terminal/create",
+        "terminal/close",
+        "terminal/rename",
+        "terminal/list",
+        "terminal/shells",
+        "terminal/environment",
+        // 工作区与会话的菜单操作：改名、删除、归档、置顶都要落到 A 机。
+        "workspace/rename",
+        "workspace/delete",
+        "workspace/archiveSession",
+        "workspace/unarchiveSession",
+        "workspace/pinSession",
+        "workspace/unpinSession"
+      ]);
+      let inside = false;
+      rpcService.call = async (channel, endpoint, payload, signal) => {
+        if (inside || channel !== "/api" || !FORWARD.has(endpoint)) return originalCall(channel, endpoint, payload, signal);
+        const args = payload && payload.args ? payload.args : {};
+        const slash = endpoint.indexOf("/");
+        const namespace = endpoint.slice(0, slash);
+        const method = endpoint.slice(slash + 1);
+        inside = true;
+        try {
+          const result = await hostCall("remoteSession.invoke", { namespace, method, args });
+          if (result && result.value !== void 0) return { ok: true, value: result.value };
+        } catch (error) {
+          const message = String(error?.message ?? error);
+          if (!message.includes("not-found")) {
+            console.warn("dsh-remote-access: \u8FDC\u7A0B\u8C03\u7528\u5931\u8D25 " + endpoint + "\uFF1A" + message);
+            return { ok: false, error: { code: "remote-failed", message } };
+          }
+        } finally {
+          inside = false;
+        }
+        return originalCall(channel, endpoint, payload, signal);
+      };
+      console.info("dsh-remote-access: \u4F20\u8F93\u5C42\u8F6C\u53D1\u5DF2\u5B89\u88C5");
+      const STREAM_FORWARD = /* @__PURE__ */ new Set([
+        "terminal/attach",
+        "terminal/retain",
+        "job/list",
+        "job/follow",
+        "workspaceFiles/changes"
+      ]);
+      const pickSession = (args) => {
+        const request = args && args.request ? args.request : {};
+        const candidates = [args && args.agentId, args && args.sessionId, args && args.workspaceFileScopeId, request.sessionId, request.parentSessionId];
+        for (const value of candidates) if (typeof value === "string" && value !== "") return value;
+        return void 0;
+      };
+      const openRemoteStream = (endpoint, args, sessionId, signal, uplink) => {
+        const url = (location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/api/remote-access.stream?sessionId=" + encodeURIComponent(sessionId);
+        const socket = new WebSocket(url);
+        const streamId = "rs-" + Math.random().toString(36).slice(2);
+        const queue = [];
+        let finished = false;
+        let wake = null;
+        const push = (frame) => {
+          queue.push(frame);
+          if (wake) {
+            const w = wake;
+            wake = null;
+            w();
+          }
+        };
+        socket.addEventListener("message", (event) => {
+          let message;
+          try {
+            message = JSON.parse(event.data);
+          } catch {
+            return;
+          }
+          if (message.streamId !== streamId) return;
+          if (message.type === "item") push({ kind: "item", value: message.value });
+          else if (message.type === "error") {
+            push({ kind: "error", error: message.error });
+            finished = true;
+          } else if (message.type === "end") {
+            push({ kind: "end" });
+            finished = true;
+          }
+        });
+        socket.addEventListener("close", () => {
+          finished = true;
+          if (wake) {
+            const w = wake;
+            wake = null;
+            w();
+          }
+        });
+        const ready = new Promise((resolve) => {
+          socket.addEventListener("open", () => {
+            socket.send(JSON.stringify({ type: "open", streamId, endpoint, payload: { args } }));
+            resolve();
+          });
+          socket.addEventListener("error", () => resolve());
+        });
+        if (uplink) {
+          void (async () => {
+            try {
+              for await (const value of uplink) {
+                await ready;
+                if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: "item", streamId, value }));
+              }
+              await ready;
+              if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: "end", streamId }));
+            } catch {
+            }
+          })();
+        }
+        const abort = () => {
+          finished = true;
+          if (wake) {
+            const w = wake;
+            wake = null;
+            w();
+          }
+        };
+        if (signal) signal.addEventListener("abort", abort);
+        return (async function* relay() {
+          try {
+            await ready;
+            while (true) {
+              if (queue.length === 0) {
+                if (finished) return;
+                await new Promise((resolve) => {
+                  wake = resolve;
+                });
+                continue;
+              }
+              const frame = queue.shift();
+              if (frame.kind === "item") {
+                yield frame.value;
+                continue;
+              }
+              if (frame.kind === "error") throw new Error(frame.error && frame.error.message || endpoint + " \u8FDC\u7AEF\u6D41\u5931\u8D25");
+              return;
+            }
+          } finally {
+            if (signal) signal.removeEventListener("abort", abort);
+            try {
+              if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: "cancel", streamId }));
+            } catch {
+            }
+            try {
+              socket.close();
+            } catch {
+            }
+          }
+        })();
+      };
+      rpcService.open = (channel, endpoint, payload, signal, uplink) => {
+        if (channel !== "/api" || !STREAM_FORWARD.has(endpoint)) return void 0;
+        const args = payload && payload.args ? payload.args : {};
+        const sessionId = pickSession(args);
+        if (sessionId === void 0) return void 0;
+        return openRemoteStream(endpoint, args, sessionId, signal, uplink);
+      };
+      console.info("dsh-remote-access: \u6D41\u5F0F\u8F6C\u53D1\u5DF2\u5B89\u88C5");
+    }
+  } catch (error) {
+    ctx?.logger?.warn?.(`dsh-remote-access: \u4F20\u8F93\u5C42\u8F6C\u53D1\u672A\u5B89\u88C5\uFF08${String(error)}\uFF09`);
+  }
 }
 var lanePort = Number(globalThis.__DSH_REMOTE_LANE_PORT__) || 3091;
 var hostRpc = null;
@@ -1833,11 +2828,11 @@ color: #fff !important;
 }
 `;
 function PanelButton({ text, ghost, cssVars, onClick }) {
-  const [busy, setBusy] = (0, import_react2.useState)(false);
-  const [flash, setFlash] = (0, import_react2.useState)(null);
-  const [flashText, setFlashText] = (0, import_react2.useState)(null);
-  const flashTimerRef = (0, import_react2.useRef)(null);
-  (0, import_react2.useEffect)(
+  const [busy, setBusy] = (0, import_react4.useState)(false);
+  const [flash, setFlash] = (0, import_react4.useState)(null);
+  const [flashText, setFlashText] = (0, import_react4.useState)(null);
+  const flashTimerRef = (0, import_react4.useRef)(null);
+  (0, import_react4.useEffect)(
     () => () => {
       if (flashTimerRef.current) clearTimeout(flashTimerRef.current);
     },
@@ -1872,7 +2867,7 @@ function PanelButton({ text, ghost, cssVars, onClick }) {
     fontSize: 12,
     cursor: "pointer"
   };
-  return /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+  return /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
     "button",
     {
       type: "button",
@@ -1907,7 +2902,7 @@ function ChannelCard({
   actions
 }) {
   const t = useRemoteAccessT();
-  return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(
+  return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(
     "div",
     {
       style: {
@@ -1919,10 +2914,10 @@ function ChannelCard({
         gap: 8
       },
       children: [
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { style: { fontSize: 13, fontWeight: 600 }, children: label }),
-        desc && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { style: { color: cssVars.text2, fontSize: 12 }, children: desc }),
+        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { style: { fontSize: 13, fontWeight: 600 }, children: label }),
+        desc && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { style: { color: cssVars.text2, fontSize: 12 }, children: desc }),
         beforeLink,
-        link && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+        link && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
           "code",
           {
             style: {
@@ -1938,7 +2933,7 @@ function ChannelCard({
             children: link
           }
         ),
-        qrSrc && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+        qrSrc && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
           "img",
           {
             alt: t("{label} \u914D\u5BF9\u4E8C\u7EF4\u7801", { label }),
@@ -1952,15 +2947,15 @@ function ChannelCard({
             }
           }
         ),
-        hint?.text && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { style: { color: hint.color, fontSize: 12 }, children: hint.text }),
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" }, children: actions })
+        hint?.text && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { style: { color: hint.color, fontSize: 12 }, children: hint.text }),
+        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" }, children: actions })
       ]
     }
   );
 }
 function RemoteAccessPanel() {
   const t = useRemoteAccessT();
-  const cssVars = (0, import_react2.useMemo)(
+  const cssVars = (0, import_react4.useMemo)(
     () => ({
       text: readCssVar("--dsw-alias-label-primary", "#e7eaf0"),
       text2: readCssVar("--dsw-alias-label-secondary", "#9aa4b2"),
@@ -1970,7 +2965,7 @@ function RemoteAccessPanel() {
     }),
     []
   );
-  (0, import_react2.useEffect)(() => {
+  (0, import_react4.useEffect)(() => {
     const styleEl = document.createElement("style");
     styleEl.setAttribute("data-remote-access", "1");
     styleEl.textContent = BUTTON_CSS;
@@ -1979,15 +2974,15 @@ function RemoteAccessPanel() {
       styleEl.remove();
     };
   }, []);
-  const lanBaseRef = (0, import_react2.useRef)(null);
-  const [lanLink, setLanLink] = (0, import_react2.useState)(null);
-  const [lanHint, setLanHint] = (0, import_react2.useState)(null);
-  const [tunInputValue, setTunInputValue] = (0, import_react2.useState)("");
-  const [tunSavedUrl, setTunSavedUrl] = (0, import_react2.useState)("");
-  const [tunResult, setTunResult] = (0, import_react2.useState)({ text: "", color: "" });
-  const [tunLink, setTunLink] = (0, import_react2.useState)(null);
-  const [tunHint, setTunHint] = (0, import_react2.useState)(null);
-  const [cfState, setCfState] = (0, import_react2.useState)({
+  const lanBaseRef = (0, import_react4.useRef)(null);
+  const [lanLink, setLanLink] = (0, import_react4.useState)(null);
+  const [lanHint, setLanHint] = (0, import_react4.useState)(null);
+  const [tunInputValue, setTunInputValue] = (0, import_react4.useState)("");
+  const [tunSavedUrl, setTunSavedUrl] = (0, import_react4.useState)("");
+  const [tunResult, setTunResult] = (0, import_react4.useState)({ text: "", color: "" });
+  const [tunLink, setTunLink] = (0, import_react4.useState)(null);
+  const [tunHint, setTunHint] = (0, import_react4.useState)(null);
+  const [cfState, setCfState] = (0, import_react4.useState)({
     bin: "",
     url: null,
     running: false,
@@ -1996,17 +2991,17 @@ function RemoteAccessPanel() {
     detail: "",
     message: ""
   });
-  const [cfInputValue, setCfInputValue] = (0, import_react2.useState)("");
-  const [cfInFlight, setCfInFlight] = (0, import_react2.useState)(null);
-  const [cfStatusError, setCfStatusError] = (0, import_react2.useState)(null);
-  const [cfLink, setCfLink] = (0, import_react2.useState)(null);
-  const [cfHint, setCfHint] = (0, import_react2.useState)(null);
-  const [devices, setDevices] = (0, import_react2.useState)([]);
-  const [devicesError, setDevicesError] = (0, import_react2.useState)(null);
-  const [deviceErrors, setDeviceErrors] = (0, import_react2.useState)({});
-  const tunSavedUrlRef = (0, import_react2.useRef)("");
+  const [cfInputValue, setCfInputValue] = (0, import_react4.useState)("");
+  const [cfInFlight, setCfInFlight] = (0, import_react4.useState)(null);
+  const [cfStatusError, setCfStatusError] = (0, import_react4.useState)(null);
+  const [cfLink, setCfLink] = (0, import_react4.useState)(null);
+  const [cfHint, setCfHint] = (0, import_react4.useState)(null);
+  const [devices, setDevices] = (0, import_react4.useState)([]);
+  const [devicesError, setDevicesError] = (0, import_react4.useState)(null);
+  const [deviceErrors, setDeviceErrors] = (0, import_react4.useState)({});
+  const tunSavedUrlRef = (0, import_react4.useRef)("");
   tunSavedUrlRef.current = tunSavedUrl;
-  const refreshDevices = (0, import_react2.useCallback)(async () => {
+  const refreshDevices = (0, import_react4.useCallback)(async () => {
     try {
       const st = await hostCall("devices.list");
       setDevices(st.devices ?? []);
@@ -2017,7 +3012,7 @@ function RemoteAccessPanel() {
       setDevicesError(t("\u914D\u5BF9\u670D\u52A1\u4E0D\u53EF\u8FBE\uFF1A{message}", { message: e.message }));
     }
   }, []);
-  const refreshCf = (0, import_react2.useCallback)(async () => {
+  const refreshCf = (0, import_react4.useCallback)(async () => {
     try {
       const st = await hostCall("cloudflared.get");
       setCfState({
@@ -2034,7 +3029,7 @@ function RemoteAccessPanel() {
       setCfStatusError(t("\u67E5\u8BE2\u5931\u8D25\uFF1A{message}", { message: e.message }));
     }
   }, []);
-  const refreshLanBase = (0, import_react2.useCallback)(async () => {
+  const refreshLanBase = (0, import_react4.useCallback)(async () => {
     try {
       const info = await hostCall("info");
       const port = info.lanePort ?? lanePort;
@@ -2051,7 +3046,7 @@ function RemoteAccessPanel() {
     } catch {
     }
   }, []);
-  (0, import_react2.useEffect)(() => {
+  (0, import_react4.useEffect)(() => {
     void refreshDevices();
     void refreshCf();
     void refreshLanBase();
@@ -2061,10 +3056,10 @@ function RemoteAccessPanel() {
     }, 2e3);
     return () => clearInterval(id);
   }, [refreshDevices, refreshCf, refreshLanBase]);
-  (0, import_react2.useEffect)(() => {
+  (0, import_react4.useEffect)(() => {
     setCfInputValue(cfState.bin || "");
   }, [cfState.bin]);
-  const cfStatus = (0, import_react2.useMemo)(() => {
+  const cfStatus = (0, import_react4.useMemo)(() => {
     if (cfInFlight) return cfInFlight;
     if (cfStatusError) return { text: cfStatusError, color: "#e5484d" };
     const s = cfState;
@@ -2092,9 +3087,9 @@ function RemoteAccessPanel() {
     if (s.bin) return { text: t("\u5DF2\u914D\u7F6E \xB7 \u672A\u8FD0\u884C"), color: cssVars.text2 };
     return { text: t("\u672A\u914D\u7F6E \xB7 \u672A\u8FD0\u884C"), color: cssVars.text2 };
   }, [cfState, cfStatusError, cfInFlight, cssVars.text2, t]);
-  const lanQr = (0, import_react2.useMemo)(() => makeQr(lanLink), [lanLink]);
-  const tunQr = (0, import_react2.useMemo)(() => makeQr(tunLink), [tunLink]);
-  const cfQr = (0, import_react2.useMemo)(() => makeQr(cfLink), [cfLink]);
+  const lanQr = (0, import_react4.useMemo)(() => makeQr(lanLink), [lanLink]);
+  const tunQr = (0, import_react4.useMemo)(() => makeQr(tunLink), [tunLink]);
+  const cfQr = (0, import_react4.useMemo)(() => makeQr(cfLink), [cfLink]);
   const pairLink = (base, scheme, token, candidates = []) => scheme + "://" + base + "/pair?token=" + encodeURIComponent(token) + (candidates.length ? "&base=" + encodeURIComponent(candidates.join(",")) : "");
   const mintFor = async (base, scheme, setLink, setHint, candidates = []) => {
     try {
@@ -2109,7 +3104,7 @@ function RemoteAccessPanel() {
       setHint({ text: t("\u94F8\u9020\u5931\u8D25\uFF1A{message}", { message: e.message }), color: "#e5484d" });
     }
   };
-  return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(
+  return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(
     "div",
     {
       "data-remote-access-panel": "1",
@@ -2120,9 +3115,9 @@ function RemoteAccessPanel() {
         maxWidth: 640
       },
       children: [
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { style: { fontSize: 15, fontWeight: 600 }, children: t("\u8FDC\u7A0B\u8BBF\u95EE") }),
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { style: { color: cssVars.text2, fontSize: 13 }, children: t("\u4E09\u4E2A\u901A\u9053\u72EC\u7ACB\u7EF4\u62A4\u914D\u5BF9\u4E8C\u7EF4\u7801\uFF1A\u626B\u7801/\u6253\u5F00\u94FE\u63A5\u5373\u53EF\u914D\u5BF9\uFF08\u4E00\u6B21\u6027\u4EE4\u724C + \u4F1A\u8BDD Cookie\uFF09\u3002\u6B64\u9875\u9762\u4F9B\u624B\u673A/\u5176\u5B83\u8BBE\u5907\u8FDE\u63A5\u672C\u673A\uFF1B\u82E5\u8981\u5207\u6362\u684C\u9762\u58F3\u81EA\u8EAB\u8FDE\u63A5\u7684 dsh \u670D\u52A1\u6765\u6E90\uFF0C\u8BF7\u7528\u684C\u9762\u8BBE\u7F6E\u7684\u300Cdsh \u670D\u52A1\u5730\u5740\u300D\u3002") }),
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { style: { fontSize: 15, fontWeight: 600 }, children: t("\u8FDC\u7A0B\u8BBF\u95EE") }),
+        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { style: { color: cssVars.text2, fontSize: 13 }, children: t("\u4E09\u4E2A\u901A\u9053\u72EC\u7ACB\u7EF4\u62A4\u914D\u5BF9\u4E8C\u7EF4\u7801\uFF1A\u626B\u7801/\u6253\u5F00\u94FE\u63A5\u5373\u53EF\u914D\u5BF9\uFF08\u4E00\u6B21\u6027\u4EE4\u724C + \u8BBE\u5907\u8EAB\u4EFD\uFF09\u3002\u6B64\u9875\u9762\u4F9B\u624B\u673A/\u5176\u5B83\u8BBE\u5907\u8FDE\u63A5\u672C\u673A\u3002") }),
+        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
           ChannelCard,
           {
             label: t("\u5C40\u57DF\u7F51"),
@@ -2131,8 +3126,8 @@ function RemoteAccessPanel() {
             link: lanLink,
             qrSrc: lanQr,
             hint: lanHint,
-            actions: /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(import_jsx_runtime2.Fragment, { children: [
-              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+            actions: /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(import_jsx_runtime4.Fragment, { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
                 PanelButton,
                 {
                   text: t("\u94F8\u9020\u5C40\u57DF\u7F51\u4EE4\u724C"),
@@ -2153,7 +3148,7 @@ function RemoteAccessPanel() {
                   }
                 }
               ),
-              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
                 PanelButton,
                 {
                   text: t("\u590D\u5236\u94FE\u63A5"),
@@ -2172,7 +3167,7 @@ function RemoteAccessPanel() {
             ] })
           }
         ),
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
           ChannelCard,
           {
             label: t("\u7B2C\u4E09\u65B9\u96A7\u9053\uFF08cpolar \u7B49\uFF09"),
@@ -2181,8 +3176,8 @@ function RemoteAccessPanel() {
             link: tunLink,
             qrSrc: tunQr,
             hint: tunHint,
-            beforeLink: /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(import_jsx_runtime2.Fragment, { children: [
-              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+            beforeLink: /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(import_jsx_runtime4.Fragment, { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
                 "input",
                 {
                   type: "text",
@@ -2199,10 +3194,10 @@ function RemoteAccessPanel() {
                   }
                 }
               ),
-              tunResult.text && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { style: { color: tunResult.color, fontSize: 12 }, children: tunResult.text })
+              tunResult.text && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { style: { color: tunResult.color, fontSize: 12 }, children: tunResult.text })
             ] }),
-            actions: /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(import_jsx_runtime2.Fragment, { children: [
-              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+            actions: /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(import_jsx_runtime4.Fragment, { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
                 PanelButton,
                 {
                   text: t("\u6821\u9A8C\u5E76\u4FDD\u5B58"),
@@ -2240,7 +3235,7 @@ function RemoteAccessPanel() {
                   }
                 }
               ),
-              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
                 PanelButton,
                 {
                   text: t("\u94F8\u9020\u96A7\u9053\u4EE4\u724C"),
@@ -2264,7 +3259,7 @@ function RemoteAccessPanel() {
                   }
                 }
               ),
-              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
                 PanelButton,
                 {
                   text: t("\u590D\u5236\u94FE\u63A5"),
@@ -2283,7 +3278,7 @@ function RemoteAccessPanel() {
             ] })
           }
         ),
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
           ChannelCard,
           {
             label: t("cloudflared \u516C\u7F51\u96A7\u9053"),
@@ -2292,8 +3287,8 @@ function RemoteAccessPanel() {
             link: cfLink,
             qrSrc: cfQr,
             hint: cfHint,
-            beforeLink: /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(import_jsx_runtime2.Fragment, { children: [
-              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+            beforeLink: /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(import_jsx_runtime4.Fragment, { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
                 "input",
                 {
                   type: "text",
@@ -2310,10 +3305,10 @@ function RemoteAccessPanel() {
                   }
                 }
               ),
-              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { style: { color: cfStatus.color, fontSize: 12 }, children: cfStatus.text })
+              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { style: { color: cfStatus.color, fontSize: 12 }, children: cfStatus.text })
             ] }),
-            actions: /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(import_jsx_runtime2.Fragment, { children: [
-              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+            actions: /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(import_jsx_runtime4.Fragment, { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
                 PanelButton,
                 {
                   text: t("\u4E00\u952E\u542F\u52A8\uFF08\u65E0\u4F9D\u8D56\uFF09"),
@@ -2344,7 +3339,7 @@ function RemoteAccessPanel() {
                   }
                 }
               ),
-              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
                 PanelButton,
                 {
                   text: t("\u505C\u6B62"),
@@ -2369,7 +3364,7 @@ function RemoteAccessPanel() {
                   }
                 }
               ),
-              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
                 PanelButton,
                 {
                   text: t("\u5E94\u7528\u5E76\u542F\u52A8"),
@@ -2399,7 +3394,7 @@ function RemoteAccessPanel() {
                   }
                 }
               ),
-              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
                 PanelButton,
                 {
                   text: t("\u94F8\u9020\u96A7\u9053\u4EE4\u724C"),
@@ -2421,7 +3416,7 @@ function RemoteAccessPanel() {
                   }
                 }
               ),
-              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
                 PanelButton,
                 {
                   text: t("\u590D\u5236\u94FE\u63A5"),
@@ -2439,88 +3434,36 @@ function RemoteAccessPanel() {
               )
             ] })
           }
-        ),
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(
-          "div",
-          {
-            style: {
-              border: `1px solid ${cssVars.line}`,
-              borderRadius: 10,
-              padding: 14,
-              display: "flex",
-              flexDirection: "column",
-              gap: 8
-            },
-            children: [
-              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { style: { fontSize: 13, fontWeight: 600 }, children: t("\u5DF2\u914D\u5BF9\u8BBE\u5907") }),
-              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { style: { display: "flex", flexDirection: "column", gap: 6 }, children: devicesError ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { style: { color: "#e5484d", fontSize: 12 }, children: devicesError }) : devices.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { style: { color: cssVars.text2, fontSize: 12 }, children: t("\u6682\u65E0\u914D\u5BF9\u8BBE\u5907") }) : devices.map((d) => /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(
-                "div",
-                {
-                  style: {
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    gap: 8
-                  },
-                  children: [
-                    /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(
-                      "span",
-                      {
-                        style: {
-                          color: cssVars.text,
-                          fontSize: 13,
-                          display: "flex",
-                          flexDirection: "column",
-                          gap: 2,
-                          minWidth: 0
-                        },
-                        children: [
-                          /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("span", { children: [
-                            d.name,
-                            " \xB7 ",
-                            d.online ? t("\u5728\u7EBF") : t("\u79BB\u7EBF")
-                          ] }),
-                          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { style: { color: cssVars.text2, fontSize: 11 }, children: [
-                            d.model || d.platformLabel,
-                            d.browserLabel,
-                            d.ip ? d.ip + (d.entryLabel ? " \xB7 " + d.entryLabel : "") : d.entryLabel
-                          ].filter(Boolean).join(" \xB7 ") || t("\u8BBE\u5907\u4FE1\u606F\u5F85\u8865\u5168\uFF08\u8BE5\u8BBE\u5907\u4E0B\u6B21\u8BBF\u95EE\u65F6\u5237\u65B0\uFF09") })
-                        ]
-                      }
-                    ),
-                    /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { style: { display: "flex", alignItems: "center", gap: 8 }, children: [
-                      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
-                        PanelButton,
-                        {
-                          text: t("\u79FB\u9664"),
-                          ghost: true,
-                          cssVars,
-                          onClick: async () => {
-                            try {
-                              await hostCall("devices.remove", { deviceId: d.deviceId });
-                              await refreshDevices();
-                            } catch (e) {
-                              setDeviceErrors((prev) => ({
-                                ...prev,
-                                [d.deviceId]: t("\u79FB\u9664\u5931\u8D25\uFF1A{message}", { message: e.message })
-                              }));
-                            }
-                          }
-                        }
-                      ),
-                      deviceErrors[d.deviceId] && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { style: { color: "#e5484d", fontSize: 12 }, children: deviceErrors[d.deviceId] })
-                    ] })
-                  ]
-                },
-                d.deviceId
-              )) })
-            ]
-          }
         )
       ]
     }
   );
 }
+function RemoteDevicesSection({ hostCall: hostCall2 }) {
+  const [tab, setTab] = (0, import_react4.useState)("share");
+  const tabStyle = (active) => ({
+    font: "inherit",
+    fontSize: 13,
+    padding: "7px 14px",
+    border: "none",
+    borderBottom: active ? "2px solid var(--dsw-alias-label-primary, #e7eaf0)" : "2px solid transparent",
+    background: "transparent",
+    color: active ? "var(--dsw-alias-label-primary, #e7eaf0)" : "var(--dsw-alias-label-secondary, #9aa4b2)",
+    fontWeight: active ? 600 : 400,
+    cursor: "pointer"
+  });
+  return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { style: { display: "flex", flexDirection: "column", gap: 12 }, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { style: { display: "flex", gap: 4, borderBottom: "1px solid var(--dsw-alias-border-secondary, #3a3a3f)" }, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("button", { type: "button", style: tabStyle(tab === "share"), onClick: () => setTab("share"), children: "\u8BBE\u5907\u5206\u4EAB" }),
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("button", { type: "button", style: tabStyle(tab === "manage"), onClick: () => setTab("manage"), children: "\u8BBE\u5907\u7BA1\u7406" })
+    ] }),
+    tab === "share" ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(RemoteAccessPanel, {}) : /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(RemoteDeviceManager, { hostCall: hostCall2 })
+  ] });
+}
+//! 设备管理：新增设备 + 可折叠设备卡片（工作区与会话）。
+//!
+//! 设备信息全部来自插件自己的存储（remoteHosts.list），不再读桌面设置。
+//! 连接必须双向成功才添加——host 侧 remoteHosts.pair 会回调对端，失败即回滚。
 return module.exports;
   }
 });

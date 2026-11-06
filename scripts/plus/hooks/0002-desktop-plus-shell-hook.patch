@@ -325,7 +325,7 @@ index 37515c20..237c3b02 100644
  }
  
 diff --git a/upstream/apps/desktop/scripts/pack-local-packages.ts b/upstream/apps/desktop/scripts/pack-local-packages.ts
-index 79136479..5205e963 100644
+index 79136479..c1098ff8 100644
 --- a/upstream/apps/desktop/scripts/pack-local-packages.ts
 +++ b/upstream/apps/desktop/scripts/pack-local-packages.ts
 @@ -1,16 +1,20 @@
@@ -351,7 +351,7 @@ index 79136479..5205e963 100644
    const { values } = parseArgs({
      options: { out: { type: 'string' }, concurrency: { type: 'string' } },
      allowPositionals: false,
-@@ -22,7 +26,27 @@ async function main(): Promise<void> {
+@@ -22,7 +26,33 @@ async function main(): Promise<void> {
    readClientBuildRecord(root, environment)
    const destination = resolve(root, values.out)
    const packed = await packFamilyMembers(root, releaseFamily('dsh'), destination, concurrency)
@@ -365,11 +365,17 @@ index 79136479..5205e963 100644
 +  for (const source of plusSources) {
 +    const sourceDir = resolve(root, source)
 +    const manifestPath = join(sourceDir, 'package.json')
-+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as { name?: string; version?: string }
++    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as { name?: string; version?: string; scripts?: { build?: unknown } }
 +    if (typeof manifest.name !== 'string' || manifest.name === '' || typeof manifest.version !== 'string' || manifest.version === '') {
 +      throw new Error(`desktop local pack: ${source} manifest needs name and version`)
 +    }
 +    const member = { directory: sourceDir, name: manifest.name, version: manifest.version, manifest }
++    // lib/ 是构建产物、不在包内源码里：不先构建，tarball 装的要么是上一次的旧产物，
++    // 要么什么都没有，运行时表现为插件行为整体落后一拍。
++    if (typeof manifest.scripts?.build === 'string' && manifest.scripts.build !== '') {
++      const build = pnpmInvocation(['--dir', sourceDir, 'run', 'build'])
++      await runConcurrent(build.command, build.args)
++    }
 +    const invocation = pnpmInvocation(['--dir', sourceDir, 'pack', '--pack-destination', destination])
 +    await runConcurrent(invocation.command, invocation.args)
 +    const tarball = join(destination, tarballName(member))
@@ -652,7 +658,7 @@ index 338f93bd..ab6492fc 100644
          const request = this.controlRequests.get(message.requestId)
          if (message.error === undefined) request?.resolve(message)
 diff --git a/upstream/apps/desktop/src/main.ts b/upstream/apps/desktop/src/main.ts
-index d8d0e30c..5ac0b07c 100644
+index d8d0e30c..b127ba25 100644
 --- a/upstream/apps/desktop/src/main.ts
 +++ b/upstream/apps/desktop/src/main.ts
 @@ -14,6 +14,7 @@ import {
@@ -663,19 +669,32 @@ index d8d0e30c..5ac0b07c 100644
    nativeImage,
    nativeTheme,
    net,
-@@ -22,10 +23,22 @@ import {
+@@ -22,10 +23,35 @@ import {
    shell,
    type IpcMainInvokeEvent,
    type MenuItemConstructorOptions,
 +  type Session,
  } from 'electron'
-+import { existsSync, rmSync, writeFileSync } from 'node:fs'
++import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 +import { spawn } from 'node:child_process'
-+import { applyLoginItemFromEnv, isLoginItemEnabled, setLoginItemEnabled, remoteProfileName, loadRemoteAddressList, partitionFor, remoteOrigin, listProfileDirs, createProfilesRpcHandlers, createUpdatesRpcHandlers, createSettingsRpcHandlers, createNotificationsRpcHandlers, applyWindowsAppUserModelId, attachDownloads, attachPackagedDevTools, toggleDevTools, windowDevToolsAction, attachPageConsole, collectDiagnostics, clearSelectedRuntime, createDownloadRpcHandlers, createElectronProfileRuntime, createLoggingKernel, createLoggingRpcHandlers, createProfileTray, observeWindowVisibility, createRpcRegistry, createShellKernel, ensurePlusProfileBundles, PLUS_BUNDLE_NAMES, DEFAULT_PROFILE, resolveStartupRuntimeSelection, restartApplicationInPlace, runPlusStartup, loadDesktopSettings, saveDesktopSettings, soundCapabilityReport, playSoundFile, createLifecycleRpcHandlers, resolveProxyEnv, proxyEnvRecord, detectSystemProxy, plusApplicationVersion, type RpcRegistry, type ProfileTray } from '@deepseek-ai/dsh-desktop-plus-shell'
++import { applyLoginItemFromEnv, isLoginItemEnabled, setLoginItemEnabled, remoteProfileName, partitionFor, remoteOrigin, listProfileDirs, createProfilesRpcHandlers, createUpdatesRpcHandlers, createSettingsRpcHandlers, createNotificationsRpcHandlers, applyWindowsAppUserModelId, attachDownloads, attachPackagedDevTools, toggleDevTools, windowDevToolsAction, attachPageConsole, collectDiagnostics, clearSelectedRuntime, createDownloadRpcHandlers, createElectronProfileRuntime, createLoggingKernel, createLoggingRpcHandlers, createProfileTray, observeWindowVisibility, createRpcRegistry, createShellKernel, ensurePlusProfileBundles, DEFAULT_PROFILE, resolveStartupRuntimeSelection, restartApplicationInPlace, runPlusStartup, loadDesktopSettings, saveDesktopSettings, soundCapabilityReport, playSoundFile, createLifecycleRpcHandlers, resolveProxyEnv, proxyEnvRecord, detectSystemProxy, plusApplicationVersion, type RpcRegistry, type ProfileTray } from '@deepseek-ai/dsh-desktop-plus-shell'
 +import { createBusyLease, createPlusNotifier, createSleepGate, createSplashWindow, deliverHostNotice, loadNotificationConfig, noticePolicyFromConfig, systemDefaultSoundCommand, type RestartAllOutcome } from '@deepseek-ai/dsh-desktop-plus-shell'
 +import { plusShellCopy } from '@deepseek-ai/dsh-desktop-plus-shell'
 +import { installShellConsoleTee } from '@deepseek-ai/dsh-desktop-plus-shell'
 +import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
++
++/** 远程设备列表：唯一事实源是远程访问插件自己的存储（remote-hosts.json）。 */
++function loadRemoteOrigins(): string[] {
++  try {
++    const file = join(resolveDshHome(), 'storages', 'remote-access', 'remote-hosts.json')
++    const raw = JSON.parse(readFileSync(file, 'utf8')) as { hosts?: Array<{ origin?: unknown }> }
++    return (raw.hosts ?? [])
++      .map((host) => (typeof host.origin === 'string' ? host.origin : ''))
++      .filter((origin) => origin !== '')
++  } catch {
++    return []
++  }
++}
 +import { initProfile, resolveProfileDir } from '@deepseek-ai/dsh-app-boot'
 +import { PROFILE_TEMPLATES } from '@deepseek-ai/dsh-official-bundles'
 +import { promptProfileName } from './profile-name-window.ts'
@@ -687,7 +706,7 @@ index d8d0e30c..5ac0b07c 100644
  import { DesktopPlatformView, PLATFORM_IPC, platformBounds } from './platform-view.ts'
  import { installDesktopFileDrag } from './file-drag.ts'
  import { installDesktopDirectoryPicker } from './directory-picker.ts'
-@@ -60,7 +73,7 @@ import { DesktopPolicyTestAuth } from './policy-test-auth.ts'
+@@ -60,7 +86,7 @@ import { DesktopPolicyTestAuth } from './policy-test-auth.ts'
  import { readDesktopSettings } from './settings.ts'
  import { readDesktopLocaleCache, writeDesktopLocaleCache } from './locale-cache.ts'
  import { DesktopUpdateDialog, type UpdateDialogOptions } from './update-dialog.ts'
@@ -696,7 +715,7 @@ index d8d0e30c..5ac0b07c 100644
  import { DesktopBrowserGuests } from './browser-guests.ts'
  import { installDesktopShortcuts } from './keyboard.ts'
  import { DesktopUpdateOverlays } from './update-overlay.ts'
-@@ -77,6 +90,155 @@ let shuttingDown = false
+@@ -77,6 +103,156 @@ let shuttingDown = false
   */
  let skipQuitConfirmation = false
  let windowsLanguage: string | undefined = readDesktopLocaleCache(app.getPath('userData'))
@@ -770,7 +789,8 @@ index d8d0e30c..5ac0b07c 100644
 +    if (existsSync(dir)) return { ok: false, reason: `profile ${trimmed} 已存在` }
 +    const template = PROFILE_TEMPLATES.web
 +    if (template === undefined) return { ok: false, reason: '官方缺少 web profile 模板' }
-+    initProfile(dir, [...template.bundles, ...PLUS_BUNDLE_NAMES])
++    // plus 插件已挂进 web-app bundle 的 patch，profile 的 bundles 保持官方模板原样。
++    initProfile(dir, template.bundles)
 +    return { ok: true }
 +  } catch (error) {
 +    return { ok: false, reason: error instanceof Error ? error.message : String(error) }
@@ -780,7 +800,7 @@ index d8d0e30c..5ac0b07c 100644
 +/** 删除 profile：挡默认 profile、运行中的 profile 与远程地址，其余整目录删除。 */
 +function plusDeleteProfile(name: string): { ok: boolean, reason?: string } {
 +  if (name === DEFAULT_PROFILE) return { ok: false, reason: '默认 profile 不能删除' }
-+  if (loadRemoteAddressList(resolveDshHome()).some((url) => remoteProfileName(url) === name)) return { ok: false, reason: '远程地址不是本地目录，不能在这里删除' }
++  if (loadRemoteOrigins().some((url) => remoteProfileName(url) === name)) return { ok: false, reason: '远程地址不是本地目录，不能在这里删除' }
 +  if (plusProfiles.manager.list().some((entry) => entry.name === name)) return { ok: false, reason: `profile ${name} 正在运行，先退出再删` }
 +  try {
 +    const dir = resolveProfileDir(name, resolveDshHome())
@@ -852,7 +872,7 @@ index d8d0e30c..5ac0b07c 100644
  /**
   * Whether the backend has reached ready: false until the first ready, back to
   * false when a restart returns it to starting, frozen during shutdown so a
-@@ -88,10 +250,60 @@ const rendererConsole = new RendererConsoleTail()
+@@ -88,10 +264,60 @@ const rendererConsole = new RendererConsoleTail()
  
  // Platform-conventional logs directory (macOS ~/Library/Logs/<name>, otherwise under userData);
  // set before ready so the first fatal report already resolves under it.
@@ -914,7 +934,7 @@ index d8d0e30c..5ac0b07c 100644
  }
  /** Quit without the task confirmation; the caller has already decided the application must stop. */
  function quitWithoutConfirmation(): void {
-@@ -149,7 +361,7 @@ function persistCrashReport(error: unknown, source: CrashReportSource): Promise<
+@@ -149,7 +375,7 @@ function persistCrashReport(error: unknown, source: CrashReportSource): Promise<
      ...(error instanceof DesktopHostFatalError && error.diagnostic !== undefined ? { hostDiagnostic: error.diagnostic } : {}),
      rendererConsole: rendererConsole.snapshot(),
      app: {
@@ -923,7 +943,7 @@ index d8d0e30c..5ac0b07c 100644
        electron: process.versions.electron, node: process.versions.node, locale: currentDesktopLocale().id,
      },
      time: new Date(),
-@@ -209,7 +421,7 @@ function runtimeResources(): RuntimeResources {
+@@ -209,7 +435,7 @@ function runtimeResources(): RuntimeResources {
      ?? (development ? join(app.getAppPath(), 'node_modules', 'pnpm', 'bin', 'pnpm.mjs')
        : join(process.resourcesPath, 'runtime', 'primary-runtime', 'dependencies', 'pnpm', 'bin', 'pnpm.mjs'))
    const dsh = (development ? process.env.DSH_DESKTOP_DSH_DIR : undefined)
@@ -932,7 +952,7 @@ index d8d0e30c..5ac0b07c 100644
    return { node, nodeBin, pnpm, dsh }
  }
  
-@@ -256,14 +468,22 @@ function platformLoginUrl(authorizeUrl: string): string {
+@@ -256,14 +482,22 @@ function platformLoginUrl(authorizeUrl: string): string {
    return url.href
  }
  
@@ -957,7 +977,7 @@ index d8d0e30c..5ac0b07c 100644
        titleBarStyle: 'hidden' as const,
        titleBarOverlay: { height: WINDOWS_TITLEBAR_HEIGHT, color: chromeFallbackFill(),
          symbolColor: nativeTheme.shouldUseDarkColors ? '#f9fafb' : '#0f1115' },
-@@ -281,11 +501,13 @@ function createWindow(preload: string, show = false, primary = false): BrowserWi
+@@ -281,11 +515,13 @@ function createWindow(preload: string, show = false, primary = false): BrowserWi
      } : {}),
      webPreferences: {
        preload,
@@ -972,7 +992,7 @@ index d8d0e30c..5ac0b07c 100644
        devTools: true,
      },
    })
-@@ -326,8 +548,20 @@ function createWindow(preload: string, show = false, primary = false): BrowserWi
+@@ -326,8 +562,20 @@ function createWindow(preload: string, show = false, primary = false): BrowserWi
      window.on('restore', applyBackdrop)
      window.on('show', applyBackdrop)
    }
@@ -994,7 +1014,7 @@ index d8d0e30c..5ac0b07c 100644
      if (isEditable) {
        items.push(
          { role: 'undo', enabled: editFlags.canUndo },
-@@ -342,6 +576,17 @@ function createWindow(preload: string, show = false, primary = false): BrowserWi
+@@ -342,6 +590,17 @@ function createWindow(preload: string, show = false, primary = false): BrowserWi
      } else if (selectionText.length > 0) {
        items.push({ role: 'copy', enabled: editFlags.canCopy })
      }
@@ -1012,7 +1032,7 @@ index d8d0e30c..5ac0b07c 100644
      // Empty accelerators suppress Electron's default shortcut labels for native roles.
      if (items.length > 0) {
        const messages = currentDesktopLocale().messages
-@@ -365,17 +610,46 @@ function createWindow(preload: string, show = false, primary = false): BrowserWi
+@@ -365,17 +624,46 @@ function createWindow(preload: string, show = false, primary = false): BrowserWi
    return window
  }
  
@@ -1060,7 +1080,7 @@ index d8d0e30c..5ac0b07c 100644
    const activeProject = paths.profile
    const manager = new DesktopProjectManager(paths, resources)
    // Dock and Finder launches inherit only launchd's environment; every Host shares one login-shell read.
-@@ -390,10 +664,14 @@ async function main(): Promise<void> {
+@@ -390,10 +678,14 @@ async function main(): Promise<void> {
    })
    let hostEnvironment: NodeJS.ProcessEnv = process.env
    const prepareHostEnvironment = async (): Promise<void> => { hostEnvironment = await loginShell }
@@ -1075,7 +1095,7 @@ index d8d0e30c..5ac0b07c 100644
    let welcomeWindow: BrowserWindow | undefined
    const installFileDrag = (): (() => Promise<void>) => installDesktopFileDrag(
      event => assertProductSender(event),
-@@ -453,11 +731,57 @@ async function main(): Promise<void> {
+@@ -453,11 +745,57 @@ async function main(): Promise<void> {
      }
      finally { ordinaryDialogs.delete(controller) }
    }
@@ -1135,7 +1155,7 @@ index d8d0e30c..5ac0b07c 100644
        buttons: [locale.messages.updateAcknowledge], cancelId: 0 })
    }
    const commandManager = new DesktopCommandManager({
-@@ -517,20 +841,30 @@ async function main(): Promise<void> {
+@@ -517,20 +855,30 @@ async function main(): Promise<void> {
      owner => isMandatory() || updateOverlays.input(owner).blocked)
    const backend = new DesktopBackendController((onFailure) => {
      const hostInspectPort = developmentHostInspectPort(development)
@@ -1168,7 +1188,7 @@ index d8d0e30c..5ac0b07c 100644
          if (ready.injections === undefined) throw new Error('Desktop Host did not provide boot injections')
          injections = ready.injections
          welcomeBackend = await connectDesktopWelcome(ready.url, (input, init) => net.fetch(input, init), async () => (await session.defaultSession.cookies.get({ url: ready.url })).map(cookie => `${cookie.name}=${cookie.value}`).join('; '))
-@@ -562,7 +896,7 @@ async function main(): Promise<void> {
+@@ -562,7 +910,7 @@ async function main(): Promise<void> {
              }).catch(() => undefined)
            }
            previousAccountStatus = state.status
@@ -1177,7 +1197,7 @@ index d8d0e30c..5ac0b07c 100644
            // The stream reconnects; a transport failure does not change account state.
          }, () => {
            void readWelcomeState().then(async (value) => {
-@@ -657,6 +991,11 @@ async function main(): Promise<void> {
+@@ -657,6 +1005,11 @@ async function main(): Promise<void> {
      try { await backend.close() }
      finally { await Promise.all([operationJournal?.drain(500), reports]) }
    }
@@ -1189,7 +1209,7 @@ index d8d0e30c..5ac0b07c 100644
  
    const reconcileBackend = (): Promise<void> => {
      startup ??= (async () => {
-@@ -677,7 +1016,7 @@ async function main(): Promise<void> {
+@@ -677,7 +1030,7 @@ async function main(): Promise<void> {
  
    const manifest: unknown = JSON.parse(await readFile(join(app.getAppPath(), 'package.json'), 'utf8'))
    const updateChannel = desktopUpdateChannel(manifest)
@@ -1198,7 +1218,7 @@ index d8d0e30c..5ac0b07c 100644
      publishUpdate,
      async () => {
        await commandManager.idle()
-@@ -739,6 +1078,7 @@ async function main(): Promise<void> {
+@@ -739,6 +1092,7 @@ async function main(): Promise<void> {
  
    const updateSchedule = new DesktopUpdateSchedule(updates, resolveDesktopUpdateScheduleConfig(process.env))
  
@@ -1206,7 +1226,7 @@ index d8d0e30c..5ac0b07c 100644
    const downloadUpdate = async (version: string): Promise<DesktopUpdateState> => {
      void track('desktop_upgrade_click', {})
      updateJournal?.action('download-requested')
-@@ -787,6 +1127,9 @@ async function main(): Promise<void> {
+@@ -787,6 +1141,9 @@ async function main(): Promise<void> {
      assertDesktopSender(event, ['app'])
      await startup
      if (backend.host === undefined || hostUrl === undefined) throw new Error('Desktop Host is unavailable')
@@ -1216,7 +1236,7 @@ index d8d0e30c..5ac0b07c 100644
      return { injections, streamBaseUrl: new URL(hostUrl).origin }
    })
  
-@@ -817,10 +1160,13 @@ async function main(): Promise<void> {
+@@ -817,10 +1174,13 @@ async function main(): Promise<void> {
      const requested = new URL(details.url)
      if (requested.host !== target.host || requested.protocol !== (target.protocol === 'https:' ? 'wss:' : 'ws:')) { callback({}); return }
      const headers = Object.fromEntries(Object.entries(details.requestHeaders).map(([name, value]) => [name.toLowerCase(), value]))
@@ -1231,7 +1251,7 @@ index d8d0e30c..5ac0b07c 100644
    const assertMainApplication = (event: IpcMainInvokeEvent): BrowserWindow => {
      const owner = mainWindow
      if (owner === undefined || event.sender !== owner.webContents || event.senderFrame !== owner.webContents.mainFrame
-@@ -1030,8 +1376,8 @@ async function main(): Promise<void> {
+@@ -1030,8 +1390,8 @@ async function main(): Promise<void> {
    const applicationIconPath = development ? join(app.getAppPath(), 'resources', 'icon-windows.png')
      : join(process.resourcesPath, 'icon.png')
    app.setAboutPanelOptions({
@@ -1242,7 +1262,7 @@ index d8d0e30c..5ac0b07c 100644
      // The release has no separate build number; omit Electron's bundle version.
      version: '',
      copyright: '',
-@@ -1045,7 +1391,7 @@ async function main(): Promise<void> {
+@@ -1045,7 +1405,7 @@ async function main(): Promise<void> {
      ? [shortcuts.fileMenu(currentDesktopLocale().messages), { role: 'editMenu' }, { role: 'windowMenu' }]
      : [{ role: 'editMenu' }]
    const hideCommands: MenuItemConstructorOptions[] = darwin
@@ -1251,7 +1271,7 @@ index d8d0e30c..5ac0b07c 100644
        { role: 'hideOthers', label: currentDesktopLocale().messages.hideOtherApplications },
        { role: 'unhide', label: currentDesktopLocale().messages.showAllApplications }, { type: 'separator' }]
      : []
-@@ -1053,9 +1399,9 @@ async function main(): Promise<void> {
+@@ -1053,9 +1413,9 @@ async function main(): Promise<void> {
      // Windows has no system About panel; Electron's fallback is a plain
      // message box, so the shell shows its own dimmed dialog instead.
      process.platform === 'win32'
@@ -1263,7 +1283,7 @@ index d8d0e30c..5ac0b07c 100644
      { type: 'separator' },
      { label: currentDesktopLocale().messages.checkUpdatesMenu, click: () => { void openUpdatePrompt(true) } },
      ...process.platform === 'darwin' || process.platform === 'win32'
-@@ -1068,6 +1414,8 @@ async function main(): Promise<void> {
+@@ -1068,6 +1428,8 @@ async function main(): Promise<void> {
          app.relaunch()
          quitWithoutConfirmation()
        } },
@@ -1272,7 +1292,7 @@ index d8d0e30c..5ac0b07c 100644
      ] : [],
      { role: 'toggleDevTools', label: currentDesktopLocale().messages.toggleDevToolsMenu },
      { type: 'separator' },
-@@ -1089,8 +1437,13 @@ async function main(): Promise<void> {
+@@ -1089,8 +1451,13 @@ async function main(): Promise<void> {
      tray?.relabel()
    }
    refreshApplicationMenu()
@@ -1288,7 +1308,7 @@ index d8d0e30c..5ac0b07c 100644
      // The tray is the way back to a hidden window; without it, relaunching the application still focuses it.
      try {
        tray = new DesktopTray({ iconPath: trayIconPath, locale: currentDesktopLocale,
-@@ -1141,6 +1494,9 @@ async function main(): Promise<void> {
+@@ -1141,6 +1508,9 @@ async function main(): Promise<void> {
          editItem(currentDesktopLocale().messages.delete, 'Delete', []),
          { type: 'separator' },
          editItem(currentDesktopLocale().messages.selectAll, 'A', ['control'], 'Ctrl+A'),
@@ -1298,7 +1318,7 @@ index d8d0e30c..5ac0b07c 100644
        ]
        const zoom = mainWindow.webContents.getZoomFactor()
        return new Promise<void>((resolve) => {
-@@ -1148,14 +1504,23 @@ async function main(): Promise<void> {
+@@ -1148,14 +1518,23 @@ async function main(): Promise<void> {
        })
      })
      ipcMain.on(DESKTOP_IPC.windowsAppearance, (event, _language: unknown, color: unknown, symbolColor: unknown) => {
@@ -1326,7 +1346,7 @@ index d8d0e30c..5ac0b07c 100644
      })
    }
  
-@@ -1171,6 +1536,10 @@ async function main(): Promise<void> {
+@@ -1171,6 +1550,10 @@ async function main(): Promise<void> {
    const createMainWindow = (): BrowserWindow => {
      const window = createWindow(appPreload, false, true)
      mainWindow = window
@@ -1337,7 +1357,7 @@ index d8d0e30c..5ac0b07c 100644
      browserGuests.bind(window, (guest, name) => shortcuts.attachGuest(window, guest, name))
      shortcuts.attach(window)
      window.on('focus', automaticCheck)
-@@ -1180,7 +1549,7 @@ async function main(): Promise<void> {
+@@ -1180,7 +1563,7 @@ async function main(): Promise<void> {
        event.preventDefault()
        if (updateDialog.isOpen) { updateDialog.focus(); return }
        const hide = (): void => {
@@ -1346,7 +1366,7 @@ index d8d0e30c..5ac0b07c 100644
        }
        if (backgroundNotice === undefined) hide()
        else backgroundNotice.close(hide)
-@@ -1195,7 +1564,7 @@ async function main(): Promise<void> {
+@@ -1195,7 +1578,7 @@ async function main(): Promise<void> {
        window.on('focus', () => { sessionEnding = false })
        window.on('show', () => { sessionEnding = false })
      }
@@ -1355,7 +1375,7 @@ index d8d0e30c..5ac0b07c 100644
      window.webContents.on('console-message', (details) => {
        if (details.level !== 'error') return
        rendererConsole.push(`${details.sourceId}:${String(details.lineNumber)} ${details.message}`)
-@@ -1322,7 +1691,7 @@ async function main(): Promise<void> {
+@@ -1322,7 +1705,7 @@ async function main(): Promise<void> {
      const window = welcomeWindow ?? mainWindow
      if (window === undefined || window.isDestroyed()) {
        try { createMainWindow() } catch (error) { reportFatal(error, 'main'); return }
@@ -1364,7 +1384,7 @@ index d8d0e30c..5ac0b07c 100644
        return
      }
      // Startup and sign-out select the visible window before activation may reveal the workspace.
-@@ -1342,6 +1711,8 @@ async function main(): Promise<void> {
+@@ -1342,6 +1725,8 @@ async function main(): Promise<void> {
      if (!hasVisibleWindows) focusPrimaryWindow()
    })
    app.on('window-all-closed', () => {
@@ -1373,7 +1393,7 @@ index d8d0e30c..5ac0b07c 100644
      if (process.platform !== 'darwin') app.quit()
    })
    if (process.platform !== 'win32') powerMonitor.on('shutdown', () => { sessionEnding = true })
-@@ -1363,6 +1734,8 @@ async function main(): Promise<void> {
+@@ -1363,6 +1748,8 @@ async function main(): Promise<void> {
          await operationJournal?.drain(500)
          throw error
        }),
@@ -1382,7 +1402,7 @@ index d8d0e30c..5ac0b07c 100644
        platformView.dispose(),
        disposeFileDrag(),
      ].map(cleanup => cleanup.catch((error: unknown) => { console.error(error) })))
-@@ -1393,6 +1766,41 @@ async function main(): Promise<void> {
+@@ -1393,6 +1780,41 @@ async function main(): Promise<void> {
    })
  
    mainWindow = createMainWindow()
@@ -1392,7 +1412,7 @@ index d8d0e30c..5ac0b07c 100644
 +    const window = createWindow(appPreload, false, false, partitionFor(name), true)
 +    // 远程窗口：页面侧「退出本窗口」就地销毁窗口、断开连接（与托盘退出同语义），退出类请求不触达远端。
 +    // 用 <all_urls> 兜底 + 处理器内精确判定：窄 filter 曾漏匹配导致退出直接透传到远端。
-+    if (loadRemoteAddressList(resolveDshHome()).some((url) => remoteProfileName(url) === name)) {
++    if (loadRemoteOrigins().some((url) => remoteProfileName(url) === name)) {
 +      plusLogger.append(`[remote] exit guard armed for ${name}`)
 +      window.webContents.session.webRequest.onBeforeRequest(
 +        { urls: ['<all_urls>'] },
@@ -1424,7 +1444,7 @@ index d8d0e30c..5ac0b07c 100644
    if (typeof manifest !== 'object' || manifest === null) throw new Error('desktop policy: invalid application manifest')
    const developmentPolicy = app.isPackaged ? undefined : process.env.DSH_DESKTOP_MANDATORY_UPDATE_CONFIG
    const policyInput: unknown = app.isPackaged
-@@ -1445,15 +1853,672 @@ async function main(): Promise<void> {
+@@ -1445,15 +1867,682 @@ async function main(): Promise<void> {
    publishUpdate(updateState)
  }
  
@@ -1466,7 +1486,7 @@ index d8d0e30c..5ac0b07c 100644
 +        ? restartOfficialBackend
 +        : async (): Promise<void> => {
 +          // 远程 profile：先把远端真重启掉，等它恢复再重建窗口（否则窗口会落在重启空窗期呈空白）。
-+          const remoteUrl = loadRemoteAddressList(resolveDshHome()).find((url) => remoteProfileName(url) === name)
++          const remoteUrl = loadRemoteOrigins().find((url) => remoteProfileName(url) === name)
 +          if (remoteUrl !== undefined) {
 +            splash.setStage({ stage: 'splash', detail: `等待远端重启 ${remoteProfileName(remoteUrl)}` })
 +            const cookieHeader = await restartRemoteProfileApp(remoteUrl, name)
@@ -1521,7 +1541,18 @@ index d8d0e30c..5ac0b07c 100644
 +        },
 +        getStates: () => {
 +          const window = plusDesktopWindow()
-+          const remotes = loadRemoteAddressList(resolveDshHome())
++          // 远程 profile 列表改从远程访问插件自己的存储读（不再依赖桌面设置的 remote_list）。
++          const remotes = (() => {
++            try {
++              const file = join(resolveDshHome(), 'storages', 'remote-access', 'remote-hosts.json')
++              const raw = JSON.parse(readFileSync(file, 'utf8')) as { hosts?: Array<{ origin?: unknown }> }
++              return (raw.hosts ?? [])
++                .map((host) => (typeof host.origin === 'string' ? host.origin : ''))
++                .filter((origin) => origin !== '')
++            } catch {
++              return []
++            }
++          })()
 +          const states: Array<{ name: string, running: boolean, port?: number | null, remote?: boolean }> = [
 +            {
 +              name: DEFAULT_PROFILE,
@@ -1604,7 +1635,7 @@ index d8d0e30c..5ac0b07c 100644
 +          },
 +          restart: (name) => {
 +            // 远程 profile：先经 lane 调远端 restart_desktop_app（真重启远端进程），再本地重建窗口。
-+            const remoteUrl = loadRemoteAddressList(resolveDshHome()).find((url) => remoteProfileName(url) === name)
++            const remoteUrl = loadRemoteOrigins().find((url) => remoteProfileName(url) === name)
 +            if (remoteUrl !== undefined) void restartRemoteProfileApp(remoteUrl, name)
 +            restartProfileWithSplash(name)
 +          },
@@ -1706,9 +1737,8 @@ index d8d0e30c..5ac0b07c 100644
 +    // 缺省开：仅显式 false 关（对齐设置页文案「缺省开」）；undefined/null/true 都算开。
 +    preventSleepActive: () => loadPlusDesktopSettings().prevent_sleep !== false,
 +    devToolsActive: () => loadPlusDesktopSettings().dev_tools === true,
-+    // remote_list 变更即时重建托盘菜单：新增/删除远程地址就是远程 profile 集变化。
++    // 远程 profile 已改由远程访问插件维护，桌面设置不再有 remote_list 这个键。
 +    applySetting: (key, value) => {
-+      if (key === 'remote_list') refreshPlusTray()
 +      // 登录自启开关立即写 OS 登录项；开关显示状态以 get 时 OS 读回为准。
 +      if (key === 'login_item_enabled') setLoginItemEnabled(app, value === true)
 +    },
@@ -1952,8 +1982,7 @@ index d8d0e30c..5ac0b07c 100644
 +function plusProfileHostEnv(base: NodeJS.ProcessEnv, name: string): NodeJS.ProcessEnv {
 +  return { ...base, ...resolvedProxyEnvRecord(), DSH_CLIENT_VERSION: desktopClientVersion(), DSH_REMOTE_LANE_PORT: String(lanePortFor(name)), ...plusTelemetryOptOutEnv() }
 +}
- 
--if (ownsDesktopInstance) void app.whenReady().then(main).catch(async (error: unknown) => {
++
 +/** 远程重启 API：带配对 cookie 调远端 restart_desktop_app（lane 反代与 dsh 直连都靠 cookie 鉴权）。 */
 +async function restartRemoteProfileApp(remoteUrl: string, name: string): Promise<string> {
 +  const origin = remoteOrigin(remoteUrl)
@@ -2016,7 +2045,7 @@ index d8d0e30c..5ac0b07c 100644
 +async function createPlusProfileHost(name: string, profileDir: string): Promise<{ readonly url: string, readonly authUrl?: string, readonly stop: () => Promise<void> }> {
 +  // A remote address maps to a profile (bun remote semantics): proxy a best-effort restart
 +  // request to the far side and hand its origin to the window — no local Host is started.
-+  const remoteUrl = loadRemoteAddressList(resolveDshHome()).find((url) => remoteProfileName(url) === name)
++  const remoteUrl = loadRemoteOrigins().find((url) => remoteProfileName(url) === name)
 +  if (remoteUrl !== undefined) {
 +    const origin = remoteOrigin(remoteUrl)
 +    // 启动不碰 token：配对/续取完全在窗口侧（electron runtime 的 ensure 链）做，
@@ -2068,7 +2097,8 @@ index d8d0e30c..5ac0b07c 100644
 +  onWindowVisibilityChanged: () => { refreshPlusTray() },
 +  log: (line) => { plusLogger.append(line) },
 +})
-+
+ 
+-if (ownsDesktopInstance) void app.whenReady().then(main).catch(async (error: unknown) => {
 +async function reportStartupDiagnostic(error: unknown): Promise<void> {
    const message = error instanceof Error ? error.message : String(error)
    console.error(error)

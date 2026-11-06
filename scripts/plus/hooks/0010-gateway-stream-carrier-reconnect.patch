@@ -1,0 +1,26 @@
+diff --git a/upstream/packages/api/gateway/src/client/index.ts b/upstream/packages/api/gateway/src/client/index.ts
+index f0d2400d..02ad0f29 100644
+--- a/upstream/packages/api/gateway/src/client/index.ts
++++ b/upstream/packages/api/gateway/src/client/index.ts
+@@ -169,16 +169,18 @@ class ClientRemoteService extends Service implements ClientRemote {
+     }
+     // API callers retain a lifecycle socket even when they do not receive events.
+     // HTTP dispatch never waits for this independent connection attempt.
+-    if (connection.rpc.open === undefined) this.streams.start()
++    // plus：connection 提供 rpc.open 时只接管部分端点，载体重连仍必须照常跑；
++    // 否则网络切换后 streams.reconnect() 是空操作，页面永远停在「重新连接中」。
++    this.streams.start()
+     let disposed = false
+     let loop: ReturnType<ConnectionHandle['start']> | undefined
+     const start = (): void => {
+       if (disposed || connection.interactions === 'none') return
+-      if (connection.rpc.open === undefined) this.streams.start()
++      this.streams.start()
+       loop = connection.start({
+         onConnected: () => { this.ownerCtx.emit('connection/reset') },
+         onReconnectRequested: () => {
+-          if (connection.rpc.open === undefined) this.streams.reconnect()
++          this.streams.reconnect()
+         },
+       })
+     }

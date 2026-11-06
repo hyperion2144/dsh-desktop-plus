@@ -2,6 +2,7 @@
 // 纯 Node 可测；桌面壳集成时在 dsh 进程内作为 bundle 插件装载。
 import os from 'node:os'
 import http from 'node:http'
+import dgram from 'node:dgram'
 import { spawn, type ChildProcessByStdio } from 'node:child_process'
 import type { Readable } from 'node:stream'
 import {
@@ -22,7 +23,19 @@ import { buildLaneServiceRecord, buildLaneTxt, createBonjourPublisher, createLan
 import { readSettingsString, writeSettingsKey, readTopLevelBlockKey, readShellSetting, writeShellSetting } from './settings.js'
 import { laneWsTokenSecret, mintWsToken, verifyWsToken, wsTokenOf } from './ws-token.js'
 import { resolveCloudflared } from './cloudflared.js'
+import { basename } from 'node:path'
+import { RemoteHostStore, createRemoteHostStorage, fetchFromHost, pairWithHost, type RemoteHostRecord } from './remote-hosts.js'
+import { createRemoteShareRegistry, type RemoteShareRegistry } from './remote-share-registry.js'
+import { buildRemoteSessionSource, fetchRemoteSessionLog, fetchRemoteSessions, listSessionsUnderPath, materializeSession, sameCwd, type SessionHeaderSource, type SessionLogSource, type SessionPersistenceLike, type SessionStoreLike } from './remote-sessions.js'
+import { RemoteWorkspaceStore, createRemoteWorkspaceStorage, installRemoteWorkspaceBridge, normalizeRemotePath, REMOTE_BRIDGE_UNSUPPORTED, type RemoteWorkspaceBridge, type WorkspaceRegistryLike } from './remote-workspaces.js'
+import { HandoffStore, createFileHandoffStorage, decideHandoff } from './remote-handoff.js'
+import { probeRemoteHost, describeRemoteLink, readPluginVersion, REMOTE_PROTOCOL_VERSION } from './remote-status.js'
+import { listLocalDirectory, fetchRemoteDirectory } from './remote-fs.js'
 
+import { createRemoteWorkspace, createRemoteSession, promptRemoteSession } from './remote-rpc.js'
+import { mirrorRemoteSession } from './remote-session-mirror.js'
+import { installRemoteSessionBridge, type RemoteSessionBridge } from './remote-session-bridge.js'
+import { createRemoteSessionRegistry } from './remote-session-registry.js'
 /**
  * 原实现里 `fs` 没有 import（node:fs 未引入）：读端口文件时会抛 ReferenceError，
  * 被同行的 catch 吞掉 → 回退 3080。迁移保持同一行为（仍不引入 import），
@@ -120,11 +133,19 @@ export interface RemoteAccessServiceOptions {
   wsPongTimeoutMs?: number
   /** mDNS 广播装配参数（未传即不广播）。 */
   mdns?: MdnsRuntimeOptions | null
+  /** 远端数据面来源（A 侧）：已配对设备读取本机会话时用到；缺省即不提供该能力。 */
+  sessions?: (SessionHeaderSource & SessionLogSource) | null
 }
 
 /** 远程访问服务（对外表面）。 */
 export interface RemoteAccessService {
   store: PairingStore
+  /** 本机到对端的出口地址（反向登记用）。 */
+  localAddressToward: (peerOrigin: string) => Promise<string | null>
+  /** 本机设备型号（配对时自报）。 */
+  localModel: () => string
+  /** 分享登记表（命令面读写，SSE 面据此决定推给谁）。 */
+  shares: RemoteShareRegistry
   proxy: RewriteProxy
   dshAuth: DshUpstreamAuth
   routePairing: (req: http.IncomingMessage, res: http.ServerResponse) => boolean
@@ -142,6 +163,12 @@ export interface RemoteAccessService {
   stopAdvertising: () => Promise<void>
   listen: (port?: number) => Promise<number>
   close: () => Promise<void>
+  /** 把某个会话的新事件推给订阅它的设备（分享登记决定推给谁）。 */
+  pushSessionEvent: (sessionId: string, events: readonly unknown[]) => void
+  /** 分享关系变化时通知对应设备重新认领。 */
+  pushShareChange: (deviceId: string, kind: 'added' | 'removed', sessionId: string) => void
+  /** 当前有多少台设备正在订阅某个会话（A 端徽标用）。 */
+  viewerCount: (sessionId: string) => number
 }
 
 export function createRemoteAccessService(opts: RemoteAccessServiceOptions = {}): RemoteAccessService {
@@ -158,6 +185,47 @@ export function createRemoteAccessService(opts: RemoteAccessServiceOptions = {})
   const store = pairing ?? (storage
     ? new PairingStore({ storage })
     : new PairingStore({ storage: createFileStorage() }))
+  /**
+   * 本机到对端的出口地址：开一个 UDP socket「连」到对端，读内核选中的本地地址。
+   * 多网卡（有线 + Wi-Fi + 虚拟网卡）时 selectLanIPv4 的首选未必是能到对端的那条，
+   * 用错地址会让反向登记打到一个对端够不着的 IP 上。
+   * @param peerOrigin 对端 origin。
+   * @returns 本地出口 IPv4；解析不出来返回 null。
+   */
+  const localAddressToward = async (peerOrigin: string): Promise<string | null> => {
+    try {
+      const url = new URL(peerOrigin)
+      const host = url.hostname
+      const port = Number(url.port === '' ? '80' : url.port)
+      return await new Promise<string | null>((resolve) => {
+        const socket = dgram.createSocket('udp4')
+        const done = (value: string | null): void => {
+          try { socket.close() } catch { /* 已关闭 */ }
+          resolve(value)
+        }
+        const timer = setTimeout(() => done(null), 600)
+        if (typeof timer.unref === 'function') timer.unref()
+        socket.on('error', () => { clearTimeout(timer); done(null) })
+        try {
+          socket.connect(port, host, () => {
+            clearTimeout(timer)
+            try { done(socket.address().address) } catch { done(null) }
+          })
+        } catch { clearTimeout(timer); done(null) }
+      })
+    } catch { return null }
+  }
+  /** 本机设备型号（配对时自报，对端据此展示）。 */
+  const localModel = (): string => {
+    try {
+      const name = process.platform === 'darwin' ? 'macOS' : process.platform === 'win32' ? 'Windows' : 'Linux'
+      return `${name} ${os.release()} · ${process.arch}`
+    } catch { return '未知设备' }
+  }
+  // SSE 推送：每台已配对设备一条长连接（B 发起），A 有新事件就往下推。
+  const streamClients = new Set<{ deviceId: string, res: http.ServerResponse }>()
+  // 分享登记：本机哪个会话分享给了哪台配对设备（会话始终在本机，对端只是视图）。
+  const remoteShares = createRemoteShareRegistry()
   // dsh web 会话凭证（dsh 0.1.2-rc.1+ token 鉴权）：进程内自取 process token 换 cookie 存内存，
   // 反代附带上游 + 上游 401 单次重换自愈。authenticatedUrl 未提供（老版 dsh / 独立运行）→ 无凭证模式，行为不变。
   const dshAuth = createDshUpstreamAuth({
@@ -499,6 +567,119 @@ export function createRemoteAccessService(opts: RemoteAccessServiceOptions = {})
       res.writeHead(status, { 'content-type': 'application/json', ...cors, ...extra });
       res.end(JSON.stringify(body));
     };
+    // 远端数据面（#93）：已配对主机读取本机会话，用于对端渲染远端会话。只读。
+    const readJsonBody = (handle: (payload: Record<string, unknown>) => void) => {
+      let body = '';
+      req.on('data', (chunk: Buffer) => { body += chunk.toString('utf8'); });
+      req.on('end', () => {
+        try { handle(JSON.parse(body || '{}') as Record<string, unknown>); }
+        catch { json(400, { error: 'bad-request' }); }
+      });
+    };
+    const sendSessions = async (target: string) => {
+      const source = opts.sessions ?? null;
+      if (source === null) { json(503, { error: 'sessions-unavailable' }); return; }
+      try { json(200, { sessions: await listSessionsUnderPath(source, target) }); }
+      catch (error) { json(500, { error: 'read-failed', message: String((error as Error)?.message ?? error) }); }
+    };
+    if (path === '/api/remote/sessions' && req.method === 'POST') {
+      if (!canManage) { unpaired401(); return true; }
+      readJsonBody((payload) => {
+        const target = String(payload.path ?? '');
+        if (target === '') { json(400, { error: 'bad-path' }); return; }
+        void sendSessions(target);
+      });
+      return true;
+    }
+    if (path === '/api/remote/fs.list' && req.method === 'POST') {
+      if (!canManage) { unpaired401(); return true; }
+      readJsonBody((payload) => {
+        const target = String(payload.path ?? '');
+        try { json(200, listLocalDirectory(target)); }
+        catch (error) {
+          // 目录不存在是正常的用户输入，不是服务端故障：回 404，界面才能提示「目录不存在」而不是「HTTP 500」。
+          const code = String((error as NodeJS.ErrnoException)?.code ?? '')
+          const missing = code === 'ENOENT' || code === 'ENOTDIR'
+          json(missing ? 404 : 500, {
+            error: missing ? 'not-found' : 'list-failed',
+            message: String((error as Error)?.message ?? error),
+          })
+        }
+      });
+      return true;
+    }
+    if (path === '/api/remote/session.read' && req.method === 'POST') {
+      if (!canManage) { unpaired401(); return true; }
+      readJsonBody((payload) => {
+        const source = opts.sessions ?? null;
+        const sessionId = String(payload.sessionId ?? '');
+        if (source === null) { json(503, { error: 'sessions-unavailable' }); return; }
+        if (sessionId === '') { json(400, { error: 'bad-session' }); return; }
+        void (async () => {
+          try {
+            const log = await source.readLog(sessionId);
+            if (log === undefined) { json(404, { error: 'not-found' }); return; }
+            json(200, log);
+          } catch (error) {
+            json(500, { error: 'read-failed', message: String((error as Error)?.message ?? error) });
+          }
+        })();
+      });
+      return true;
+    }
+    if (path === '/api/remote/stream' && req.method === 'GET') {
+      if (!canManage) { unpaired401(); return true; }
+      const cookie = parseCookies(req.headers.cookie, 'dsh_mobile_session')[0] ?? ''
+      const deviceId = store.deviceIdOf(cookie)
+      if (deviceId === null) { json(401, { error: 'unpaired' }); return true; }
+      // SSE：B 发起，A 保持连接往下推。首帧把当前分享列表交给 B，之后只推增量。
+      res.writeHead(200, {
+        'content-type': 'text/event-stream; charset=utf-8',
+        'cache-control': 'no-store',
+        connection: 'keep-alive',
+        'x-accel-buffering': 'no',
+      })
+      const shares = remoteShares.load().filter((entry) => entry.deviceId === deviceId)
+      warn?.(`dsh-remote-access: shares 查询 device=${deviceId} path=${remoteShares.path} total=${remoteShares.load().length}`)
+      res.write(`event: ready\ndata: ${JSON.stringify({ shares })}\n\n`)
+      const client = { deviceId, res }
+      streamClients.add(client)
+      // 心跳：15 秒一行注释，双方据此发现假活连接（不靠轮询）。
+      const heartbeat = setInterval(() => {
+        try { res.write(': ping\n\n') } catch { streamClients.delete(client) }
+      }, 15000)
+      if (typeof heartbeat.unref === 'function') heartbeat.unref()
+      req.on('close', () => { clearInterval(heartbeat); streamClients.delete(client) })
+      return true;
+    }
+    if (path === '/api/remote/shares' && req.method === 'POST') {
+      if (!canManage) { unpaired401(); return true; }
+      // 对端凭自己的设备 cookie 认领分享：只返回分享给这台设备的会话。
+      const cookie = parseCookies(req.headers.cookie, 'dsh_mobile_session')[0] ?? ''
+      const deviceId = store.deviceIdOf(cookie)
+      json(200, { shares: remoteShares.load().filter((entry) => entry.deviceId === deviceId) })
+      return true;
+    }
+    if (path === '/api/remote/session.import' && req.method === 'POST') {
+      if (!canManage) { unpaired401(); return true; }
+      readJsonBody((payload) => {
+        const source = opts.sessions ?? null;
+        const log = payload.log as { header?: { id?: unknown }, events?: unknown } | undefined
+        const cwd = String(payload.cwd ?? '')
+        if (source === null || typeof source.writeLog !== 'function') { json(503, { error: 'sessions-unavailable' }); return; }
+        if (log === undefined || typeof log.header?.id !== 'string' || !Array.isArray(log.events)) { json(400, { error: 'bad-log' }); return; }
+        if (cwd === '') { json(400, { error: 'bad-cwd' }); return; }
+        void (async () => {
+          try {
+            const written = await source.writeLog!(log as never, cwd)
+            json(200, { ok: true, sessionId: log.header!.id, events: written })
+          } catch (error) {
+            json(500, { error: 'import-failed', message: String((error as Error)?.message ?? error) });
+          }
+        })();
+      });
+      return true;
+    }
     if (path === '/pair') {
       const token = new URL(req.url!, 'http://x').searchParams.get('token') ?? '';
       // 浏览器配对：Accept 含 text/html → 自动接受 + 种 cookie + 302 进应用；
@@ -552,6 +733,10 @@ export function createRemoteAccessService(opts: RemoteAccessServiceOptions = {})
         dshAuth: dshAuth.hasCredential(),
         // #175：会话守卫的退避基数（移动端壳开机读；缺省 10s，原硬编码 2s 弱网抖动大）。
         guard: { backoffBaseMs: readMobileGuardBackoff() },
+        // #108：两侧版本与协议版本随配对信息一起下发，对端据此判三态；
+        // 字段只增不改，旧客户端忽略它们即可。
+        version: readPluginVersion(),
+        protocolVersion: REMOTE_PROTOCOL_VERSION,
       });
       return true;
     }
@@ -616,12 +801,12 @@ export function createRemoteAccessService(opts: RemoteAccessServiceOptions = {})
             ua: req.headers['user-agent'] ?? '',
             ip: clientIp(req),
             entry: entryKind(req),
-          });
+          })
           if (!session) {
             json(403, { error: 'invalid-token' });
             return;
           }
-          json(200, { ok: true, deviceId: session.deviceId }, {
+          json(200, { ok: true, deviceId: session.deviceId, model: localModel() }, {
             'set-cookie': 'dsh_mobile_session=' + session.cookie + '; HttpOnly; Path=/; SameSite=Lax',
           });
         } catch (e) {
@@ -796,6 +981,9 @@ export function createRemoteAccessService(opts: RemoteAccessServiceOptions = {})
 
   return {
     store,
+    localAddressToward,
+    localModel,
+    shares: remoteShares,
     proxy,
     dshAuth,
     routePairing,
@@ -806,6 +994,29 @@ export function createRemoteAccessService(opts: RemoteAccessServiceOptions = {})
     tunnel,
     startTunnel,
     stopTunnel,
+    pushSessionEvent(sessionId, events) {
+      if (streamClients.size === 0) return
+      const devices = new Set(remoteShares.load().filter((entry) => entry.sessionId === sessionId).map((entry) => entry.deviceId))
+      if (devices.size === 0) return
+      const payload = `event: session/events\ndata: ${JSON.stringify({ sessionId, events })}\n\n`
+      for (const client of [...streamClients]) {
+        if (!devices.has(client.deviceId)) continue
+        try { client.res.write(payload) } catch { streamClients.delete(client) }
+      }
+    },
+    pushShareChange(deviceId, kind, sessionId) {
+      const payload = `event: share/${kind}\ndata: ${JSON.stringify({ sessionId })}\n\n`
+      for (const client of [...streamClients]) {
+        if (client.deviceId !== deviceId) continue
+        try { client.res.write(payload) } catch { streamClients.delete(client) }
+      }
+    },
+    viewerCount(sessionId) {
+      const devices = new Set(remoteShares.load().filter((entry) => entry.sessionId === sessionId).map((entry) => entry.deviceId))
+      let count = 0
+      for (const client of streamClients) if (devices.has(client.deviceId)) count += 1
+      return count
+    },
     probe: runProbe, // #167：插件入口 apply 的 RPC 分支需要探测入口（私有函数跨作用域不可见）
     mdns,
     startAdvertising,
@@ -1000,6 +1211,10 @@ export function startLaneRuntime(ctx: LaneRuntimeContext, opts: { mdns?: MdnsRun
     // #116：只写壳设置 JSON；不再 mutate dsh settings 命名空间（已废除，勿回改）
     for (const [key, value] of Object.entries(patch)) writeShellSetting(key, value);
   };
+  // 会话来源：lane 数据面读日志、命令面写日志（推送到远程）共用同一份。
+  const sessionSource = buildRemoteSessionSource((name) => {
+    try { return typeof ctx.get === 'function' ? ctx.get(name) : undefined; } catch { return undefined; }
+  })
   const svc = createRemoteAccessService({
     upstreamHost: '127.0.0.1',
     upstreamPort,
@@ -1007,12 +1222,109 @@ export function startLaneRuntime(ctx: LaneRuntimeContext, opts: { mdns?: MdnsRun
     readSetting,
     writeSettings,
     mdns,
+    sessions: sessionSource,
     warn: (m) => { try { ctx?.logger?.warn?.(m); } catch { /* noop */ } },
     // dsh 进程内自取 process token 的通道（connection 服务公开方法；缺失则 lane 无凭证运行）
     authenticatedUrl: (origin) => {
       try { return ctx?.connection?.authenticatedUrl?.(origin) ?? null; } catch { return null; }
     },
   });
+
+  // 远程工作区 / 出站主机：把已配对主机的目录登记成本机官方 Workspace。
+  // 两份存储分开：hosts = 我要连过去的主机（出站），workspaces = 登记了哪些目录。
+  const remoteHosts = new RemoteHostStore({ storage: createRemoteHostStorage() })
+  const remoteWorkspaces = new RemoteWorkspaceStore({ storage: createRemoteWorkspaceStorage() })
+  // 流转来源（#109）：会话被搬过来时记一条，界面据此标注来源并拒绝二次搬运。
+  const handoffs = new HandoffStore({ storage: createFileHandoffStorage() })
+  let remoteBridge: RemoteWorkspaceBridge | null = null
+  // 远端会话镜像进度：sessionId → 已镜像到的远端 seq。进程内即可，重启后按需重建。
+  const mirrorCursors = new Map<string, { seq: number }>()
+  // 远程会话登记：会话 id → 主机 / 目录 / 镜像游标。落盘，重启后据此继续镜像与继续对话。
+  const remoteSessionRegistry = createRemoteSessionRegistry()
+  // A 侧推送：本机会话每产生一个事件，就推给订阅它的设备（分享登记决定推给谁）。
+  try {
+    ctx.on?.('session/event', (session: { id?: string }, event: unknown) => {
+      const id = session?.id
+      if (typeof id !== 'string' || id === '') return
+      svc.pushSessionEvent(id, [event])
+    })
+  } catch { /* 事件不可用时只影响推送，不影响其它功能 */ }
+
+  // 远端会话桥：远程工作区里的会话，建/发/取消都转发给 A 机，本机只镜像事件。
+  // sessionController 由另一个插件提供，用 ctx.inject 等它就绪再装（子 fiber 只做时序门，
+  // 桥接本身用父 ctx 的 get 取服务，避免子 fiber 的可见性限制）。
+  let remoteSessionBridge: RemoteSessionBridge | null = null
+  const installSessionBridge = (): void => {
+    if (remoteSessionBridge !== null) return
+    remoteSessionBridge = installRemoteSessionBridge({
+      ctx,
+      hosts: remoteHosts,
+      workspaces: () => remoteWorkspaces.list(),
+      cursors: mirrorCursors,
+      restore: () => remoteSessionRegistry.load(),
+      persist: (entries) => remoteSessionRegistry.save(entries),
+    })
+    if (remoteSessionBridge !== null) void remoteSessionBridge.hydrate()
+  }
+  try {
+    if (typeof ctx.inject === 'function') ctx.inject(['sessionController'], installSessionBridge)
+    else installSessionBridge()
+  } catch { installSessionBridge() }
+
+  /** 取官方 workspace registry（可选服务；取不到返回 null，绝不抛）。 */
+  const remoteRegistry = (): WorkspaceRegistryLike | null => {
+    try {
+      const registry = typeof ctx.get === 'function' ? ctx.get('workspaceRegistry') : undefined
+      return (registry as WorkspaceRegistryLike | undefined) ?? null
+    } catch { return null }
+  }
+
+  /** 懒装远程分支：只有真要登记远程路径时才给 registry 包一层。 */
+  const ensureRemoteBridge = (): WorkspaceRegistryLike | null => {
+    const registry = remoteRegistry()
+    if (registry === null) return null
+    if (remoteBridge === null) {
+      remoteBridge = installRemoteWorkspaceBridge({ registry, store: remoteWorkspaces, platform: process.platform })
+    }
+    return remoteBridge.installed ? registry : null
+  }
+
+  /**
+   * 把一台主机某个目录下的会话拉过来落盘（#107）。
+   *
+   * 登记远程工作区与手动「同步」走同一条路径：先向主机要该目录的会话头，再逐个取日志，
+   * 经官方持久化服务落盘后在本进程登记活体镜像。重复调用是幂等的（已落盘的会话不再写）。
+   * @param host 已配对的主机记录（带 cookie）。
+   * @param targetPath 主机上的目录绝对路径。
+   * @returns 每个会话的物化结果。
+   */
+  const syncRemoteSessions = async (host: RemoteHostRecord, targetPath: string): Promise<Array<{ id: string, eventCount: number, durable: boolean }>> => {
+    const headers = await listSessionsUnderPath({ listHeaders: async () => await fetchRemoteSessions(host, targetPath) }, targetPath)
+    const sessions = ctx.get?.('sessions') as SessionStoreLike | undefined
+    if (sessions === undefined) throw new Error('no-session-store')
+    // 耐久路径只能经官方持久化服务：sessions.create 只写内存日志。
+    const persistence = ctx.get?.('sessionPersistence') as SessionPersistenceLike | undefined
+    const materialized: Array<{ id: string, eventCount: number, durable: boolean }> = []
+    for (const header of headers) {
+      const log = await fetchRemoteSessionLog(host, header.id)
+      materialized.push(await materializeSession(sessions, log, targetPath, persistence))
+    }
+    // 同步下来的会话要挂进这个工作区，否则侧栏把它们归到「未分组」：官方侧栏按
+    // Workspace.sessionIds 分组，而 sessions.create 只登记会话、不登记归属。
+    // 远端路径在本机不存在时官方 attachSession 会拒绝（它要 realpath + stat），
+    // 这时保持未分组即可——下次启动官方 bootstrap 会按路径把它们归位。
+    const registry = ensureRemoteBridge()
+    const workspace = registry === null ? undefined : await registry.resolveByPath(targetPath)
+    for (const session of materialized) {
+      try { await workspace?.attachSession?.(session.id) }
+      catch { /* 挂不上不影响落盘结果，界面按未分组展示 */ }
+    }
+    // 同步下来的会话同样是远程会话：登记进桥，之后在界面上发消息会转发给 A 机。
+    for (const session of materialized) {
+      remoteSessionBridge?.register(session.id, { hostId: host.hostId, path: targetPath })
+    }
+    return materialized
+  }
 
   // 同源 RPC handler（与 client 共享通道名 /dsh-remote-access）：
   // 桌面壳 WebView 跨域 fetch 被浏览器拦截，必须走 dsh 同源 connection RPC。
@@ -1106,6 +1418,425 @@ export function startLaneRuntime(ctx: LaneRuntimeContext, opts: { mdns?: MdnsRun
             svc.stopTunnel();
             // 原实现落到 default 分支返回 unknown-endpoint（保持同一返回）。
             return errRpc('unknown-endpoint')
+          case 'remoteHosts.list':
+            return ok({ hosts: remoteHosts.list() });
+          case 'remoteHosts.pair': {
+            const origin = String(payload?.origin ?? '');
+            const token = String(payload?.token ?? '');
+            try {
+              const paired = await pairWithHost({
+                origin,
+                token,
+                name: typeof payload?.name === 'string' && payload.name !== '' ? payload.name : undefined,
+              });
+              // 同一地址重复配对会生成新的 deviceId → 新的 hostId，先去重再落表。
+              // 顺序不能反：先 upsert 再按 origin 去重会把刚写进去的那条也删掉。
+              for (const existing of remoteHosts.list()) {
+                if (existing.origin === paired.record.origin) remoteHosts.remove(existing.hostId)
+              }
+              const host = remoteHosts.upsert(paired.record)
+              // 双向：把本机也登记到对端，保证两边都能发起会话。反向登记失败就回滚，
+              // 反向调用带 reverse:false，否则 A→B→A→B 无限递归（实测直接挂住）。
+              if (payload?.reverse !== false) {
+                try {
+                  const backToken = svc.store.mint()
+                  const lanIp = (await svc.localAddressToward(paired.record.origin)) ?? selectLanIPv4(os.networkInterfaces() ?? {})
+                  const port = svc.tunnel?.port ?? 3091
+                  const selfOrigin = `http://${lanIp}:${port}`
+                  const response = await fetchFromHost(paired.record, '/api/remote-access.remoteHosts.pair', {
+                    method: 'POST',
+                    headers: { 'content-type': 'application/json' },
+                    body: JSON.stringify({
+                      type: 'client-request',
+                      rpcId: 'pair-back',
+                      method: 'remote-access.remoteHosts.pair',
+                      payload: { origin: selfOrigin, token: backToken, name: svc.localModel(), reverse: false },
+                    }),
+                  })
+                  if (!response.ok) throw new Error(`HTTP ${String(response.status)}`)
+                  // 业务错误也是 HTTP 200（body 里 result.ok=false），必须读 body 才算数。
+                  const body = await response.json().catch(() => ({})) as { result?: { ok?: boolean, error?: { message?: string } } }
+                  if (body?.result?.ok === false) throw new Error(body.result.error?.message ?? 'reverse rejected')
+                } catch (error) {
+                  remoteHosts.remove(host.hostId)
+                  return errRpc(`reverse-failed: ${String((error as Error)?.message ?? error)}`)
+                }
+              }
+              return ok({ host })
+            } catch (error) {
+              const code = (error as { code?: unknown } | null)?.code;
+              return errRpc(typeof code === 'string' ? code : String((error as Error)?.message ?? error));
+            }
+          }
+          case 'remoteHosts.remove': {
+            const hostId = String(payload?.hostId ?? '');
+            if (hostId === '' || !remoteHosts.remove(hostId)) return errRpc('not-found');
+            // 撤销配对后，该主机名下的工作区登记一并摘掉：主机没了，这些登记再也解析不出
+            // 任何端点，留着只会变成点不动的死条目（后续 sync/probe 一律 unknown-host）。
+            for (const workspace of remoteWorkspaces.list()) {
+              if (workspace.hostId === hostId) remoteWorkspaces.remove(hostId, workspace.path);
+            }
+            return ok(true);
+          }
+          case 'remoteHosts.rename': {
+            const hostId = String(payload?.hostId ?? '');
+            const name = String(payload?.name ?? '').trim();
+            const host = remoteHosts.get(hostId);
+            if (host === undefined) return errRpc('not-found');
+            if (name === '') return errRpc('bad-request');
+            return ok({ host: remoteHosts.upsert({ ...host, name, renamedAt: Date.now() }) });
+          }
+          case 'remoteCommand.execute': {
+            // 远程会话的命令（/permission 等）必须在 A 机上执行：本地没有 agent，
+            // 走官方 commands/execute 会在网关解析 agent 时就撞 already exists。
+            const sessionId = String(payload?.sessionId ?? '')
+            const line = String(payload?.line ?? '')
+            if (sessionId === '' || line === '') return errRpc('bad-request')
+            if (remoteSessionBridge === null) return errRpc('unsupported')
+            try {
+              const value = await remoteSessionBridge.executeCommand(sessionId, line)
+              if (value === undefined) return errRpc('not-found')
+              return ok({ value })
+            } catch (error) {
+              return errRpc(String((error as Error)?.message ?? error))
+            }
+          }
+          case 'remoteSession.invoke': {
+            // 会话级远端调用的通用转发：客户端把 (namespace, method, args) 原样送来，
+            // 宿主按会话归属转给 A 机。读/流类调用不走这里（本地镜像已经提供）。
+            const namespace = String(payload?.namespace ?? '')
+            const method = String(payload?.method ?? '')
+            const args = (payload?.args ?? {}) as Record<string, unknown>
+            if (namespace === '' || method === '') return errRpc('bad-request')
+            if (remoteSessionBridge === null) return errRpc('unsupported')
+            try {
+              const value = await remoteSessionBridge.invokeRemote(namespace, method, args)
+              if (value === undefined) return errRpc('not-found')
+              return ok({ value })
+            } catch (error) {
+              return errRpc(String((error as Error)?.message ?? error))
+            }
+          }
+          case 'remoteWorkspace.list': {
+            // 主机归属随列表一起下发：徽标只靠这一次调用就能画出「远程 · <主机>」，
+            // 不再二次拉主机表（那次调用失败会让徽标退化成只有「远程」）。
+            const workspaces = remoteWorkspaces.list().map((workspace) => {
+              const host = remoteHosts.get(workspace.hostId)
+              const hostName = host === undefined
+                ? ''
+                : host.renamedAt !== undefined && host.name !== '' ? host.name : host.origin
+              return { ...workspace, hostName, hostOrigin: host?.origin ?? '', streamState: remoteSessionBridge?.streamState(workspace.hostId) ?? 'disconnected' }
+            })
+            return ok({ workspaces })
+          }
+          case 'remoteWorkspace.browse': {
+            const hostId = String(payload?.hostId ?? '');
+            const host = remoteHosts.get(hostId);
+            if (host === undefined) return errRpc('unknown-host');
+            try {
+              return ok(await fetchRemoteDirectory(host, String(payload?.path ?? '')));
+            } catch (error) {
+              return errRpc(String((error as Error)?.message ?? error));
+            }
+          }
+          case 'remoteWorkspace.add': {
+            const hostId = String(payload?.hostId ?? '');
+            const host = remoteHosts.get(hostId);
+            if (host === undefined) return errRpc('unknown-host');
+            let canonical = '';
+            try { canonical = normalizeRemotePath(String(payload?.path ?? ''), process.platform); }
+            catch (error) { return errRpc(String((error as Error)?.message ?? error)); }
+            const registry = ensureRemoteBridge();
+            if (registry === null) return errRpc(REMOTE_BRIDGE_UNSUPPORTED);
+            const record = remoteWorkspaces.add({
+              hostId,
+              path: canonical,
+              // 侧栏的工作区行只渲染 Workspace.title（官方 tree.ts 用 workspace.title 当分组标签），
+              // 没有独立的徽标槽位；来源标记由 client 半区的 workspace-badge 补，标题只放目录名。
+              // 标题里绝不能拼主机名：主机改名后旧标题会留下一个再也对不上的名字。
+              title: basename(canonical) || canonical,
+              addedAt: Date.now(),
+            });
+            const workspace = await registry.create(record.path, record.title);
+            // 远端工作区必须真的建在 A 上：只在本机登记一个指向远端路径的工作区，
+            // 换一台机器就立刻失效（本机没有那个目录）。这里先让 A 建出它自己的工作区，
+            // 失败不阻断本机登记，但把原因带回去。
+            let remoteWorkspaceId: string | null = null
+            let remoteError: string | null = null
+            try { remoteWorkspaceId = (await createRemoteWorkspace(host, record.path)).workspaceId }
+            catch (error) { remoteError = String((error as Error)?.message ?? error) }
+            // 登记完立刻同步一次：加完远程工作区就该看到那台主机的会话，
+            // 而不是再去设置里点一次「同步」。同步失败不回滚登记——工作区本身已经成立，
+            // 失败原因随返回值带出去，界面据此提示。
+            let sessions: Array<{ id: string, eventCount: number, durable: boolean }> = [];
+            let syncError: string | null = null;
+            try { sessions = await syncRemoteSessions(host, record.path); }
+            catch (error) { syncError = String((error as Error)?.message ?? error); }
+            return ok({ workspace: { id: workspace.id, path: workspace.path, title: workspace.title }, sessions, syncError, remoteWorkspaceId, remoteError });
+          }
+          case 'remoteWorkspace.remove': {
+            const hostId = String(payload?.hostId ?? '');
+            const rawPath = String(payload?.path ?? '');
+            if (hostId === '' || rawPath === '') return errRpc('bad-request');
+            let canonical = '';
+            try { canonical = normalizeRemotePath(rawPath, process.platform); }
+            catch (error) { return errRpc(String((error as Error)?.message ?? error)); }
+            if (!remoteWorkspaces.remove(hostId, canonical)) return errRpc('not-found');
+            // 只摘掉本机的登记与投影：官方 registry 里的条目若还在，交给用户在自己的
+            // 工作区列表里删（那是本机真实存在的条目，插件不替用户做删除决定）。
+            return ok(true);
+          }
+          case 'remoteStatus.probe': {
+            // #108：三态探测。online 顺手刷新 lastSeen（界面显示「上次可见」用）。
+            const hostId = String(payload?.hostId ?? '');
+            const host = remoteHosts.get(hostId);
+            if (host === undefined) return errRpc('unknown-host');
+            const status = await probeRemoteHost(host, { localVersion: readPluginVersion() });
+            if (status.state === 'online') remoteHosts.upsert({ ...host, lastSeen: status.checkedAt });
+            return ok({ status, description: describeRemoteLink(status) });
+          }
+          case 'remoteSessions.sync': {
+            const hostId = String(payload?.hostId ?? '');
+            const host = remoteHosts.get(hostId);
+            if (host === undefined) return errRpc('unknown-host');
+            const targetPath = String(payload?.path ?? '');
+            if (targetPath === '') return errRpc('bad-path');
+            try {
+              return ok({ sessions: await syncRemoteSessions(host, targetPath) });
+            } catch (error) {
+              return errRpc(String((error as Error)?.message ?? error));
+            }
+          }
+          case 'remoteShare.add': {
+            // 分享：会话留在本机，只登记「这台设备可以订阅它」。
+            const sessionId = String(payload?.sessionId ?? '')
+            const deviceId = String(payload?.deviceId ?? '')
+            const sharePath = String(payload?.path ?? '')
+            if (sessionId === '' || deviceId === '') return errRpc('bad-request')
+            const entries = svc.shares.load().filter((entry) => !(entry.sessionId === sessionId && entry.deviceId === deviceId))
+            entries.push({ sessionId, deviceId, path: sharePath, sharedAt: Date.now() })
+            svc.shares.save(entries)
+            svc.pushShareChange(deviceId, 'added', sessionId)
+            return ok({ shares: entries.filter((entry) => entry.sessionId === sessionId) })
+          }
+          case 'remoteShare.list': {
+            const sessionId = String(payload?.sessionId ?? '')
+            const all = svc.shares.load()
+            const shares = sessionId === '' ? all : all.filter((entry) => entry.sessionId === sessionId)
+            return ok({ shares: shares.map((entry) => ({ ...entry, viewers: svc.viewerCount(entry.sessionId) })) })
+          }
+          case 'remoteShare.remove': {
+            const sessionId = String(payload?.sessionId ?? '')
+            const deviceId = String(payload?.deviceId ?? '')
+            const entries = svc.shares.load().filter((entry) => !(entry.sessionId === sessionId && entry.deviceId === deviceId))
+            svc.shares.save(entries)
+            svc.pushShareChange(deviceId, 'removed', sessionId)
+            return ok({ shares: entries.filter((entry) => entry.sessionId === sessionId) })
+          }
+          case 'remoteSession.push': {
+            // 把本机会话推到 A 机：先确保远端有对应工作区，再把日志写进 A 的会话存储，
+            // 最后在本机登记成远程会话——之后它和「在远端建的会话」走同一套双向同步。
+            const hostId = String(payload?.hostId ?? '')
+            const host = remoteHosts.get(hostId)
+            if (host === undefined) return errRpc('unknown-host')
+            const sessionId = String(payload?.sessionId ?? '')
+            if (sessionId === '') return errRpc('bad-session')
+            const targetPath = String(payload?.path ?? '')
+            if (targetPath === '') return errRpc('bad-path')
+            const source = sessionSource
+            if (source === undefined || typeof source.readLog !== 'function') return errRpc('sessions-unavailable')
+            try {
+              const log = await source.readLog(sessionId)
+              if (log === undefined) return errRpc('not-found')
+              const remote = await createRemoteWorkspace(host, targetPath)
+              const response = await fetchFromHost(host, '/__dsh-mobile/api/remote/session.import', {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ log, cwd: targetPath }),
+              })
+              // 远端已有同名会话时视为已推送（幂等）：重复点推送不该报错。
+              if (!response.ok && response.status !== 500) return errRpc(`import-failed: HTTP ${String(response.status)}`)
+              if (!response.ok) {
+                const detail = await response.text()
+                if (!detail.includes('already exists')) return errRpc(`import-failed: ${detail.slice(0, 200)}`)
+              }
+              const workspace = remoteWorkspaces.list().find((entry) => entry.hostId === hostId && sameCwd(entry.path, targetPath))
+              if (workspace !== undefined) remoteSessionBridge?.register(sessionId, workspace)
+              return ok({ sessionId, workspaceId: remote.workspaceId })
+            } catch (error) {
+              return errRpc(String((error as Error)?.message ?? error))
+            }
+          }
+          case 'remoteWorkspace.syncNow': {
+            // 把 A 机该目录下所有会话的最新内容拉到本机：新会话建成本机远程会话，
+            // 已有会话交给镜像轮询补增量。
+            const hostId = String(payload?.hostId ?? '')
+            const host = remoteHosts.get(hostId)
+            if (host === undefined) return errRpc('unknown-host')
+            const targetPath = String(payload?.path ?? '')
+            if (targetPath === '') return errRpc('bad-path')
+            const store = ctx.get?.('sessions') as SessionStoreLike | undefined
+            if (store === undefined) return errRpc('no-session-store')
+            const persistence = ctx.get?.('sessionPersistence') as SessionPersistenceLike | undefined
+            try {
+              const headers = await fetchRemoteSessions(host, targetPath)
+              const workspace = remoteWorkspaces.list().find((entry) => entry.hostId === hostId && sameCwd(entry.path, targetPath))
+              let created = 0
+              let existing = 0
+              for (const header of headers) {
+                if (store.get(header.id) === undefined) {
+                  const log = await fetchRemoteSessionLog(host, header.id)
+                  await materializeSession(store as never, log, targetPath, persistence as never)
+                  created += 1
+                } else {
+                  existing += 1
+                }
+                if (workspace !== undefined) remoteSessionBridge?.register(header.id, workspace)
+              }
+              return ok({ total: headers.length, created, existing })
+            } catch (error) {
+              return errRpc(String((error as Error)?.message ?? error))
+            }
+          }
+          case 'remoteSession.syncNow': {
+            // 单个远程会话：立刻拉一次最新内容（远端有新消息时本机镜像不会自动知道）。
+            const sessionId = String(payload?.sessionId ?? '')
+            if (sessionId === '') return errRpc('bad-session')
+            if (remoteSessionBridge === null) return errRpc('bridge-unavailable')
+            try {
+              const ref = remoteSessionBridge.sessions.get(sessionId)
+              if (ref === undefined) return errRpc('not-remote-session')
+              await remoteSessionBridge.pullOne(sessionId, ref)
+              return ok({ sessionId })
+            } catch (error) {
+              return errRpc(String((error as Error)?.message ?? error))
+            }
+          }
+          case 'remoteSession.create': {
+            // 在远端建会话，再把它镜像到本机：会话身份、事件、后续对话都在 A 上，
+            // 本机只是同一份日志的渲染副本。
+            const hostId = String(payload?.hostId ?? '')
+            const host = remoteHosts.get(hostId)
+            if (host === undefined) return errRpc('unknown-host')
+            const targetPath = String(payload?.path ?? '')
+            if (targetPath === '') return errRpc('bad-path')
+            const store = ctx.get?.('sessions') as SessionStoreLike | undefined
+            if (store === undefined) return errRpc('no-session-store')
+            try {
+              const remote = await createRemoteWorkspace(host, targetPath)
+              const sessionId = await createRemoteSession(host, { workspaceId: remote.workspaceId })
+              await mirrorRemoteSession(host, sessionId, targetPath, store as never, mirrorCursors)
+              return ok({ sessionId, workspaceId: remote.workspaceId })
+            } catch (error) {
+              return errRpc(String((error as Error)?.message ?? error))
+            }
+          }
+          case 'remoteSession.prompt': {
+            const hostId = String(payload?.hostId ?? '')
+            const host = remoteHosts.get(hostId)
+            if (host === undefined) return errRpc('unknown-host')
+            const sessionId = String(payload?.sessionId ?? '')
+            const text = String(payload?.text ?? '')
+            const requestId = String(payload?.requestId ?? '')
+            if (sessionId === '' || text === '' || requestId === '') return errRpc('bad-request')
+            try {
+              return ok({ accepted: await promptRemoteSession(host, sessionId, text, requestId) })
+            } catch (error) {
+              return errRpc(String((error as Error)?.message ?? error))
+            }
+          }
+          case 'remoteSession.pull': {
+            const hostId = String(payload?.hostId ?? '')
+            const host = remoteHosts.get(hostId)
+            if (host === undefined) return errRpc('unknown-host')
+            const sessionId = String(payload?.sessionId ?? '')
+            const targetPath = String(payload?.path ?? '')
+            if (sessionId === '' || targetPath === '') return errRpc('bad-request')
+            const store = ctx.get?.('sessions') as SessionStoreLike | undefined
+            if (store === undefined) return errRpc('no-session-store')
+            try {
+              return ok(await mirrorRemoteSession(host, sessionId, targetPath, store as never, mirrorCursors))
+            } catch (error) {
+              return errRpc(String((error as Error)?.message ?? error))
+            }
+          }
+          case 'remoteSessions.list': {
+            // #107：列出某个远端工作区在本机已落盘的会话 + 流转来源（#109）。
+            const hostId = String(payload?.hostId ?? '');
+            const targetPath = String(payload?.path ?? '');
+            if (hostId === '' || targetPath === '') return errRpc('bad-request');
+            const local = buildRemoteSessionSource((name) => {
+              try { return typeof ctx.get === 'function' ? ctx.get(name) : undefined; } catch { return undefined; }
+            });
+            try {
+              const headers = await listSessionsUnderPath(local, targetPath);
+              return ok({
+                sessions: headers.map((header) => {
+                  const record = handoffs.get(header.id);
+                  return {
+                    id: header.id,
+                    cwd: header.cwd,
+                    createdAt: header.createdAt ?? null,
+                    handedOff: record ?? null,
+                    writable: record !== undefined,
+                  };
+                }),
+              });
+            } catch (error) {
+              return errRpc(String((error as Error)?.message ?? error));
+            }
+          }
+          case 'remoteSessions.read': {
+            // #107：只读视图——按事件顺序交给界面；写入走官方会话，不经这里。
+            const sessionId = String(payload?.sessionId ?? '');
+            if (sessionId === '') return errRpc('bad-request');
+            const query = ctx.get?.('sessionQuery') as
+              | { readSession?: (id: string) => Promise<{ session: { id?: unknown, cwd?: unknown, createdAt?: unknown }, events: unknown[] }> }
+              | undefined;
+            const snapshot = await query?.readSession?.(sessionId);
+            if (snapshot === undefined) return errRpc('not-found');
+            return ok({
+              session: {
+                id: String(snapshot.session.id ?? sessionId),
+                cwd: typeof snapshot.session.cwd === 'string' ? snapshot.session.cwd : '',
+                createdAt: snapshot.session.createdAt ?? null,
+              },
+              events: snapshot.events,
+              handedOff: handoffs.get(sessionId) ?? null,
+            });
+          }
+          case 'remoteSessions.handoff': {
+            // #109：单向搬运一次；是否放行由 decideHandoff（纯函数）判定，第二次一律拒绝。
+            const hostId = String(payload?.hostId ?? '');
+            const targetPath = String(payload?.path ?? '');
+            const sessionId = String(payload?.sessionId ?? '');
+            const host = remoteHosts.get(hostId);
+            if (host === undefined) return errRpc('unknown-host');
+            if (targetPath === '' || sessionId === '') return errRpc('bad-request');
+            try {
+              const log = await fetchRemoteSessionLog(host, sessionId);
+              const decision = decideHandoff(handoffs.get(sessionId), log.events.length);
+              if (decision.action === 'refuse') {
+                return ok({ handedOff: false, reason: decision.reason, record: handoffs.get(sessionId) ?? null });
+              }
+              const sessions = ctx.get?.('sessions') as SessionStoreLike | undefined;
+              if (sessions === undefined) return errRpc('no-session-store');
+              const persistence = ctx.get?.('sessionPersistence') as SessionPersistenceLike | undefined;
+              const materialized = await materializeSession(sessions, log, targetPath, persistence);
+              const record = handoffs.upsert({
+                sessionId: materialized.id,
+                hostId,
+                hostName: host.name || host.origin,
+                originSessionId: sessionId,
+                path: targetPath,
+                handedOffAt: Date.now(),
+                eventCount: materialized.eventCount,
+              });
+              return ok({ handedOff: true, reason: null, record, session: materialized });
+            } catch (error) {
+              return errRpc(String((error as Error)?.message ?? error));
+            }
+          }
           default:
             return errRpc('unknown-endpoint');
         }
@@ -1136,7 +1867,9 @@ export function startLaneRuntime(ctx: LaneRuntimeContext, opts: { mdns?: MdnsRun
           return Response.json({ type: 'server-response', rpcId, result: errRpc(String((e as { message?: unknown } | null | undefined)?.message ?? e)) });
         }
       };
-      const commands = ['info', 'devices.list', 'devices.remove', 'token.mint', 'token.ref', 'tunnel.probe', 'tunnel.save', 'cloudflared.get', 'cloudflared.apply', 'cloudflared.stop'];
+      // 命令表与 switch 分支必须一一对应：漏登记的命令会被 /api 直接回 404（字面 `not found`），
+      // 表现为「有的命令能用、有的不能用」，而不是一个可诊断的错误。
+      const commands = ['info', 'devices.list', 'devices.remove', 'token.mint', 'token.ref', 'tunnel.probe', 'tunnel.save', 'cloudflared.get', 'cloudflared.apply', 'cloudflared.stop', 'remoteHosts.list', 'remoteHosts.pair', 'remoteHosts.remove', 'remoteHosts.rename', 'remoteWorkspace.list', 'remoteWorkspace.browse', 'remoteWorkspace.add', 'remoteWorkspace.remove', 'remoteSessions.sync', 'remoteSessions.list', 'remoteSessions.read', 'remoteSessions.handoff', 'remoteStatus.probe', 'remoteSession.create', 'remoteSession.prompt', 'remoteSession.pull', 'remoteCommand.execute', 'remoteSession.invoke', 'remoteSession.push', 'remoteSession.syncNow', 'remoteWorkspace.syncNow', 'remoteShare.add', 'remoteShare.list', 'remoteShare.remove'];
       for (const cmd of commands) {
         connection.fetch.register({
           path: `/api/remote-access.${cmd}`,
@@ -1187,6 +1920,7 @@ export function startLaneRuntime(ctx: LaneRuntimeContext, opts: { mdns?: MdnsRun
   const ready = boot();
   const dispose = () => {
     closed = true;
+    remoteSessionBridge?.dispose()
     svc.stopTunnel();
     // 先停广播（发告别包）再关端口：顺序反了手机端会缓存旧记录。
     return Promise.all([svc.stopAdvertising(), svc.close()]);
