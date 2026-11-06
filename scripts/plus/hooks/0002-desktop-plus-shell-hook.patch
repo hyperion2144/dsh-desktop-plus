@@ -652,7 +652,7 @@ index 338f93bd..ab6492fc 100644
          const request = this.controlRequests.get(message.requestId)
          if (message.error === undefined) request?.resolve(message)
 diff --git a/upstream/apps/desktop/src/main.ts b/upstream/apps/desktop/src/main.ts
-index d8d0e30c..5ac0b07c 100644
+index d8d0e30c..7e7db0a4 100644
 --- a/upstream/apps/desktop/src/main.ts
 +++ b/upstream/apps/desktop/src/main.ts
 @@ -14,6 +14,7 @@ import {
@@ -1424,7 +1424,7 @@ index d8d0e30c..5ac0b07c 100644
    if (typeof manifest !== 'object' || manifest === null) throw new Error('desktop policy: invalid application manifest')
    const developmentPolicy = app.isPackaged ? undefined : process.env.DSH_DESKTOP_MANDATORY_UPDATE_CONFIG
    const policyInput: unknown = app.isPackaged
-@@ -1445,15 +1853,672 @@ async function main(): Promise<void> {
+@@ -1445,15 +1853,697 @@ async function main(): Promise<void> {
    publishUpdate(updateState)
  }
  
@@ -1817,14 +1817,35 @@ index d8d0e30c..5ac0b07c 100644
 +setPlusShellRpcHandler(async (method, params, profile) => plusRpcRegistry.dispatch(method, params as Record<string, unknown> | undefined, profile === undefined ? undefined : { profile }))
 +
 +// ── 宿主插件单向事件（plus-shell-notify）：通知投递 + 防休眠忙租约 ──
++const plusNoticeContext = () => ({
++  windowFocused: BrowserWindow.getAllWindows().some((win) => win.isFocused()),
++  fullscreen: BrowserWindow.getAllWindows().some((win) => win.isFullScreen()),
++})
 +const plusNotifier = createPlusNotifier({
 +  policy: () => noticePolicyFromConfig(loadNotificationConfig(resolveDshHome())),
-+  context: () => ({
-+    windowFocused: BrowserWindow.getAllWindows().some((win) => win.isFocused()),
-+    fullscreen: BrowserWindow.getAllWindows().some((win) => win.isFullScreen()),
-+  }),
++  context: plusNoticeContext,
++  playCustomSound: (name) => playSoundFile(join(resolveDshHome(), 'sounds', name)),
++  onClickRoute: (target) => { plusFocusNoticeTarget(target) },
 +  log: (line) => plusLogger.append(`[notifications] ${line}`),
 +})
++// #116 点击路由：腿一聚焦发起 profile 的窗口（与托盘 showOrFocus 同一通路），腿二经页面缝切到对应会话。
++// 腿二任何失败（旧 bundle 没有该全局、executeJavaScript 抛错）都只降级为腿一，不反噬通知本身。
++const plusFocusNoticeTarget = (target: { sessionId?: string; profile?: string }): void => {
++  const profile = target.profile === undefined || target.profile === '' ? DEFAULT_PROFILE : target.profile
++  if (target.sessionId !== undefined && target.sessionId !== '') {
++    const tagged = (win: BrowserWindow): string | undefined => (win as BrowserWindow & { __plusProfileName?: string }).__plusProfileName
++    const window = profile === DEFAULT_PROFILE
++      ? plusDesktopWindow()
++      : BrowserWindow.getAllWindows().find((win) => !win.isDestroyed() && tagged(win) === profile)
++    if (window !== undefined && !window.isDestroyed()) {
++      void window.webContents
++        .executeJavaScript(`window.__dshPlusFocusSession?.(${JSON.stringify(target.sessionId)})`)
++        .catch(() => { /* 旧 bundle 没有该全局：只保留腿一的聚焦 */ })
++    }
++  }
++  if (profile === DEFAULT_PROFILE) { focusPrimaryWindow(); return }
++  plusProfiles.showProfile(profile)
++}
 +const plusSleepGate = createSleepGate(powerSaveBlocker)
 +const plusSleepHolders = new Set<string>()
 +const plusReconcileSleepGate = (active: ReadonlySet<string>): void => {
@@ -1844,7 +1865,7 @@ index d8d0e30c..5ac0b07c 100644
 +    plusBusyLease.report(notice.profile ?? 'desktop', notice.busy === true)
 +    return
 +  }
-+  deliverHostNotice({ notifier: plusNotifier, config: () => loadNotificationConfig(resolveDshHome()) }, notice)
++  deliverHostNotice({ notifier: plusNotifier, config: () => loadNotificationConfig(resolveDshHome()), context: plusNoticeContext }, notice)
 +})
 +
 +/** Lane 口：profile_lane_ports.<name> 显式覆盖优先；否则自动分配 3091 起的下一个空闲口并持久化（每个 profile 一个稳定端口）。 */
@@ -1868,7 +1889,8 @@ index d8d0e30c..5ac0b07c 100644
 +  return proxy === null ? {} : proxyEnvRecord(proxy)
 +}
 +
-+
+ 
+-if (ownsDesktopInstance) void app.whenReady().then(main).catch(async (error: unknown) => {
 +
 +
 +const writeDshPortFileFromUrl = (hostUrl: string): void => {
@@ -1952,8 +1974,7 @@ index d8d0e30c..5ac0b07c 100644
 +function plusProfileHostEnv(base: NodeJS.ProcessEnv, name: string): NodeJS.ProcessEnv {
 +  return { ...base, ...resolvedProxyEnvRecord(), DSH_CLIENT_VERSION: desktopClientVersion(), DSH_REMOTE_LANE_PORT: String(lanePortFor(name)), ...plusTelemetryOptOutEnv() }
 +}
- 
--if (ownsDesktopInstance) void app.whenReady().then(main).catch(async (error: unknown) => {
++
 +/** 远程重启 API：带配对 cookie 调远端 restart_desktop_app（lane 反代与 dsh 直连都靠 cookie 鉴权）。 */
 +async function restartRemoteProfileApp(remoteUrl: string, name: string): Promise<string> {
 +  const origin = remoteOrigin(remoteUrl)
@@ -2059,10 +2080,14 @@ index d8d0e30c..5ac0b07c 100644
 +  dshHome: resolveDshHome(),
 +  createHost: (name, profileDir) => createPlusProfileHost(name, profileDir),
 +  // #8：profile 窗口走官方 createWindow 全流程（preload/桌面 chrome），console 带 profile 标识进日志（#13）。
-+  createWindow: (name) => plusProfileWindowFactory?.(name) ?? new BrowserWindow({
-+    title: `DSH Desktop Plus — ${name}`,
-+    webPreferences: { partition: partitionFor(name), contextIsolation: true, nodeIntegration: false },
-+  }),
++  createWindow: (name) => {
++    const window = plusProfileWindowFactory?.(name) ?? new BrowserWindow({
++      title: `DSH Desktop Plus — ${name}`,
++      webPreferences: { partition: partitionFor(name), contextIsolation: true, nodeIntegration: false },
++    })
++      ; (window as BrowserWindow & { __plusProfileName?: string }).__plusProfileName = name
++    return window
++  },
 +  userDataDir: app.getPath('userData'),
 +  onChanged: () => { refreshPlusTray() },
 +  onWindowVisibilityChanged: () => { refreshPlusTray() },
