@@ -671,7 +671,7 @@ index 8e26fb8d..9517a2d6 100644
          const request = this.controlRequests.get(message.requestId)
          if (message.error === undefined) request?.resolve(message)
 diff --git a/upstream/apps/desktop/src/main.ts b/upstream/apps/desktop/src/main.ts
-index 8f9cd823..47984c6e 100644
+index 8f9cd823..5142b23b 100644
 --- a/upstream/apps/desktop/src/main.ts
 +++ b/upstream/apps/desktop/src/main.ts
 @@ -18,6 +18,7 @@ import {
@@ -682,7 +682,7 @@ index 8f9cd823..47984c6e 100644
    nativeImage,
    nativeTheme,
    protocol,
-@@ -25,10 +26,23 @@ import {
+@@ -25,10 +26,24 @@ import {
    shell,
    type IpcMainInvokeEvent,
    type MenuItemConstructorOptions,
@@ -691,9 +691,10 @@ index 8f9cd823..47984c6e 100644
 +import { existsSync, rmSync, writeFileSync } from 'node:fs'
 +import { spawn } from 'node:child_process'
 +import { applyLoginItemFromEnv, isLoginItemEnabled, setLoginItemEnabled, remoteProfileName, loadRemoteAddressList, partitionFor, remoteOrigin, listProfileDirs, createProfilesRpcHandlers, createUpdatesRpcHandlers, createSettingsRpcHandlers, createNotificationsRpcHandlers, applyWindowsAppUserModelId, attachDownloads, attachPackagedDevTools, toggleDevTools, windowDevToolsAction, attachPageConsole, collectDiagnostics, clearSelectedRuntime, createDownloadRpcHandlers, createElectronProfileRuntime, createLoggingKernel, createLoggingRpcHandlers, createProfileTray, observeWindowVisibility, createRpcRegistry, createShellKernel, ensurePlusProfileBundles, PLUS_BUNDLE_NAMES, DEFAULT_PROFILE, resolveStartupRuntimeSelection, restartApplicationInPlace, runPlusStartup, loadDesktopSettings, saveDesktopSettings, soundCapabilityReport, playSoundFile, createLifecycleRpcHandlers, resolveProxyEnv, proxyEnvRecord, detectSystemProxy, plusApplicationVersion, type RpcRegistry, type ProfileTray } from '@deepseek-ai/dsh-desktop-plus-shell'
-+import { createBusyLease, createPlusNotifier, createSleepGate, createSplashWindow, deliverHostNotice, loadNotificationConfig, noticePolicyFromConfig, systemDefaultSoundCommand, type RestartAllOutcome } from '@deepseek-ai/dsh-desktop-plus-shell'
++import { createBusyLease, createSleepGate, createSplashWindow, systemDefaultSoundCommand, type RestartAllOutcome } from '@deepseek-ai/dsh-desktop-plus-shell'
 +import { plusShellCopy } from '@deepseek-ai/dsh-desktop-plus-shell'
 +import { installShellConsoleTee } from '@deepseek-ai/dsh-desktop-plus-shell'
++import { PLUS_OPEN_URL_PREFIX, parsePlusOpenUrl, plusFocusSessionScript } from '@deepseek-ai/dsh-desktop-plus-shell'
 +import { createPlusMacosUpdateGate, wrapPlusUpdateInstallGate } from '@deepseek-ai/dsh-desktop-plus-shell'
 +import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
 +import { initProfile, resolveProfileDir } from '@deepseek-ai/dsh-app-boot'
@@ -707,7 +708,7 @@ index 8f9cd823..47984c6e 100644
  import { DesktopPlatformView, PLATFORM_IPC, platformBounds } from './platform-view.ts'
  import { installDesktopFileDrag } from './file-drag.ts'
  import { installDesktopDirectoryPicker } from './directory-picker.ts'
-@@ -64,7 +78,7 @@ import { DesktopPolicyTestAuth } from './policy-test-auth.ts'
+@@ -64,7 +79,7 @@ import { DesktopPolicyTestAuth } from './policy-test-auth.ts'
  import { readDesktopSettings } from './settings.ts'
  import { readDesktopLocaleCache, writeDesktopLocaleCache } from './locale-cache.ts'
  import { DesktopUpdateDialog, type UpdateDialogOptions } from './update-dialog.ts'
@@ -716,7 +717,7 @@ index 8f9cd823..47984c6e 100644
  import { DesktopBrowserGuests } from './browser-guests.ts'
  import { installDesktopShortcuts } from './keyboard.ts'
  import { DesktopUpdateOverlays } from './update-overlay.ts'
-@@ -81,6 +95,155 @@ let shuttingDown = false
+@@ -81,6 +96,155 @@ let shuttingDown = false
   */
  let skipQuitConfirmation = false
  let windowsLanguage: string | undefined = readDesktopLocaleCache(app.getPath('userData'))
@@ -872,7 +873,7 @@ index 8f9cd823..47984c6e 100644
  /**
   * Whether the backend has reached ready: false until the first ready, back to
   * false when a restart returns it to starting, frozen during shutdown so a
-@@ -92,10 +255,60 @@ const rendererConsole = new RendererConsoleTail()
+@@ -92,10 +256,60 @@ const rendererConsole = new RendererConsoleTail()
  
  // Platform-conventional logs directory (macOS ~/Library/Logs/<name>, otherwise under userData);
  // set before ready so the first fatal report already resolves under it.
@@ -934,7 +935,7 @@ index 8f9cd823..47984c6e 100644
  }
  /** Quit without the task confirmation; the caller has already decided the application must stop. */
  function quitWithoutConfirmation(): void {
-@@ -153,7 +366,7 @@ function persistCrashReport(error: unknown, source: CrashReportSource): Promise<
+@@ -153,7 +367,7 @@ function persistCrashReport(error: unknown, source: CrashReportSource): Promise<
      ...(error instanceof DesktopHostFatalError && error.diagnostic !== undefined ? { hostDiagnostic: error.diagnostic } : {}),
      rendererConsole: rendererConsole.snapshot(),
      app: {
@@ -943,7 +944,7 @@ index 8f9cd823..47984c6e 100644
        electron: process.versions.electron, node: process.versions.node, locale: currentDesktopLocale().id,
      },
      time: new Date(),
-@@ -213,7 +426,7 @@ function runtimeResources(): RuntimeResources {
+@@ -213,7 +427,7 @@ function runtimeResources(): RuntimeResources {
      ?? (development ? join(app.getAppPath(), 'node_modules', 'pnpm', 'bin', 'pnpm.mjs')
        : join(process.resourcesPath, 'runtime', 'primary-runtime', 'dependencies', 'pnpm', 'bin', 'pnpm.mjs'))
    const dsh = (development ? process.env.DSH_DESKTOP_DSH_DIR : undefined)
@@ -952,7 +953,7 @@ index 8f9cd823..47984c6e 100644
    return { node, nodeBin, pnpm, dsh }
  }
  
-@@ -261,7 +474,15 @@ function platformLoginUrl(authorizeUrl: string): string {
+@@ -261,7 +475,15 @@ function platformLoginUrl(authorizeUrl: string): string {
    return url.href
  }
  
@@ -969,7 +970,7 @@ index 8f9cd823..47984c6e 100644
    const window = new BrowserWindow({
      width: 1280,
      height: 820,
-@@ -287,11 +508,13 @@ function createWindow(preload: string, show = false, primary = false): BrowserWi
+@@ -287,11 +509,13 @@ function createWindow(preload: string, show = false, primary = false): BrowserWi
      } : {}),
      webPreferences: {
        preload,
@@ -984,7 +985,7 @@ index 8f9cd823..47984c6e 100644
        devTools: true,
      },
    })
-@@ -339,8 +562,20 @@ function createWindow(preload: string, show = false, primary = false): BrowserWi
+@@ -339,8 +563,20 @@ function createWindow(preload: string, show = false, primary = false): BrowserWi
      window.on('restore', applyBackdrop)
      window.on('show', applyBackdrop)
    }
@@ -1006,7 +1007,7 @@ index 8f9cd823..47984c6e 100644
      if (isEditable) {
        items.push(
          { role: 'undo', enabled: editFlags.canUndo },
-@@ -355,6 +590,17 @@ function createWindow(preload: string, show = false, primary = false): BrowserWi
+@@ -355,6 +591,17 @@ function createWindow(preload: string, show = false, primary = false): BrowserWi
      } else if (selectionText.length > 0) {
        items.push({ role: 'copy', enabled: editFlags.canCopy })
      }
@@ -1024,7 +1025,7 @@ index 8f9cd823..47984c6e 100644
      // Empty accelerators suppress Electron's default shortcut labels for native roles.
      if (items.length > 0) {
        const messages = currentDesktopLocale().messages
-@@ -378,17 +624,46 @@ function createWindow(preload: string, show = false, primary = false): BrowserWi
+@@ -378,17 +625,46 @@ function createWindow(preload: string, show = false, primary = false): BrowserWi
    return window
  }
  
@@ -1072,7 +1073,7 @@ index 8f9cd823..47984c6e 100644
    const activeProject = paths.profile
    const manager = new DesktopProjectManager(paths, resources)
    // Dock and Finder launches inherit only launchd's environment; every Host shares one login-shell read.
-@@ -403,10 +678,14 @@ async function main(): Promise<void> {
+@@ -403,10 +679,14 @@ async function main(): Promise<void> {
    })
    let hostEnvironment: NodeJS.ProcessEnv = process.env
    const prepareHostEnvironment = async (): Promise<void> => { hostEnvironment = await loginShell }
@@ -1087,7 +1088,7 @@ index 8f9cd823..47984c6e 100644
    let welcomeWindow: BrowserWindow | undefined
    const installFileDrag = (): (() => Promise<void>) => installDesktopFileDrag(
      event => assertProductSender(event),
-@@ -469,11 +748,57 @@ async function main(): Promise<void> {
+@@ -469,11 +749,57 @@ async function main(): Promise<void> {
      }
      finally { ordinaryDialogs.delete(controller) }
    }
@@ -1147,7 +1148,7 @@ index 8f9cd823..47984c6e 100644
        buttons: [locale.messages.updateAcknowledge], cancelId: 0 })
    }
    const commandManager = new DesktopCommandManager({
-@@ -533,15 +858,18 @@ async function main(): Promise<void> {
+@@ -533,15 +859,18 @@ async function main(): Promise<void> {
      owner => isMandatory() || updateOverlays.input(owner).blocked)
    const backend = new DesktopBackendController((onFailure) => {
      const hostInspectPort = developmentHostInspectPort(development)
@@ -1168,7 +1169,7 @@ index 8f9cd823..47984c6e 100644
      return {
        start: async () => {
          const ready = await host.start()
-@@ -550,6 +878,13 @@ async function main(): Promise<void> {
+@@ -550,6 +879,13 @@ async function main(): Promise<void> {
          hostUrl = ready.url
          void removeLegacyHostCookies(session.defaultSession.cookies, ready.url)
            .catch((error: unknown) => { console.error('desktop: legacy Host cookie cleanup failed', error) })
@@ -1182,7 +1183,7 @@ index 8f9cd823..47984c6e 100644
          if (ready.injections === undefined) throw new Error('Desktop Host did not provide boot injections')
          injections = ready.injections
          welcomeBackend = connectDesktopWelcome(ready.url, cookie)
-@@ -581,7 +916,7 @@ async function main(): Promise<void> {
+@@ -581,7 +917,7 @@ async function main(): Promise<void> {
              }).catch(() => undefined)
            }
            previousAccountStatus = state.status
@@ -1191,7 +1192,7 @@ index 8f9cd823..47984c6e 100644
            // The stream reconnects; a transport failure does not change account state.
          }, () => {
            void readWelcomeState().then(async (value) => {
-@@ -676,6 +1011,11 @@ async function main(): Promise<void> {
+@@ -676,6 +1012,11 @@ async function main(): Promise<void> {
      try { await backend.close() }
      finally { await Promise.all([operationJournal?.drain(500), reports]) }
    }
@@ -1203,7 +1204,7 @@ index 8f9cd823..47984c6e 100644
  
    const reconcileBackend = (): Promise<void> => {
      startup ??= (async () => {
-@@ -702,9 +1042,10 @@ async function main(): Promise<void> {
+@@ -702,9 +1043,10 @@ async function main(): Promise<void> {
      packagedChannel, changing: false,
      ...(initialChannel.kind === 'error' ? { error: configurationFailure(initialChannel.error) } : {}) }
    const updateChannel = initialChannel.kind === 'ready' ? initialChannel.channel : packagedChannel
@@ -1215,7 +1216,7 @@ index 8f9cd823..47984c6e 100644
        await commandManager.idle()
        await workspaceRecovery
        await startup?.catch(() => undefined)
-@@ -756,7 +1097,7 @@ async function main(): Promise<void> {
+@@ -756,7 +1098,7 @@ async function main(): Promise<void> {
          requireCleanStop = false
        }
        return true
@@ -1224,7 +1225,7 @@ index 8f9cd823..47984c6e 100644
      undefined, undefined, undefined,
      (success, reason) => { void track('desktop_upgrade_download_result', { is_success: success, ...reason === undefined ? {} : { error_reason: reason } }) },
      updateChannel,
-@@ -774,6 +1115,7 @@ async function main(): Promise<void> {
+@@ -774,6 +1116,7 @@ async function main(): Promise<void> {
  
    const updateSchedule = new DesktopUpdateSchedule(updates, resolveDesktopUpdateScheduleConfig(process.env))
  
@@ -1232,7 +1233,7 @@ index 8f9cd823..47984c6e 100644
    const downloadUpdate = async (version: string, revision = updates.revision): Promise<DesktopUpdateState> => {
      void track('desktop_upgrade_click', {})
      updateJournal?.action('download-requested')
-@@ -822,6 +1164,9 @@ async function main(): Promise<void> {
+@@ -822,6 +1165,9 @@ async function main(): Promise<void> {
      assertDesktopSender(event, ['app'])
      await startup
      if (backend.host === undefined || hostUrl === undefined) throw new Error('Desktop Host is unavailable')
@@ -1242,7 +1243,7 @@ index 8f9cd823..47984c6e 100644
      return { injections, streamBaseUrl: new URL(hostUrl).origin }
    })
  
-@@ -852,10 +1197,13 @@ async function main(): Promise<void> {
+@@ -852,10 +1198,13 @@ async function main(): Promise<void> {
      const requested = new URL(details.url)
      if (requested.host !== target.host || requested.protocol !== (target.protocol === 'https:' ? 'wss:' : 'ws:')) { callback({}); return }
      const headers = Object.fromEntries(Object.entries(details.requestHeaders).map(([name, value]) => [name.toLowerCase(), value]))
@@ -1257,7 +1258,7 @@ index 8f9cd823..47984c6e 100644
    const assertMainApplication = (event: IpcMainInvokeEvent): BrowserWindow => {
      const owner = mainWindow
      if (owner === undefined || event.sender !== owner.webContents || event.senderFrame !== owner.webContents.mainFrame
-@@ -1158,8 +1506,8 @@ async function main(): Promise<void> {
+@@ -1158,8 +1507,8 @@ async function main(): Promise<void> {
    const applicationIconPath = development ? join(app.getAppPath(), 'resources', 'icon-windows.png')
      : join(process.resourcesPath, 'icon.png')
    app.setAboutPanelOptions({
@@ -1268,7 +1269,7 @@ index 8f9cd823..47984c6e 100644
      // The release has no separate build number; omit Electron's bundle version.
      version: '',
      copyright: '',
-@@ -1196,7 +1544,7 @@ async function main(): Promise<void> {
+@@ -1196,7 +1545,7 @@ async function main(): Promise<void> {
      ? [shortcuts.fileMenu(currentDesktopLocale().messages), macEditMenu(currentDesktopLocale().messages), { role: 'windowMenu' }]
      : [{ role: 'editMenu' }]
    const hideCommands: MenuItemConstructorOptions[] = darwin
@@ -1277,7 +1278,7 @@ index 8f9cd823..47984c6e 100644
        { role: 'hideOthers', label: currentDesktopLocale().messages.hideOtherApplications },
        { role: 'unhide', label: currentDesktopLocale().messages.showAllApplications }, { type: 'separator' }]
      : []
-@@ -1204,9 +1552,9 @@ async function main(): Promise<void> {
+@@ -1204,9 +1553,9 @@ async function main(): Promise<void> {
      // Windows has no system About panel; Electron's fallback is a plain
      // message box, so the shell shows its own dimmed dialog instead.
      process.platform === 'win32'
@@ -1289,7 +1290,7 @@ index 8f9cd823..47984c6e 100644
      { type: 'separator' },
      { label: currentDesktopLocale().messages.checkUpdatesMenu, click: () => { void openUpdatePrompt(true) } },
      ...process.platform === 'darwin' || process.platform === 'win32'
-@@ -1219,6 +1567,8 @@ async function main(): Promise<void> {
+@@ -1219,6 +1568,8 @@ async function main(): Promise<void> {
          app.relaunch()
          quitWithoutConfirmation()
        } },
@@ -1298,7 +1299,7 @@ index 8f9cd823..47984c6e 100644
      ] : [],
      { role: 'toggleDevTools', label: currentDesktopLocale().messages.toggleDevToolsMenu },
      { type: 'separator' },
-@@ -1240,8 +1590,13 @@ async function main(): Promise<void> {
+@@ -1240,8 +1591,13 @@ async function main(): Promise<void> {
      tray?.relabel()
    }
    refreshApplicationMenu()
@@ -1314,7 +1315,7 @@ index 8f9cd823..47984c6e 100644
      // The tray is the way back to a hidden window; without it, relaunching the application still focuses it.
      try {
        tray = new DesktopTray({ iconPath: trayIconPath, locale: currentDesktopLocale,
-@@ -1292,6 +1647,9 @@ async function main(): Promise<void> {
+@@ -1292,6 +1648,9 @@ async function main(): Promise<void> {
          editItem(currentDesktopLocale().messages.delete, 'Delete', []),
          { type: 'separator' },
          editItem(currentDesktopLocale().messages.selectAll, 'A', ['control'], 'Ctrl+A'),
@@ -1324,7 +1325,7 @@ index 8f9cd823..47984c6e 100644
        ]
        const zoom = mainWindow.webContents.getZoomFactor()
        return new Promise<void>((resolve) => {
-@@ -1299,14 +1657,23 @@ async function main(): Promise<void> {
+@@ -1299,14 +1658,23 @@ async function main(): Promise<void> {
        })
      })
      ipcMain.on(DESKTOP_IPC.windowsAppearance, (event, _language: unknown, color: unknown, symbolColor: unknown) => {
@@ -1352,7 +1353,7 @@ index 8f9cd823..47984c6e 100644
      })
    }
  
-@@ -1322,6 +1689,10 @@ async function main(): Promise<void> {
+@@ -1322,6 +1690,10 @@ async function main(): Promise<void> {
    const createMainWindow = (): BrowserWindow => {
      const window = createWindow(appPreload, false, true)
      mainWindow = window
@@ -1363,7 +1364,7 @@ index 8f9cd823..47984c6e 100644
      browserGuests.bind(window, (guest, name) => shortcuts.attachGuest(window, guest, name))
      shortcuts.attach(window)
      window.on('focus', automaticCheck)
-@@ -1331,7 +1702,7 @@ async function main(): Promise<void> {
+@@ -1331,7 +1703,7 @@ async function main(): Promise<void> {
        event.preventDefault()
        if (updateDialog.isOpen) { updateDialog.focus(); return }
        const hide = (): void => {
@@ -1372,7 +1373,7 @@ index 8f9cd823..47984c6e 100644
        }
        if (backgroundNotice === undefined) hide()
        else backgroundNotice.close(hide)
-@@ -1346,7 +1717,7 @@ async function main(): Promise<void> {
+@@ -1346,7 +1718,7 @@ async function main(): Promise<void> {
        window.on('focus', () => { sessionEnding = false })
        window.on('show', () => { sessionEnding = false })
      }
@@ -1381,7 +1382,7 @@ index 8f9cd823..47984c6e 100644
      window.webContents.on('console-message', (details) => {
        if (details.level !== 'error') return
        rendererConsole.push(`${details.sourceId}:${String(details.lineNumber)} ${details.message}`)
-@@ -1475,7 +1846,7 @@ async function main(): Promise<void> {
+@@ -1475,7 +1847,7 @@ async function main(): Promise<void> {
      const window = welcomeWindow ?? mainWindow
      if (window === undefined || window.isDestroyed()) {
        try { createMainWindow() } catch (error) { reportFatal(error, 'main'); return }
@@ -1390,7 +1391,16 @@ index 8f9cd823..47984c6e 100644
        return
      }
      // Startup and sign-out select the visible window before activation may reveal the workspace.
-@@ -1495,6 +1866,8 @@ async function main(): Promise<void> {
+@@ -1488,6 +1860,8 @@ async function main(): Promise<void> {
+   if (app.isPackaged || process.env.DSH_DESKTOP_DEV_APP === '1') app.setAsDefaultProtocolClient('dsh')
+   app.on('open-url', (event, url) => {
+     event.preventDefault()
++    // #116 直通：plus 协议激活同样路由（页面通知点击走 onclick；此分支留给注册了 dsh-plus:// 的场景）。
++    if (url.startsWith(PLUS_OPEN_URL_PREFIX)) { handlePlusOpenUrl(url, () => { focusPrimaryWindow() }); return }
+     if (url === 'dsh://open' || url === 'dsh://open/') focusPrimaryWindow()
+   })
+ 
+@@ -1495,6 +1869,8 @@ async function main(): Promise<void> {
      if (!hasVisibleWindows) focusPrimaryWindow()
    })
    app.on('window-all-closed', () => {
@@ -1399,7 +1409,7 @@ index 8f9cd823..47984c6e 100644
      if (process.platform !== 'darwin') app.quit()
    })
    if (process.platform !== 'win32') powerMonitor.on('shutdown', () => { sessionEnding = true })
-@@ -1516,6 +1889,8 @@ async function main(): Promise<void> {
+@@ -1516,6 +1892,8 @@ async function main(): Promise<void> {
          await operationJournal?.drain(500)
          throw error
        }),
@@ -1408,7 +1418,7 @@ index 8f9cd823..47984c6e 100644
        platformView.dispose(),
        disposeFileDrag(),
      ].map(cleanup => cleanup.catch((error: unknown) => { console.error(error) })))
-@@ -1546,6 +1921,41 @@ async function main(): Promise<void> {
+@@ -1546,6 +1924,41 @@ async function main(): Promise<void> {
    })
  
    mainWindow = createMainWindow()
@@ -1450,7 +1460,7 @@ index 8f9cd823..47984c6e 100644
    if (typeof manifest !== 'object' || manifest === null) throw new Error('desktop policy: invalid application manifest')
    const developmentPolicy = app.isPackaged ? undefined : process.env.DSH_DESKTOP_MANDATORY_UPDATE_CONFIG
    const policyInput: unknown = app.isPackaged
-@@ -1601,15 +2011,672 @@ async function main(): Promise<void> {
+@@ -1601,15 +2014,692 @@ async function main(): Promise<void> {
    publishUpdate(updateState)
  }
  
@@ -1838,20 +1848,13 @@ index 8f9cd823..47984c6e 100644
 +    },
 +  }),
 +])
- 
--if (ownsDesktopInstance) void app.whenReady().then(main).catch(async (error: unknown) => {
++
 +// 宿主里的插件（页面 client 的 host 半区）经宿主 IPC 发起 RPC：用同一张注册表派发。
 +setPlusShellRpcHandler(async (method, params, profile) => plusRpcRegistry.dispatch(method, params as Record<string, unknown> | undefined, profile === undefined ? undefined : { profile }))
 +
 +// ── 宿主插件单向事件（plus-shell-notify）：通知投递 + 防休眠忙租约 ──
-+const plusNotifier = createPlusNotifier({
-+  policy: () => noticePolicyFromConfig(loadNotificationConfig(resolveDshHome())),
-+  context: () => ({
-+    windowFocused: BrowserWindow.getAllWindows().some((win) => win.isFocused()),
-+    fullscreen: BrowserWindow.getAllWindows().some((win) => win.isFullScreen()),
-+  }),
-+  log: (line) => plusLogger.append(`[notifications] ${line}`),
-+})
++// #116 重做：会话通知不再经壳投递（页面半区订阅服务快照边沿直达插件宿主路由），
++// 壳只消费 busy-state 心跳驱动防休眠租约。
 +const plusSleepGate = createSleepGate(powerSaveBlocker)
 +const plusSleepHolders = new Set<string>()
 +const plusReconcileSleepGate = (active: ReadonlySet<string>): void => {
@@ -1871,7 +1874,6 @@ index 8f9cd823..47984c6e 100644
 +    plusBusyLease.report(notice.profile ?? 'desktop', notice.busy === true)
 +    return
 +  }
-+  deliverHostNotice({ notifier: plusNotifier, config: () => loadNotificationConfig(resolveDshHome()) }, notice)
 +})
 +
 +/** Lane 口：profile_lane_ports.<name> 显式覆盖优先；否则自动分配 3091 起的下一个空闲口并持久化（每个 profile 一个稳定端口）。 */
@@ -1888,7 +1890,8 @@ index 8f9cd823..47984c6e 100644
 +  saveDesktopSettings(resolveDshHome(), { profile_lane_ports: { ...overrides, [profile]: port } })
 +  return port
 +}
-+
+ 
+-if (ownsDesktopInstance) void app.whenReady().then(main).catch(async (error: unknown) => {
 +/** 代理注入记录：桌面设置显式代理优先，否则检测系统代理；关 = 空记录（不动用户 env）。 */
 +const resolvedProxyEnvRecord = (): Record<string, string> => {
 +  const proxy = resolveProxyEnv(loadDesktopSettings(resolveDshHome()), detectSystemProxy({ platform: process.platform, env: process.env }))
@@ -2103,7 +2106,34 @@ index 8f9cd823..47984c6e 100644
      await writeFile(diagnosticFile, `${error instanceof Error ? error.stack ?? message : message}\n`).catch(() => undefined)
    }
 +}
-+const ownsDesktopInstance = plusShell.claimSingleInstance(() => { focusPrimaryWindow() })
++// #116 通知点击直通：协议激活（second-instance argv / open-url / 启动 argv）→ profile 窗口先聚焦
++// → 页面跳到目标会话。记录文件+消费（vbs/队列/轮询）整套已退役：多页面竞速消费 + 四进程链路
++// 不可观测是旧架构的病灶。协议解析与页面跳转脚本在 shell 包（notify-open.ts），测试直接覆盖。
++const focusSessionInWindow = (target: BrowserWindow | undefined, sessionId: string, profile: string): void => {
++  if (target === undefined || target.isDestroyed() || sessionId === '') return
++  // 失败不静默：窗口刚恢复、页面未就绪时跳转可能丢，日志是唯一能看出断在哪的地方。
++  void target.webContents.executeJavaScript(plusFocusSessionScript(sessionId)).catch((error: unknown) => {
++    plusLogger.append(`plus-open: executeJavaScript failed (profile=${profile}): ${String(error)}`)
++  })
++}
++const handlePlusOpenUrl = (url: string, focusDefault: () => void): void => {
++  const target = parsePlusOpenUrl(url)
++  if (target === null) { focusDefault(); return }
++  if (target.profile === '' || target.profile === DEFAULT_PROFILE) {
++    focusDefault()
++    focusSessionInWindow(plusDesktopWindow(), target.sessionId, DEFAULT_PROFILE)
++    return
++  }
++  // 存量 toast 命中已关闭的 profile 窗口：明确降级为仅聚焦主窗口（不拉启 host）。
++  if (!plusProfiles.focusProfileSession(target.profile, target.sessionId)) {
++    plusLogger.append(`plus-open: profile ${target.profile} has no window; focusing the default window (session not switched)`)
++    focusDefault()
++  }
++}
++
++const ownsDesktopInstance = plusShell.claimSingleInstance((argv) => {
++  handlePlusOpenUrl(argv.find((arg) => arg.startsWith(PLUS_OPEN_URL_PREFIX)) ?? '', () => { focusPrimaryWindow() })
++})
 +
 +if (ownsDesktopInstance) void app.whenReady().then(async () => {
 +  await runPlusStartup({
@@ -2352,6 +2382,39 @@ index 00000000..6f1dfe4c
 +      })
 +  })
 +}
+diff --git a/upstream/apps/desktop/src/single-instance.ts b/upstream/apps/desktop/src/single-instance.ts
+index 7911b46c..5963d795 100644
+--- a/upstream/apps/desktop/src/single-instance.ts
++++ b/upstream/apps/desktop/src/single-instance.ts
+@@ -4,23 +4,24 @@
+ export interface DesktopSingleInstanceApplication {
+   requestSingleInstanceLock(): boolean
+   quit(): void
+-  on(event: 'second-instance', listener: () => void): unknown
++  on(event: 'second-instance', listener: (event: unknown, argv: string[]) => void): unknown
+ }
+ 
+ /**
+  * Claim the process-lifetime Desktop lock and route later launches to the owner.
+  * @param application - Electron application singleton.
+- * @param focusOwner - focus or recreate the primary window after a later launch.
++ * @param focusOwner - handle a later launch: focus or recreate the primary window; receives
++ *  the second process argv (protocol activations carry their URL there on Windows).
+  * @returns true only in the process that may access the Desktop profile.
+  */
+ export function claimDesktopSingleInstance(
+   application: DesktopSingleInstanceApplication,
+-  focusOwner: () => void,
++  focusOwner: (argv: string[]) => void,
+ ): boolean {
+   if (!application.requestSingleInstanceLock()) {
+     application.quit()
+     return false
+   }
+-  application.on('second-instance', focusOwner)
++  application.on('second-instance', (_event, argv) => { focusOwner(argv ?? []) })
+   return true
+ }
 diff --git a/upstream/apps/desktop/tsconfig.host.json b/upstream/apps/desktop/tsconfig.host.json
 index 2701caf5..01bb003a 100644
 --- a/upstream/apps/desktop/tsconfig.host.json

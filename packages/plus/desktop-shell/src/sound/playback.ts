@@ -329,8 +329,13 @@ export function shellPlaysDefaultTone(platform: NodeJS.Platform): boolean {
  */
 export function systemDefaultTone(platform: NodeJS.Platform, deps: SoundProbeDeps = {}): SystemTone | null {
   if (platform === 'darwin') {
-    const ping = '/System/Library/Sounds/Ping.aiff'
-    return { command: ['afplay', '-t', String(MAX_SOUND_SECONDS), ping], label: ping }
+    // macOS：默认通知音跟随系统设置（UN 管道原生发出，无固定文件），afplay 播 Ping.aiff 是另一个
+    // 声源——用户实测与实际通知不一致（#116）。试听改走同一条 UN 通道发一条标记「试听」的真实
+    // 系统通知：横幅+默认通知音与实际通知完全同源。
+    return {
+      command: ['osascript', '-e', 'display notification "default" with title "DSH sound preview"'],
+      label: 'UN notification (system default notification sound)',
+    }
   }
   if (platform === 'win32') {
     // 显式播一个存在的 wav：SoundPlayer.PlaySync 阻塞到播完，不吃注册表里的音效方案。

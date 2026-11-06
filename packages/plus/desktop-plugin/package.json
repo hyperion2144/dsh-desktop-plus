@@ -11,6 +11,8 @@
   },
   "files": [
     "index.js",
+    "notify/*.ps1",
+    "notify/icon.png",
     "cordis.patch.yml",
     "lib/client.js",
     "README.md",

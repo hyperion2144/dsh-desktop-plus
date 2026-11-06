@@ -27,7 +27,7 @@ export interface ShellKernelState {
 export interface ShellKernelDeps {
   readonly app: ShellApp
   /** The shell's own single-instance claim; skipped entirely for isolated instances. */
-  readonly claimSingleInstance: (refocus: () => void) => boolean
+  readonly claimSingleInstance: (refocus: (argv: string[]) => void) => boolean
   /** Create the plus-owned tray icon; called once per `start()`, after the app is ready. */
   readonly createTray: (actions: { readonly onQuit: () => void }) => TrayHandle
   /** The shell's quit path, so the tray quit goes through the same confirmation as every other entry. */
@@ -38,7 +38,7 @@ export interface ShellKernelDeps {
 /** The kernel seam the official shell holds: claim, start, observe, dispose, rebuild. */
 export interface ShellKernel {
   /** Own the instance or run isolated; must be called before `app.whenReady()`. */
-  claimSingleInstance(refocus: () => void): boolean
+  claimSingleInstance(refocus: (argv: string[]) => void): boolean
   /** Create the tray and lifecycle hooks; idempotent, callable again after `dispose()`. */
   start(): void
   /** Report the DSH host lifecycle; host failure never removes the tray. */

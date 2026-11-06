@@ -8,6 +8,7 @@ import { createProfileManager } from './manager.ts'
 import type { ProfileEntry, ProfileHandles, ProfileHostHandle, ProfileManager, QuitProfileResult } from './manager.ts'
 import { DEFAULT_PROFILE, loadOpenProfiles, partitionFor, resolveProfileDir, saveOpenProfiles } from './registry.ts'
 import { loadDesktopSettings, saveDesktopSettings } from '../rpc/desktop-settings.ts'
+import { plusFocusSessionScript } from '../notify-open.ts'
 
 import { observeWindowVisibility, type WindowVisibilityEvent } from '../tray/window-visibility.ts'
 /** The Host runtime behind a profile window, with the URL that window loads. */
@@ -63,6 +64,12 @@ export interface ElectronProfileRuntime {
 	windowState(name: string): ProfileWindowState | undefined
 	/** Shows and focuses one open profile's window. */
 	showProfile(name: string): void
+	/**
+	 * Focus one open profile's window and route its page to a session (#116 通知直通)：
+	 * restore + show + focus，再在页面里调 __dshPlusFocusSession(sessionId)。
+	 * @returns false when the profile window does not exist (caller falls back to the default window).
+	 */
+	focusProfileSession(name: string, sessionId: string): boolean
 	/** Restarts one open profile: the Host tree stops and a rebuilt window walks the full open flow. */
 	restartProfile(name: string): Promise<void>
 	/** Reopen the profiles that were open when the application last exited. */
@@ -249,6 +256,19 @@ export function createElectronProfileRuntime(deps: ElectronProfileRuntimeDeps): 
 		window.focus()
 	}
 
+	const focusProfileSession = (name: string, sessionId: string): boolean => {
+		const state = states.get(name)
+		if (state === undefined || state.window.isDestroyed()) return false
+		showProfile(name)
+		// #116 通知直通：页面全局由 plus 插件客户端注册（notify/jump.ts，openSession 幂等）。
+		// 失败不静默：窗口刚恢复/页面未就绪时跳转可能丢，日志是唯一能看出断在哪的地方。
+		if (sessionId !== '') {
+			void state.window.webContents.executeJavaScript(plusFocusSessionScript(sessionId)).catch((error: unknown) => {
+				deps.log?.(`plus-open: executeJavaScript failed (profile=${name}): ${String(error)}`)
+			})
+		}
+		return true
+	}
 	const restartProfile = async (name: string): Promise<void> => {
 		// #10：profile 重启 = 销毁旧窗口 → 停掉该 profile 的 dsh 进程树 → 走与 profile 启动
 		// 完全相同的窗口流程（官方 createWindow：preload/桌面 chrome/DevTools/console）。
@@ -289,6 +309,7 @@ export function createElectronProfileRuntime(deps: ElectronProfileRuntimeDeps): 
 		quitProfile,
 		windowState,
 		showProfile,
+		focusProfileSession,
 		restartProfile,
 		restoreAtStartup,
 		saveBeforeQuit,

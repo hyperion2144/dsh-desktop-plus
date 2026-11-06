@@ -155,22 +155,6 @@ export function configuredSoundWarning(
     : t('本机无法播放「{name}」：{reason}', { name, reason })
 }
 
-/**
- * 试听失败文案（#74：不许静默、不许假成功）。只有「真放出去了但没出声」才算失败：
- * · `played === null`（none / 空档）不是失败——本来就没打算响；
- * · `audible` 缺失（老壳 / 测试桩）按「不显示失败」处理，不许把老壳判成坏。
- */
-export function previewFailure(result: unknown, t: PlusT): string | null {
-  if (typeof result !== 'object' || result === null) return null
-  const { played, audible } = result as PreviewResult
-  if (typeof played !== 'string' || played === '') return null
-  if (audible !== false) return null
-  const target = played.startsWith(CUSTOM_PREFIX) ? played.slice(CUSTOM_PREFIX.length) : played
-  return target === 'default'
-    ? t('试听没有出声：本机没有可用的播放后端')
-    : t('试听没有出声：本机无法播放「{target}」', { target })
-}
-
 /** 「权限不可用」横幅的渲染结论（PR #100 实测反馈：平台感知）。 */
 export interface PermissionUnavailableCopy {
   /** 左侧 chip 文案；null = 不画 chip（win32 / linux 没有「授权」这个概念）。 */

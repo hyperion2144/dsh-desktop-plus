@@ -6,6 +6,7 @@ import { installDownloadInterceptor } from './bridge/download-intercept.ts'
 import { installDesktopBrowserBridge } from './bridge/desktop-browser-bridge.ts'
 import { registerDesktopSettings } from './desktop-settings.tsx'
 import { registerNotificationsTab } from './features/notifications-tab.tsx'
+import { installDesktopNotify } from './notify/index.ts'
 import { requestDesktopClientEnvironment } from './features/environment.ts'
 import { installPlusCopy } from './i18n/install.ts'
 import type { PlusT } from './i18n/namespace.ts'
@@ -174,6 +175,12 @@ export function apply(ctx: ClientContext): void {
     const t = installPlusCopy(ctx)
     captureShellChannelCaller(ctx)
     report('console 镜像')
+    report('会话定位缝')
+    // #116 纯插件侧通知（dsh-notify-me 同款触发源）：订阅 sessions.list 与
+    // uiSession.sessionStatus 快照存储的边沿（页面订阅宿主事件 session/event 是死路——
+    // 浏览器端不存在该事件）；投递经宿主 webServer 路由（Windows 原生 toast / Web Notification）。
+    installDesktopNotify(ctx)
+    report('通知（dsh-notify-me 同款）')
     // 最早装：把 console.* 镜像到 ~/.dsh/dsh-desktop-webview.log（开发期排查前端 bug 必备）。
     // 即使非 advanced 模式（普通浏览器直访 dsh）也装，便于离线调试。
     installWebviewConsoleMirror()
