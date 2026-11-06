@@ -174,6 +174,19 @@ export function apply(ctx: ClientContext): void {
     const t = installPlusCopy(ctx)
     captureShellChannelCaller(ctx)
     report('console 镜像')
+    report('会话定位缝')
+      // #116 腿二：壳侧点击通知后经 executeJavaScript 调这个全局，把页面切到对应会话。
+      // 幂等（重复调用 = 重复 openSession）；uiWorkspace 缺席（旧版 DSH 无该服务）或
+      // 跳转失败都静默跳过——腿一「把窗口叫回前台」不受影响。
+      ; (globalThis as Record<string, unknown>).__dshPlusFocusSession = (sessionId: unknown): void => {
+        if (typeof sessionId !== 'string' || sessionId === '') return
+        try {
+          const workspace = (ctx as unknown as { get?: (name: string) => { openSession?: (id: string) => void } | undefined }).get?.('uiWorkspace')
+          workspace?.openSession?.(sessionId)
+        } catch {
+          // 会话定位失败只降级为聚焦
+        }
+      }
     // 最早装：把 console.* 镜像到 ~/.dsh/dsh-desktop-webview.log（开发期排查前端 bug 必备）。
     // 即使非 advanced 模式（普通浏览器直访 dsh）也装，便于离线调试。
     installWebviewConsoleMirror()

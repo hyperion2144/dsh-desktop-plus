@@ -233,8 +233,23 @@ export function apply(ctx) {
   const sendShellNotice = (notice) => {
     try { process.send({ type: 'plus-shell-notify', notice }) } catch { /* 壳不在：通知不是关键路径 */ }
   }
-  const report = (type, body) => sendShellNotice({ type, body })
+  const report = (type, body, extra) => sendShellNotice({ type, body, ...extra })
 
+  // #116：回复摘要缓存（会话 id → 最后一段 assistant 文本）。assistant/message 的
+  // content[] 最后一个 text 块就是给用户看的回复；turn/end 时取出来当通知正文。
+  const lastTextBySession = new Map()
+  const MAX_SUMMARY_CHARS = 200
+  const lastAssistantReplyText = (event) => {
+    const content = event.data?.message?.content
+    if (!Array.isArray(content)) return null
+    for (let i = content.length - 1; i >= 0; i -= 1) {
+      const block = content[i]
+      if (block?.type !== 'text' || typeof block.text !== 'string') continue
+      const text = block.text.replace(/\s+/g, ' ').trim()
+      if (text !== '') return text
+    }
+    return null
+  }
   const lastTurnEndAt = new Map()
   const TURN_END_DEBOUNCE_MS = 10_000
 
@@ -272,6 +287,13 @@ export function apply(ctx) {
           ;({ session, event } = args[0])
         }
         if (!event || typeof event.type !== 'string') return
+        // #116：先攒回复摘要（通知正文用），再走忙状态/通知分发。
+        if (event.type === 'assistant/message') {
+          const sid = session?.id ?? ''
+          const text = lastAssistantReplyText(event)
+          if (sid !== '' && text !== null) lastTextBySession.set(sid, text)
+          return
+        }
 
         // #186：忙状态转移（与通知解耦——busy-state 不投递通知，只驱动防休眠）
         if (event.type === 'turn/start') {
@@ -282,7 +304,7 @@ export function apply(ctx) {
         if (event.type === 'approval/asked') {
           if (session?.id) waitingSessions.add(session.id)
           reportBusy(false)
-          report('dsh-approval', session?.title ? `「${session.title}」等待你的审批确认` : '')
+          report('dsh-approval', '等待你的审批确认', { sessionId: session?.id || undefined, profile: busyProfile || undefined, title: session?.title || undefined })
           return
         }
         if (event.type === 'approval/decided') {
@@ -334,7 +356,12 @@ export function apply(ctx) {
             done: '回合已结束',
           }[kind] ?? '回合已结束'
           const err = kind === 'error' ? (event.data?.reason?.error?.message ?? '') : ''
-          report('task-complete', err ? `${kindText}：${err}`.slice(0, 200) : kindText)
+          const summary = lastTextBySession.get(sid) ?? ''
+          lastTextBySession.delete(sid)
+          const body = kind === 'error' && err !== ''
+            ? `${kindText}：${err}`.slice(0, MAX_SUMMARY_CHARS)
+            : (summary !== '' ? summary : kindText).slice(0, MAX_SUMMARY_CHARS)
+          report('task-complete', body, { sessionId: sid || undefined, profile: busyProfile || undefined, title: session?.title || undefined })
         }
       } catch { /* 单个事件处理失败不影响 dsh */ }
     },
