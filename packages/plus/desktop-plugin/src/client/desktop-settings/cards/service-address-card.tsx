@@ -19,6 +19,15 @@ export function ServiceAddressCard({
 }): React.ReactElement {
   const t = usePlusT()
   const [newRemoteUrl, setNewRemoteUrl] = useState('')
+  const [renamingAddr, setRenamingAddr] = useState('')
+  const [renameDraft, setRenameDraft] = useState('')
+  // 地址 → 自定义名字。名字只是显示用，地址本身仍是唯一键（切换 profile 靠地址）。
+  // 名字可能挂在两处：合并后的 remote_names，或壳原样回吐的 settings 段。
+  const remoteNames = (desktop as unknown as {
+    remote_names?: Record<string, string>
+    settings?: { remote_names?: Record<string, string> }
+  })
+  const names = remoteNames.remote_names ?? remoteNames.settings?.remote_names ?? {}
 
   // 只做维护（新增/删除）。切到哪个地址是托盘里「Profile 管理」的事：一个远程地址就是一个 profile。
 
@@ -56,6 +65,24 @@ export function ServiceAddressCard({
     })()
   }
 
+  const handleRenameRemote = (addr: string): void => {
+    const name = renameDraft.trim()
+    if (name === '') {
+      notify({ ok: false, text: t('名字不能为空') })
+      return
+    }
+    void (async () => {
+      try {
+        await nsSave({ remote_names: { ...names, [addr]: name } })
+        setRenamingAddr('')
+        notify({ ok: true, text: t('已重命名：{name}', { name }) })
+        await refreshData()
+      } catch (err) {
+        notify({ ok: false, text: t('重命名失败：{message}', { message: String(err) }) })
+      }
+    })()
+  }
+
   return (
     <SectionBox title={t('dsh 服务地址')}>
       {/* 这里不摆「选地址切换」：切换入口在托盘 → Profile 管理（一个远程地址 = 一个 profile）。 */}
@@ -77,14 +104,56 @@ export function ServiceAddressCard({
       {desktop.remote_list.length > 0 && (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
           {desktop.remote_list.map((addr) => (
-            <PfBtn
-              key={addr}
-              variant="danger"
-              style={{ fontSize: 11 }}
-              onClick={() => handleRemoveRemote(addr)}
-            >
-              {t('删除：')}{addr}
-            </PfBtn>
+            <div key={addr} style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', width: '100%' }}>
+              {renamingAddr === addr ? (
+                <>
+                  <input
+                    className="pf-input"
+                    style={{ width: 180 }}
+                    aria-label={t('地址名称')}
+                    autoFocus
+                    value={renameDraft}
+                    onChange={(e) => setRenameDraft(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') handleRenameRemote(addr)
+                      if (e.key === 'Escape') setRenamingAddr('')
+                    }}
+                  />
+                  <PfBtn variant="ghost" style={{ fontSize: 11 }} onClick={() => handleRenameRemote(addr)}>{t('保存')}</PfBtn>
+                  <PfBtn variant="ghost" style={{ fontSize: 11 }} onClick={() => setRenamingAddr('')}>{t('取消')}</PfBtn>
+                </>
+              ) : (
+                <>
+                  <span
+                    title={addr}
+                    style={{
+                      fontSize: 12,
+                      flex: '1 1 220px',
+                      minWidth: 0,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                      {names[addr] || addr}
+                  </span>
+                  <PfBtn
+                    variant="ghost"
+                    style={{ fontSize: 11 }}
+                      onClick={() => { setRenamingAddr(addr); setRenameDraft(names[addr] || '') }}
+                  >
+                    {t('重命名')}
+                  </PfBtn>
+                  <PfBtn
+                    variant="danger"
+                    style={{ fontSize: 11 }}
+                    onClick={() => handleRemoveRemote(addr)}
+                  >
+                    {t('删除')}
+                  </PfBtn>
+                </>
+              )}
+            </div>
           ))}
         </div>
       )}

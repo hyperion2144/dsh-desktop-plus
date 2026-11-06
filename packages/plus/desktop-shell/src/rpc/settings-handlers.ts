@@ -3,7 +3,7 @@
 // 日志保留策略变更时同步触发一次保留清理并带回回执（契约 #221 语义）。
 
 import type { RpcHandlers } from './types.ts'
-import { loadDesktopSettings, loadRemoteAddressList, saveDesktopSettings } from './desktop-settings.ts'
+import { loadDesktopSettings, saveDesktopSettings } from './desktop-settings.ts'
 
 /** 设置组依赖（壳侧注入；测试注入内存实现）。 */
 export interface SettingsRpcDeps {
@@ -39,7 +39,6 @@ export function createSettingsRpcHandlers(deps: SettingsRpcDeps): RpcHandlers {
                 get_desktop_settings_data: () => {
                         const settings = loadDesktopSettings(deps.dshHome())
                         return {
-                                remote_list: loadRemoteAddressList(deps.dshHome()),
                                 port: deps.port(),
                                 profiles: deps.profileNames(),
                                 prevent_sleep: deps.preventSleepActive(),

@@ -45,11 +45,13 @@ export function ensurePlusProfileBundles(
     }
     const bundles = manifest.dsh?.profile?.bundles
     if (bundles === undefined) continue
-    const missing = PLUS_BUNDLE_NAMES.filter((name) => !bundles.includes(name))
-    if (missing.length === 0) continue
-    manifest.dsh = { ...manifest.dsh, profile: { bundles: [...bundles, ...missing] } }
+    // plus 插件已经挂进 web-app bundle 的 patch（和官方插件同一条路径），
+    // profile 的 bundles 里再列一遍会让同一个包被加载两次，所以这里做的是**摘除**。
+    const present = bundles.filter((name) => PLUS_BUNDLE_NAMES.includes(name))
+    if (present.length === 0) continue
+    manifest.dsh = { ...manifest.dsh, profile: { bundles: bundles.filter((name) => !PLUS_BUNDLE_NAMES.includes(name)) } }
     mkdirSync(dirname(manifestPath), { recursive: true })
     writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
-    log(`profile bundles: +${missing.join(', ')} (${dir})`)
+    log(`profile bundles: -${present.join(', ')} (${dir})`)
   }
 }

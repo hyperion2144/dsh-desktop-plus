@@ -1,5 +1,5 @@
 diff --git a/upstream/packages/bundle/web-app/cordis.patch.yml b/upstream/packages/bundle/web-app/cordis.patch.yml
-index d751fcc4..cdaa8be2 100644
+index d751fcc4..4607883a 100644
 --- a/upstream/packages/bundle/web-app/cordis.patch.yml
 +++ b/upstream/packages/bundle/web-app/cordis.patch.yml
 @@ -36,7 +36,8 @@
@@ -22,7 +22,27 @@ index d751fcc4..cdaa8be2 100644
        config:
          enabled: true
          appVersion: !!js process.env.DSH_CLIENT_VERSION
-@@ -335,6 +337,10 @@
+@@ -84,6 +86,19 @@
+     - id: ui-open-in-app
+       name: '@deepseek-ai/dsh-client-ui-open-in-app'
+ 
++    # ── plus：桌面增强插件 ──────────────────────────────────────────────
++    # 和上面这些官方插件一样直接挂在 web-app 这一层：内置插件的判据是
++    # 「被某个已启用 bundle 的 patch 插入」，不是「写进 profile 的 package.json」。
++    - id: desktop-plus-plugin
++      name: '@deepseek-ai/dsh-desktop-plus-plugin'
++
++    - id: desktop-plus-remote-access
++      name: '@deepseek-ai/dsh-desktop-plus-remote-access'
++      inject: [connection, settings, webServer]
++
++    - id: desktop-plus-brand
++      name: '@deepseek-ai/dsh-desktop-plus-brand'
++
+     - id: workspace
+       name: '@deepseek-ai/dsh-workspace'
+ 
+@@ -335,6 +350,10 @@
      - id: ui-brand-official
        name: '@deepseek-ai/dsh-client-ui-brand-official'
  

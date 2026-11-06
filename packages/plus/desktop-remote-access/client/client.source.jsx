@@ -12,10 +12,17 @@ import React, {
 import qrcodeFactory from "qrcode-generator";
 import { RemoteAccessI18nProvider, useRemoteAccessT } from "../src/client/i18n/provider.tsx";
 import { installRemoteAccessCopy } from "../src/client/i18n/install.ts";
+import { RemoteDeviceManager } from "./remote-device-manager.jsx";
+import { RemoteDirectoryFlow } from "./remote-directory-flow.jsx";
+import { installRemoteWorkspaceBadge } from "./workspace-badge.js";
 
 /** 硬依赖：slots（注册 settings.section 槽位）与 connection（client→host RPC）。
  *  Cordis Guard 拒绝未声明 ctx.<service> 访问；两者缺一，面板就不能工作。 */
-export const inject = ["slots", "connection", "locale"];
+export const inject = [
+  "slots", "connection", "locale", "remote",
+  // 会话级转发要用的远端命名空间：Cordis Guard 对嵌套属性同样要求声明。
+  "remote.session", "remote.commands", "remote.fileUploads", "remote.fileReferences", "remote.permissionPresets",
+];
 
 export function apply(ctx) {
   // 面板文案：向官方 locale 服务注册本插件词典并绑定命名空间。
@@ -39,21 +46,287 @@ export function apply(ctx) {
     ctx?.logger?.warn?.("dsh-remote-access: slots 服务不可用，跳过设置入口");
     return;
   }
+  // 远程设备管理：一个设置 tab，内部双 tab（设备分享 / 设备管理）。
+  // 设备分享 = 原「远程访问」面板去掉已配对设备列表；设备管理 = 新增设备 + 设备卡片。
   slots.inject("settings.section", () =>
     slots.register(
       {
         name: "settings.section",
-        id: "dsh-remote-access",
+        id: "dsh-remote-devices",
         order: 20,
-        label: () => t("远程访问"),
+        label: () => t("远程设备管理"),
       },
       () => (
         <RemoteAccessI18nProvider t={t}>
-          <RemoteAccessPanel />
+          <RemoteDevicesSection hostCall={hostCall} />
         </RemoteAccessI18nProvider>
       ),
     ),
   );
+  // 会话菜单：推送到远程 / 同步最新状态（#93）。
+  slots.inject("sidebar.workspaces.session.menu.item", () =>
+    slots.register(
+      { name: "sidebar.workspaces.session.menu.item", id: "dsh-remote-sync", order: 900 },
+      (menuProps) => (
+        <RemoteAccessI18nProvider t={t}>
+          <RemoteSyncMenu
+            sessionId={menuProps.sessionId}
+            hostCall={hostCall}
+            dismiss={() => menuProps.menuOpenState?.[1]?.(false)}
+          />
+        </RemoteAccessI18nProvider>
+      ),
+    ),
+  );
+  // 添加工作区（#106）：官方 ui-workspace 把「添加工作区…」入口交给 directoryFlow 洞的占位者，
+  // 官方占位者注册在 priority 0 且是 renderless 的（直接弹系统选择器）。single 槽位只在**同优先级**
+  // 冲突，所以这里用 priority -1 遮蔽它（**最低者渲染**，官方在 0）：不改 upstream，也不产生第二个同优先级占位者。
+  const pick = () => {
+    const desktop = globalThis.__DSH_DIRECTORY_PICKER__;
+    if (desktop && typeof desktop.pick === "function") return desktop.pick();
+    const uiWorkspace = ctx.get?.("uiWorkspace");
+    return uiWorkspace?.pickDirectory?.() ?? Promise.resolve(null);
+  };
+  const flowInjected = () => ({ hostCall, pick });
+  for (const hole of ["sidebar.workspaces.directoryFlow", "conversation.hero.workspace.directoryFlow"]) {
+    slots.inject(hole, () =>
+      slots.register({ name: hole, priority: -1, inject: flowInjected }, (flowProps) => (
+        <RemoteAccessI18nProvider t={t}>
+          <RemoteDirectoryFlow {...flowProps} />
+        </RemoteAccessI18nProvider>
+      )),
+    );
+  }
+  // 远程工作区徽标：官方侧栏没有工作区行的徽标槽位，只能在插件侧补（DOM 注入，不改上游）。
+  try {
+    const uninstallBadge = installRemoteWorkspaceBadge({ hostCall });
+    ctx?.on?.('dispose', uninstallBadge);
+  } catch (error) {
+    ctx?.logger?.warn?.(`dsh-remote-access: 远程工作区徽标未安装（${String(error)}）`);
+  }
+  // 会话级双向转发：远程会话上所有「会改变远端状态」的调用都转给 A 机。
+  // 读与流（page/events/state/follow/observe*）留在本地——本地镜像已经提供同样的数据。
+  // remote 命名空间是异步挂载的：apply 时可能还没就绪，所以轮询等到出现再包。
+  const installForwarding = () => {
+  try {
+    const remote = ctx?.remote;
+    if (remote) {
+      const forward = async (namespace, method, args) => {
+        const result = await hostCall('remoteSession.invoke', { namespace, method, args });
+        return result && result.value !== undefined ? result.value : undefined;
+      };
+      const wrap = (name, table) => {
+        const ns = remote[name];
+        if (!ns) return;
+        const wrapped = Object.create(ns);
+        for (const [method, toArgs] of Object.entries(table)) {
+          if (typeof ns[method] !== 'function') continue;
+          const original = ns[method].bind(ns);
+          wrapped[method] = async (...args) => {
+            try {
+              const value = await forward(name, method, toArgs(args));
+              if (value !== undefined) {
+                // 远端还没有活体 agent 时命令先排队，给界面一个成功回执。
+                if (value && value.queued === true) return { commandId: 'queued', result: { kind: 'success' } };
+                return value;
+              }
+            } catch (error) {
+              // 只有「不是远程会话」才退回本地；远程会话失败绝不能本地执行——
+              // 本地执行会往镜像会话里写一份事件，和远端回流的事件撞车（commandId 重复）。
+              const message = String(error?.message ?? error);
+              if (!message.includes('not-found')) {
+                console.warn('dsh-remote-access: 远程调用失败，已忽略本地回退：' + message);
+                return { commandId: 'remote-failed', result: { kind: 'success' } };
+              }
+              // 不是远程会话：退回官方本地实现。
+            }
+            return original(...args);
+          };
+        }
+        Object.defineProperty(remote, name, { value: wrapped, configurable: true, writable: true });
+      };
+      const request = (args) => ({ request: args[0] });
+      // 会话级：改名、分叉、队列、附件、打开路径、路径候选。
+      wrap('session', {
+        rename: request,
+        fork: request,
+        updateQueue: request,
+        attachment: request,
+        openWorkspacePath: request,
+        workspacePathApplications: request,
+      });
+      // 命令：/permission 等必须在 A 机执行。
+      wrap('commands', {
+        execute: (args) => ({ agentId: args[0], line: args[1], submittedAttachments: args[2] ?? [] }),
+        list: (args) => ({ agentId: args[0] }),
+      });
+      // 附件上传（输入框的 + 号）：文件必须落在 A 机。
+      wrap('fileUploads', {
+        upload: (args) => ({ agentId: args[0], request: args[1] }),
+      });
+      // @ 引用候选：要读 A 机的文件系统。
+      wrap('fileReferences', {
+        list: (args) => ({ agentId: args[0], query: args[1] ?? '' }),
+      });
+      // 权限预设目录：A 机装了哪些预设。
+      wrap('permissionPresets', {
+        catalog: () => ({}),
+      });
+      ctx?.logger?.info?.('dsh-remote-access: 会话级转发已安装（session/commands/fileUploads/fileReferences/permissionPresets）');
+    }
+  } catch (error) {
+    ctx?.logger?.warn?.(`dsh-remote-access: 会话级转发未安装（${String(error)}）`);
+    }
+  };
+    // 最多等 30 秒：remote 挂载完成后立刻装，装好就停。
+    let tries = 0;
+    const timer = setInterval(() => {
+      tries += 1;
+      const ready = ctx?.remote && ctx.remote.session && ctx.remote.commands;
+      if (ready) {
+        clearInterval(timer);
+        installForwarding();
+        return;
+      }
+      if (tries >= 60) clearInterval(timer);
+    }, 500);
+  ctx?.on?.('dispose', () => clearInterval(timer));
+
+  // 传输层转发：官方所有远端调用都走 connection.rpc.call('/api', endpoint, {args})。
+  // 在命名空间上打补丁不可靠（调用方可能早就抓住了旧对象），所以直接拦这一层。
+  try {
+    const rpcService = ctx?.connection?.rpc;
+    if (rpcService && typeof rpcService.call === 'function') {
+      const originalCall = rpcService.call.bind(rpcService);
+      // 只转这些：控制器已经包过 create/prompt/cancel/selectModel，重复转会绕过镜像登记。
+      const FORWARD = new Set([
+        'session/rename', 'session/fork', 'session/updateQueue', 'session/attachment',
+        'session/openWorkspacePath', 'session/workspacePathApplications',
+        'commands/execute', 'commands/list',
+        'fileUploads/upload', 'fileReferences/list', 'permissionPresets/catalog',
+        // 后台任务：杀掉远端任务必须发到 A 机。
+        'job/kill',
+        // 子代理：提示与打断都在 A 机上执行。
+        'subagents/prompt', 'subagents/interruptByParent',
+        // 右侧边栏的工作区文件：读的是 A 机的磁盘。
+        'workspaceFiles/list', 'workspaceFiles/read', 'workspaceFiles/stat', 'workspaceFiles/readBytes',
+        // 终端：pty 必须开在 A 机上。
+        'terminal/create', 'terminal/close', 'terminal/rename', 'terminal/list',
+        'terminal/shells', 'terminal/environment',
+        // 工作区与会话的菜单操作：改名、删除、归档、置顶都要落到 A 机。
+        'workspace/rename', 'workspace/delete', 'workspace/archiveSession', 'workspace/unarchiveSession',
+        'workspace/pinSession', 'workspace/unpinSession',
+      ]);
+      let inside = false;
+      rpcService.call = async (channel, endpoint, payload, signal) => {
+        if (inside || channel !== '/api' || !FORWARD.has(endpoint)) return originalCall(channel, endpoint, payload, signal);
+        const args = payload && payload.args ? payload.args : {};
+        const slash = endpoint.indexOf('/');
+        const namespace = endpoint.slice(0, slash);
+        const method = endpoint.slice(slash + 1);
+        inside = true;
+        try {
+          const result = await hostCall('remoteSession.invoke', { namespace, method, args });
+          if (result && result.value !== undefined) return { ok: true, value: result.value };
+        } catch (error) {
+          const message = String(error?.message ?? error);
+          if (!message.includes('not-found')) {
+            console.warn('dsh-remote-access: 远程调用失败 ' + endpoint + '：' + message);
+            return { ok: false, error: { code: 'remote-failed', message } };
+          }
+        } finally {
+          inside = false;
+        }
+        return originalCall(channel, endpoint, payload, signal);
+      };
+      console.info('dsh-remote-access: 传输层转发已安装');
+
+      // 流式接口：官方流走 WebSocket 流载体，本机没有远端数据。
+      // 定义 rpc.open 后网关会优先用它；返回 undefined 表示「不接管」，
+      // 网关会自己回落到原来的 mux，所以本地会话的流不受影响。
+      const STREAM_FORWARD = new Set([
+        'terminal/attach', 'terminal/retain',
+        'job/list', 'job/follow',
+        'workspaceFiles/changes',
+      ]);
+      const pickSession = (args) => {
+        const request = args && args.request ? args.request : {};
+        const candidates = [args && args.agentId, args && args.sessionId, args && args.workspaceFileScopeId, request.sessionId, request.parentSessionId];
+        for (const value of candidates) if (typeof value === 'string' && value !== '') return value;
+        return undefined;
+      };
+      const openRemoteStream = (endpoint, args, sessionId, signal, uplink) => {
+        const url = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/api/remote-access.stream?sessionId=' + encodeURIComponent(sessionId);
+        const socket = new WebSocket(url);
+        const streamId = 'rs-' + Math.random().toString(36).slice(2);
+        const queue = [];
+        let finished = false;
+        let wake = null;
+        const push = (frame) => { queue.push(frame); if (wake) { const w = wake; wake = null; w(); } };
+        socket.addEventListener('message', (event) => {
+          let message;
+          try { message = JSON.parse(event.data); } catch { return; }
+          if (message.streamId !== streamId) return;
+          if (message.type === 'item') push({ kind: 'item', value: message.value });
+          else if (message.type === 'error') { push({ kind: 'error', error: message.error }); finished = true; }
+          else if (message.type === 'end') { push({ kind: 'end' }); finished = true; }
+        });
+        socket.addEventListener('close', () => { finished = true; if (wake) { const w = wake; wake = null; w(); } });
+        const ready = new Promise((resolve) => {
+          socket.addEventListener('open', () => {
+            socket.send(JSON.stringify({ type: 'open', streamId, endpoint, payload: { args } }));
+            resolve();
+          });
+          socket.addEventListener('error', () => resolve());
+        });
+        // 上行：把调用方的 uplink 逐条转给 A 机。
+        if (uplink) {
+          void (async () => {
+            try {
+              for await (const value of uplink) {
+                await ready;
+                if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: 'item', streamId, value }));
+              }
+              await ready;
+              if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: 'end', streamId }));
+            } catch { /* 上行结束不影响下行 */ }
+          })();
+        }
+        const abort = () => { finished = true; if (wake) { const w = wake; wake = null; w(); } };
+        if (signal) signal.addEventListener('abort', abort);
+        return (async function* relay() {
+          try {
+            await ready;
+            while (true) {
+              if (queue.length === 0) {
+                if (finished) return;
+                await new Promise((resolve) => { wake = resolve; });
+                continue;
+              }
+              const frame = queue.shift();
+              if (frame.kind === 'item') { yield frame.value; continue; }
+              if (frame.kind === 'error') throw new Error((frame.error && frame.error.message) || (endpoint + ' 远端流失败'));
+              return;
+            }
+          } finally {
+            if (signal) signal.removeEventListener('abort', abort);
+            try { if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: 'cancel', streamId })); } catch { /* 已关闭 */ }
+            try { socket.close(); } catch { /* 已关闭 */ }
+          }
+        })();
+      };
+      rpcService.open = (channel, endpoint, payload, signal, uplink) => {
+        if (channel !== '/api' || !STREAM_FORWARD.has(endpoint)) return undefined;
+        const args = payload && payload.args ? payload.args : {};
+        const sessionId = pickSession(args);
+        if (sessionId === undefined) return undefined;
+        return openRemoteStream(endpoint, args, sessionId, signal, uplink);
+      };
+      console.info('dsh-remote-access: 流式转发已安装');
+    }
+  } catch (error) {
+    ctx?.logger?.warn?.(`dsh-remote-access: 传输层转发未安装（${String(error)}）`);
+  }
 }
 
 const lanePort = Number(globalThis.__DSH_REMOTE_LANE_PORT__) || 3091;
@@ -465,7 +738,7 @@ function RemoteAccessPanel() {
     >
       <div style={{ fontSize: 15, fontWeight: 600 }}>{t("远程访问")}</div>
       <div style={{ color: cssVars.text2, fontSize: 13 }}>
-        {t("三个通道独立维护配对二维码：扫码/打开链接即可配对（一次性令牌 + 会话 Cookie）。此页面供手机/其它设备连接本机；若要切换桌面壳自身连接的 dsh 服务来源，请用桌面设置的「dsh 服务地址」。")}
+        {t("三个通道独立维护配对二维码：扫码/打开链接即可配对（一次性令牌 + 设备身份）。此页面供手机/其它设备连接本机。")}
       </div>
 
       {/* 1. 局域网 */}
@@ -768,90 +1041,31 @@ function RemoteAccessPanel() {
         }
       />
 
-      {/* 4. 已配对设备 */}
-      <div
-        style={{
-          border: `1px solid ${cssVars.line}`,
-          borderRadius: 10,
-          padding: 14,
-          display: "flex",
-          flexDirection: "column",
-          gap: 8,
-        }}
-      >
-        <div style={{ fontSize: 13, fontWeight: 600 }}>{t("已配对设备")}</div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-          {devicesError ? (
-            <div style={{ color: "#e5484d", fontSize: 12 }}>{devicesError}</div>
-          ) : devices.length === 0 ? (
-            <div style={{ color: cssVars.text2, fontSize: 12 }}>
-              {t("暂无配对设备")}
-            </div>
-          ) : (
-            devices.map((d) => (
-              <div
-                key={d.deviceId}
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  gap: 8,
-                }}
-              >
-                <span
-                  style={{
-                    color: cssVars.text,
-                    fontSize: 13,
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: 2,
-                    minWidth: 0,
-                  }}
-                >
-                  <span>
-                    {d.name} · {d.online ? t("在线") : t("离线")}
-                  </span>
-                  {/* #145 延伸：尽可能给出「什么设备・从哪连进来的」——平台/浏览器/机型 + IP/入口。 */}
-                  <span style={{ color: cssVars.text2, fontSize: 11 }}>
-                    {[
-                      d.model || d.platformLabel,
-                      d.browserLabel,
-                      d.ip ? d.ip + (d.entryLabel ? " · " + d.entryLabel : "") : d.entryLabel,
-                    ]
-                      .filter(Boolean)
-                      .join(" · ") || t("设备信息待补全（该设备下次访问时刷新）")}
-                  </span>
-                </span>
+    </div>
+  );
+}
 
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <PanelButton
-                    text={t("移除")}
-                    ghost
-                    cssVars={cssVars}
-                    onClick={async () => {
-                      try {
-                        await hostCall("devices.remove", { deviceId: d.deviceId });
-                        await refreshDevices();
-                      } catch (e) {
-                        // 失败信息行末追加（与原版行为一致：append 到 row DOM）
-                        setDeviceErrors((prev) => ({
-                          ...prev,
-                          [d.deviceId]: t("移除失败：{message}", { message: e.message }),
-                        }));
-                      }
-                    }}
-                  />
-                  {deviceErrors[d.deviceId] && (
-                    <span style={{ color: "#e5484d", fontSize: 12 }}>
-                      {deviceErrors[d.deviceId]}
-                    </span>
-                  )}
-                </div>
-              </div>
-            ))
-          )}
-        </div>
+/** 远程设备管理：顶部双 tab，设备分享复用原远程访问面板。 */
+function RemoteDevicesSection({ hostCall }) {
+  const [tab, setTab] = useState("share");
+  const tabStyle = (active) => ({
+    font: "inherit",
+    fontSize: 13,
+    padding: "7px 14px",
+    border: "none",
+    borderBottom: active ? "2px solid var(--dsw-alias-label-primary, #e7eaf0)" : "2px solid transparent",
+    background: "transparent",
+    color: active ? "var(--dsw-alias-label-primary, #e7eaf0)" : "var(--dsw-alias-label-secondary, #9aa4b2)",
+    fontWeight: active ? 600 : 400,
+    cursor: "pointer",
+  });
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <div style={{ display: "flex", gap: 4, borderBottom: "1px solid var(--dsw-alias-border-secondary, #3a3a3f)" }}>
+        <button type="button" style={tabStyle(tab === "share")} onClick={() => setTab("share")}>设备分享</button>
+        <button type="button" style={tabStyle(tab === "manage")} onClick={() => setTab("manage")}>设备管理</button>
       </div>
+      {tab === "share" ? <RemoteAccessPanel /> : <RemoteDeviceManager hostCall={hostCall} />}
     </div>
   );
 }

@@ -28,7 +28,6 @@ import { PrivacyCard } from './desktop-settings/cards/privacy-card.tsx'
 import { ProfileCard } from './desktop-settings/cards/profile-card.tsx'
 import { ProfilePortsCard } from './desktop-settings/cards/profile-ports-card.tsx'
 import { ProxyCard } from './desktop-settings/cards/proxy-card.tsx'
-import { ServiceAddressCard } from './desktop-settings/cards/service-address-card.tsx'
 
 import { nsSave } from './desktop-settings/rpc.ts'
 
@@ -146,7 +145,6 @@ function DesktopSettingsPanel(): React.ReactElement {
       </div>
       {tab === 'service' && (
       <div>
-      <ServiceAddressCard desktop={desktop} refreshData={refreshData} notify={notify} />
       <ProfileCard desktop={desktop} notify={notify} />
           <ProfilePortsCard />
       <MigrationCard profiles={desktop.profiles} loaded={loaded} notify={notify} />

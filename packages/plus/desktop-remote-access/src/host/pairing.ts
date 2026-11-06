@@ -255,6 +255,18 @@ export class PairingStore {
     }
     return false
   }
+  /**
+   * 按会话 cookie 反查设备 id（分享登记用：对端凭 cookie 认领分享给它的会话）。
+   * @param authCookie 设备会话 cookie。
+   * @returns 设备 id；不是已配对设备时返回 null。
+   */
+  deviceIdOf(authCookie: string): string | null {
+    if (!authCookie) return null
+    for (const [deviceId, d] of this.devices) {
+      if (d.cookie === authCookie) return deviceId
+    }
+    return null
+  }
   // 设备 cookie 续取：凭持久化的 deviceId 取回会话 cookie（设备记录远端持久，
   // 客户端 cookie 丢失时由此恢复，无需重新配对）。未知设备返回 null。
   renew(deviceId: string, meta: ClientMeta | null = null): PairingSession | null {
