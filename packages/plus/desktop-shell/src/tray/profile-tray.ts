@@ -14,7 +14,7 @@ export type ProfileTrayRow = {
   running: boolean
   /** 宿主/页面端口，运行中才有；拿不到就不显示。 */
   port?: number | null
-  /** 远程 profile：入口来自 desktop-settings 的 remote_list，重启经 lane 代理下发。 */
+  /** 远程 profile：入口来自远程访问插件已配对的主机（remote-hosts.json），重启经 lane 代理下发。 */
   remote?: boolean
 }
 

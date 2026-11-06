@@ -41,9 +41,9 @@ jobs:
       - name: Upstream is the untouched official tree
         run: pnpm run verify:patches:strict
 
-      # 铁律 3：桌面补丁集与移动补丁集物理分离。一个路径只能属于一个补丁集，
-      # 否则一次构建会继承另一个集合的改动。
-      - name: The patch sets stay separate
+      # 补丁纪律：一个路径只能属于一个补丁（patches:extract 据此决定改动归哪条补丁），
+      # 且补丁集能干净重放。
+      - name: A path belongs to at most one patch
         run: pnpm run verify:patch-sets
 
       # 打包流水线对账（#145）：官方 macos-package / windows-package 的每个步骤都必须
@@ -74,33 +74,6 @@ jobs:
       - name: Plus unit tests
         run: pnpm run test:plus
 
-      # scripts/plus 下的发版逻辑件（移动端元数据生成 + versionCode 推导）。
-      - name: Release logic unit tests
-        run: pnpm run test:plus-mobile
-
-  # 移动变体（官方树 + 移动补丁集）单独一个 job：它要在临时目录里装一份
-  # 完整依赖并跑官方构建，比 verify 重得多，单独跑才不会把 verify 的超时吃光。
-  mobile-web:
-    name: Mobile web variant
-    runs-on: ubuntu-latest
-    timeout-minutes: 90
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 11.28.5
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-
-      # 变体构建自己装依赖、自己跑官方构建，从不写 upstream/。
-      - name: Build the mobile web variant
-        run: pnpm run build:web:mobile
-
-      # 基线验证：官方变体与移动变体逐文件比较。移动补丁集非空时两个 dist
-      # 必然不同，门禁要确认的是「差异只来自补丁集」且两个构建都没碰仓库。
-      - name: The variant baseline holds
-        run: pnpm run verify:web:baseline
+      # scripts/plus 下脚本逻辑件的单元测试（打包流水线对账）。
+      - name: Plus script unit tests
+        run: pnpm run test:plus-scripts

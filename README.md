@@ -4,20 +4,16 @@
 
 把 DeepSeek Harness 装成桌面应用，并让手机直接连上它。
 
-官方 Harness 只有浏览器界面。Plus 补三件事：**桌面壳**（常驻、多开、通知、下载、日志）、**手机壳**（鸿蒙 / Android / iOS 原生客户端）、以及把两边接起来的**远程访问**。
+官方 Harness 只有浏览器界面。Plus 补两件事：**桌面壳**（常驻、多开、通知、下载、日志）、以及把手机浏览器接上来的**远程访问**。
 
 ## 安装
 
-一个 Release 同时放桌面与手机：
+一个 Release 里是桌面安装包：
 
 | 平台 | 产物 |
 | --- | --- |
 | macOS（Apple Silicon） | `.dmg` / `.zip` |
 | Windows（x64） | `.exe` 安装器 |
-| Android | `.apk`（固定签名，可覆盖升级） |
-| iOS | `.ipa`（未签名，侧载工具重签） |
-
-鸿蒙 HAP 不打进 Release，仓库内 `mobile/harmony` 自签构建（见其 README）。
 
 当前为未签名构建：macOS 首次打开右键 →「打开」；Windows 遇到 SmartScreen 选「仍要运行」。
 
@@ -26,7 +22,7 @@
 打开桌面端的「远程访问」面板，出地址和二维码；手机扫码，配对一次，之后免 token。
 
 - 局域网直连；也可以挂 cloudflared / cpolar 隧道从外网进。
-- 手机与桌面之间就是一条连接：页面带着签名令牌直接连回桌面，传输压缩在桌面侧解开——手机壳不转发字节，也不做二次握手，和浏览器访问同一台机器是同一种形态。
+- 手机与桌面之间就是一条连接：页面带着签名令牌直接连回桌面，传输压缩在桌面侧解开，和浏览器访问同一台机器是同一种形态。
 - 远端的设置页、插件页、主题与桌面一致；桌面其它本地端口上的插件资源自动映射过去，不用额外放行。
 - 断线自动恢复；同一台设备重连会顶替旧连接，不会撞上「第二条连接被拒」。
 
@@ -42,20 +38,9 @@
 - **实验能力**：Computer Use（macOS）等官方实验组件在插件页直接启用，原生 helper 随包分发。
 - 安装器与应用内 8 语文案；侧边栏显示 Plus 与 build 版本号。
 
-## 手机
-
-鸿蒙 / Android / iOS 三端同一套能力，各自原生实现：
-
-- 本地加载官方页面产物，不依赖在线页面。
-- 主机管理：mDNS 自动发现、扫码配对、手输地址、多主机切换。
-- 连接降级：候选地址依次重试 → 会话过期静默续期 → 设备被移除才提示重新配对。
-- 生物识别解锁，失败回退系统 PIN；凭证只存在各平台安全存储里，页面拿不到。
-- 跟随系统深浅色；窄屏下设置页是全屏 + 横向导航，输入框按触屏规则放大到可读字号。
-- 更新提醒：读发布 channel 元数据，有新版本可直达下载。
-
 ## 版本与更新
 
-版本号是 `X.Y.Z[-pre].plus.N`（官方版本 + plus 序号），写进安装包与关于页。更新检测指向本仓库的 GitHub Releases，桌面与手机各自读对应的 channel 元数据。
+版本号是 `X.Y.Z[-pre].plus.N`（官方版本 + plus 序号），写进安装包与关于页。更新检测指向本仓库的 GitHub Releases。
 
 ## 面向维护者
 
@@ -68,12 +53,12 @@ dsh-desktop-plus/
 │  ├─ desktop-shell/          壳侧服务：壳内核、托盘、通知、下载、日志、运行时
 │  ├─ desktop-plugin/         插件形态的桌面设置面板（页面 → 壳走官方 shell.invoke）
 │  └─ desktop-remote-access/  远程访问 host：lane 反代、配对、直连令牌与压缩终止
-├─ mobile/           鸿蒙 / Android / iOS 三端原生壳
-├─ scripts/plus/     生成器、补丁集、上游同步与发版脚本
+├─ mobile/           远程访问连接方案的设计记录（非产品代码）
+├─ scripts/plus/     生成器、补丁集与上游同步脚本
 └─ .github/          校验、打包与发版流水线
 ```
 
-`main` 是孤儿根历史：上游代码以快照落在 `upstream/`，每个同步提交重放一次快照，提交历史不背上游两万多条提交。我们对上游的改动全部以补丁形式存在 `scripts/plus/hooks/`（桌面）与 `hooks-mobile/`（移动），构建时重放。代价是根 `pnpm-workspace.yaml`、`pnpm-lock.yaml`、`.gitignore` 由本仓接管并在同步时重新生成。
+`main` 是孤儿根历史：上游代码以快照落在 `upstream/`，每个同步提交重放一次快照，提交历史不背上游两万多条提交。我们对上游的改动全部以补丁形式存在 `scripts/plus/hooks/`，构建时重放。代价是根 `pnpm-workspace.yaml`、`pnpm-lock.yaml`、`.gitignore` 由本仓接管并在同步时重新生成。
 
 ### 常用命令
 
@@ -82,7 +67,6 @@ pnpm run patches:apply        # 把桌面补丁集打到 upstream/（构建前�
 pnpm install                  # 安装
 pnpm run typecheck:plus       # 本项目能力包 typecheck
 pnpm run test:plus            # 能力包单测
-pnpm run build:web:mobile     # 移动变体页面产物（官方树 + 移动补丁集）
 pnpm run verify:patches       # upstream/ 与官方树一致 + 补丁集可重放
 pnpm run sync:upstream        # 跟进上游新版本
 ```
@@ -91,7 +75,7 @@ pnpm run sync:upstream        # 跟进上游新版本
 
 - **Package Desktop**（手动触发）出 macOS 与 Windows 的 unsigned 安装包，作为 workflow artifact。
 - **Linux 暂不支持**：上游不发布 Linux 桌面目标，本仓也不再自行补。等官方支持后再接回来（届时补 `build-desktop.yml` 的矩阵、`package-target.ts` 的目标表与 `electron-builder-config.mjs` 的 `linux` 段）。
-- **发版** = 推 tag `v<X.Y.Z[-pre].plus.N>`：`Release Desktop` 建 Release 并上传桌面资产，`Release Mobile` 在同一个 Release 追加 apk / ipa 与 channel 元数据。版本号由 `scripts/plus/version.mjs` 从上游版本与 CHANGELOG 推导并校验，不要用 `+plus.N` 的 build metadata（`electron-updater` 会忽略它）。
+- **发版** = 推 tag `v<X.Y.Z[-pre].plus.N>`：`Release Desktop` 建 Release 并上传桌面资产。版本号由 `scripts/plus/version.mjs` 从上游版本与 CHANGELOG 推导并校验，不要用 `+plus.N` 的 build metadata（`electron-updater` 会忽略它）。
 - **重发**（同一个 tag 重打一次）：流水线会覆盖资产与发布说明，并强制把 Release 置为已发布，不需要先删。
 - 发布说明取自 `CHANGELOG.md`：未发布段或该版本已发布段，二选一。
 

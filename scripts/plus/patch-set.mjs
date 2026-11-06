@@ -27,13 +27,11 @@ import { dirname, join, resolve } from 'node:path'
 /**
  * Patch-set directories, relative to the repository root.
  *
- * `desktop` is the set this repository ships today. `mobile` is reserved for
- * the mobile client: it gets its own directory so the two sets can never
- * share a file, and so a mobile patch can never leak into a desktop build.
+ * `desktop` is the only patch set: the one this repository ships. A plus
+ * change inside `upstream/` lives in exactly one `.patch` file under it.
  */
 export const PATCH_SETS = {
   desktop: 'scripts/plus/hooks',
-  mobile: 'scripts/plus/hooks-mobile',
 }
 
 /** Run git in one directory; throws with trimmed stderr for the caller. */

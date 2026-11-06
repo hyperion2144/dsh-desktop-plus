@@ -7,7 +7,7 @@ import { createProfileManager } from './manager.ts'
 import type { ProfileEntry, ProfileHandles, ProfileManager, QuitProfileResult } from './manager.ts'
 import { loadOpenProfiles, partitionFor, remoteProfileName, saveOpenProfiles } from './registry.ts'
 import { remoteOrigin } from './remote.ts'
-import { loadDesktopSettings, loadRemoteAddressList, saveDesktopSettings } from '../rpc/desktop-settings.ts'
+import { loadDesktopSettings, loadRemoteOrigins, saveDesktopSettings } from '../rpc/desktop-settings.ts'
 import { plusFocusSessionScript } from '../notify-open.ts'
 import type { ConfiguredFetch } from '../net/configured-fetch.ts'
 
@@ -103,7 +103,7 @@ export function createElectronProfileRuntime(deps: ElectronProfileRuntimeDeps): 
 
 	/** 远程 profile 的地址（本地 profile 返回 undefined，Host 由官方壳的 backend 工厂启动）。 */
 	const remoteAddressOf = (name: string): string | undefined =>
-		loadRemoteAddressList(deps.dshHome).find((url) => remoteProfileName(url) === name)
+		loadRemoteOrigins(deps.dshHome).find((url) => remoteProfileName(url) === name)
 
 
 	const createProfile = async (name: string): Promise<ProfileHandles> => {

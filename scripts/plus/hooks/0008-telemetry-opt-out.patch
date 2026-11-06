@@ -1,5 +1,5 @@
 diff --git a/upstream/packages/bundle/web-app/cordis.patch.yml b/upstream/packages/bundle/web-app/cordis.patch.yml
-index 36727d29..2fb8eb9d 100644
+index 36727d29..41d378d4 100644
 --- a/upstream/packages/bundle/web-app/cordis.patch.yml
 +++ b/upstream/packages/bundle/web-app/cordis.patch.yml
 @@ -36,7 +36,8 @@
@@ -22,7 +22,29 @@ index 36727d29..2fb8eb9d 100644
        config:
          enabled: true
          appVersion: !!js process.env.DSH_CLIENT_VERSION
-@@ -384,6 +386,10 @@
+@@ -84,6 +86,21 @@
+     - id: ui-open-in-app
+       name: '@deepseek-ai/dsh-client-ui-open-in-app'
+ 
++    # ── plus：桌面增强插件 ──────────────────────────────────────────────
++    # 和上面这些官方插件一样直接挂在 web-app 这一层：内置插件的判据是
++    # 「被某个已启用 bundle 的 patch 插入」，不是「写进 profile 的 package.json」。
++    - id: desktop-plus-plugin
++      name: '@deepseek-ai/dsh-desktop-plus-plugin'
++
++    - id: desktop-plus-remote-access
++      name: '@deepseek-ai/dsh-desktop-plus-remote-access'
++      # connection.authentication 必须在这条接线上声明：装载器合并条目 inject 时按顶层键整体覆盖模块级声明，
++      # 条目里的 connection: {} 会把模块级的 connection: { authentication } 盖掉；漏了它，整个宿主半区不激活。
++      inject: [connection, connection.authentication, settings, webServer]
++
++    - id: desktop-plus-brand
++      name: '@deepseek-ai/dsh-desktop-plus-brand'
++
+     - id: workspace
+       name: '@deepseek-ai/dsh-workspace'
+ 
+@@ -384,6 +401,10 @@
      - id: ui-brand-official
        name: '@deepseek-ai/dsh-client-ui-brand-official'
  

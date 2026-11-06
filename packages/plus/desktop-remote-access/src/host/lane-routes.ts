@@ -39,16 +39,48 @@ export const LANE_ROUTE_PATHS: readonly string[] = Object.freeze([
   '/api/pair/stop',
   '/api/pair/events',
   '/api/pair/cloudflared',
+  // 远端数据面（#93）：已配对主机读取本机会话日志，供对端渲染远端会话。
+  '/api/remote/sessions',
+  // 事件分页（#107）：按 seq 游标取一页，替代一次性全量 read（read 只留给旧客户端）。
+  '/api/remote/session.page',
+  '/api/remote/session.read',
+  '/api/remote/session.import',
+  '/api/remote/stream',
+  '/api/remote/shares',
+  // 远端目录浏览（#106）：添加工作区时浏览对端目录树。
+  '/api/remote/fs.list',
+  // 订阅与交互中继（#151 / #152）：已配对设备登记它镜像了哪条会话，并交回提问 / 审批的回答。
+  '/api/remote/session.watch',
+  '/api/remote/session.unwatch',
+  '/api/remote/interaction.answer',
+  // Web UI 票据（#150）：已配对设备为「在浏览器打开该设备的 DSH」签票，浏览器凭票兑换。
+  '/api/remote/webui-ticket',
+  '/webui',
+  // 会话回推（#155）：已配对设备把本地分支的尾部追加回本机原会话，或用分支内容在本机另起一条。
+  '/api/remote/session.push', '/api/remote/session.fork',
+  // 设备组网（#156）：同组设备清单、核实介绍凭证、敲门与轮询、经介绍人中转。
+  '/api/remote/peers', '/api/remote/intro.verify', '/api/pair/introduce', '/api/pair/introduce.status', '/api/remote/relay',
 ])
 
+
+/** 只走保留命名空间、不保留无前缀别名的新路由：新能力一律不进冻结别名，别名集合只收缩不增长。 */
+const LANE_NEW_ONLY_PATHS: ReadonlySet<string> = new Set([
+  '/api/pair/renew', '/api/pair/ws-token', '/api/remote/session.page',
+  '/api/remote/session.watch', '/api/remote/session.unwatch', '/api/remote/interaction.answer',
+  '/api/remote/webui-ticket', '/webui',
+  // 会话回推（#155）：已配对设备把本地分支的尾部追加回本机原会话，或用分支内容在本机另起一条。
+  '/api/remote/session.push', '/api/remote/session.fork',
+  // 设备组网（#156）：同组设备清单、核实介绍凭证、敲门与轮询、经介绍人中转。
+  '/api/remote/peers', '/api/remote/intro.verify', '/api/pair/introduce', '/api/pair/introduce.status', '/api/remote/relay',
+])
 /**
  * 冻结的兼容别名（无前缀的历史路径，与 `LANE_ROUTE_PATHS` 一一对应）。
  * 仅为已发出的配对链接与旧客户端存活，**不得新增**。
  */
 export const LANE_LEGACY_PATHS: readonly string[] = Object.freeze(
   // renew 与 ws-token 都是「新客户端专用」：前者靠 deviceId 自愈，后者是直连数据面的凭证，
-  // 都不需要为已发出的旧链接保留无前缀别名（别名只收缩不增长）。
-  LANE_ROUTE_PATHS.filter((p) => p !== '/api/pair/renew' && p !== '/api/pair/ws-token'),
+  // 都不需要为已发出的旧链接保留无前缀别名；事件分页、订阅与交互中继同理（别名只收缩不增长）。
+  LANE_ROUTE_PATHS.filter((p) => !LANE_NEW_ONLY_PATHS.has(p))
 )
 
 /**

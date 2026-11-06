@@ -24,8 +24,14 @@ test('lane 路由：冻结别名仍然命中（已发出的二维码与旧客户
   }
   assert.deepEqual(
     [...LANE_LEGACY_PATHS].sort(),
-    [...LANE_ROUTE_PATHS].filter((p) => p !== '/api/pair/renew' && p !== '/api/pair/ws-token').sort(),
-    '别名集合 = 路由表去掉 renew 与 ws-token（新路由不进冻结别名：别名只收缩不增长）',
+    [...LANE_ROUTE_PATHS].filter((p) => ![
+      '/api/pair/renew', '/api/pair/ws-token', '/api/remote/session.page',
+      '/api/remote/session.watch', '/api/remote/session.unwatch', '/api/remote/interaction.answer',
+      '/api/remote/webui-ticket', '/webui',
+      '/api/remote/session.push', '/api/remote/session.fork',
+      '/api/remote/peers', '/api/remote/intro.verify', '/api/pair/introduce', '/api/pair/introduce.status', '/api/remote/relay',
+    ].includes(p)).sort(),
+    '别名集合 = 路由表去掉新客户端专用的那几条（新路由不进冻结别名：别名只收缩不增长）',
   );
   assert.ok(Object.isFrozen(LANE_LEGACY_PATHS) && Object.isFrozen(LANE_ROUTE_PATHS), '两张表都冻结');
 });
@@ -81,6 +87,26 @@ test('lane 路由：控制面端点集合是显式快照（新增必须同时改
       '/api/pair/stop',
       '/api/pair/events',
       '/api/pair/cloudflared',
+      '/api/remote/sessions',
+      '/api/remote/session.page',
+      '/api/remote/session.read',
+      '/api/remote/session.import',
+      '/api/remote/stream',
+      '/api/remote/shares',
+      '/api/remote/fs.list',
+      // 订阅与交互中继（#151 / #152）
+      '/api/remote/session.watch',
+      '/api/remote/session.unwatch',
+      '/api/remote/interaction.answer',
+      '/api/remote/webui-ticket',
+      '/webui',
+      '/api/remote/session.push',
+      '/api/remote/session.fork',
+      '/api/remote/peers',
+      '/api/remote/intro.verify',
+      '/api/pair/introduce',
+      '/api/pair/introduce.status',
+      '/api/remote/relay',
     ],
     '路由表快照：新增控制端点会在此处显形，提醒同步透传不变式测试',
   );
