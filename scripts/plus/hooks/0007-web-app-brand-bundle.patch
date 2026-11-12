@@ -1,13 +1,12 @@
 diff --git a/upstream/packages/bundle/web-app/package.json b/upstream/packages/bundle/web-app/package.json
-index 303a5713..2fbfb228 100644
+index eccc864b..94f6d235 100644
 --- a/upstream/packages/bundle/web-app/package.json
 +++ b/upstream/packages/bundle/web-app/package.json
-@@ -76,7 +76,7 @@
+@@ -84,6 +84,7 @@
      "@deepseek-ai/dsh-client-ui-approval": "workspace:*",
      "@deepseek-ai/dsh-client-ui-attachment": "workspace:*",
      "@deepseek-ai/dsh-client-ui-brand-official": "workspace:*",
--    "@deepseek-ai/dsh-message-quotes": "workspace:*",
 +    "@deepseek-ai/dsh-desktop-plus-brand": "workspace:*",
      "@deepseek-ai/dsh-client-ui-chat": "workspace:*",
      "@deepseek-ai/dsh-client-ui-commands": "workspace:*",
-     "@deepseek-ai/dsh-client-ui-conversation": "workspace:*",
+     "@deepseek-ai/dsh-client-ui-context-menu": "workspace:*",

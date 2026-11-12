@@ -1,5 +1,5 @@
 diff --git a/upstream/packages/bundle/web-app/cordis.patch.yml b/upstream/packages/bundle/web-app/cordis.patch.yml
-index d751fcc4..cdaa8be2 100644
+index e842d8e3..06cddc68 100644
 --- a/upstream/packages/bundle/web-app/cordis.patch.yml
 +++ b/upstream/packages/bundle/web-app/cordis.patch.yml
 @@ -36,7 +36,8 @@
@@ -22,7 +22,7 @@ index d751fcc4..cdaa8be2 100644
        config:
          enabled: true
          appVersion: !!js process.env.DSH_CLIENT_VERSION
-@@ -335,6 +337,10 @@
+@@ -362,6 +364,10 @@
      - id: ui-brand-official
        name: '@deepseek-ai/dsh-client-ui-brand-official'
  

@@ -1,52 +1,56 @@
 diff --git a/upstream/packages/client/web/README.md b/upstream/packages/client/web/README.md
-index 93f6bb95..4c1c519a 100644
+index e42719d..082bd53 100644
 --- a/upstream/packages/client/web/README.md
 +++ b/upstream/packages/client/web/README.md
 @@ -39,7 +39,7 @@ Boot runs in two stages: the module stage adopts the parser-loaded bootstrap bat
  
  ### The boot page
  
--The boot page uses plain DOM and local CSS, so bundle and plugin-activation failures remain visible: it shows one spinner node whose CSS arc grows as entries activate, and reports per-entry status. The spinner and its animation phase persist until the full UI replaces the boot page. A plugin that fails import or activation is reported by name with the reason (missing service, import failure, or state) instead of a blank page. The console contains the original import error.
-+Built-in `@deepseek-ai/*` rows keep the fatal boot-page report; market and third-party rows are skipped.
+-The boot page uses plain DOM and local CSS, so bundle and plugin-activation failures remain visible: it shows one spinner node whose CSS arc grows as entries activate. The spinner and its animation phase persist until the full UI replaces the boot page. When a required plugin fails import or activation, the page names every inactive plugin with the reason (missing service, import failure, or activation error) and marks the required ones, instead of a blank page. An optional plugin's failure appears in one console warning and does not stop the application. The console contains the original import error.
++The boot page uses plain DOM and local CSS, so bundle and plugin-activation failures remain visible: it shows one spinner node whose CSS arc grows as entries activate. The spinner and its animation phase persist until the full UI replaces the boot page. A required row keeps the fatal boot-page report; every other row that exhausts the bounded retry is skipped and later named in a degraded notice above the mounted application. The console contains the original import error.
  
  <a id="the-shared-module-table"></a>
  ### The shared module table
-@@ -125,6 +125,8 @@ None; this package neither assembles nor sends a provider request.
+@@ -128,7 +128,9 @@ None; this package neither assembles nor sends a provider request.
  
  These limits define what the boot kernel does not support. They are current package constraints, not a task backlog.
  
+-- **Optional boot failures start console-only** — an optional plugin that fails during the initial boot, including one whose creation the Loader rejects, appears in the console warning; Settings → Plugins → Plugin list lists it only after a later graph synchronization reconciles it.
 +When an entry fails, the retry policy is fixed (`DEFAULT_BOOT_RETRY` in `src/boot-client.ts`); deployment-varying tuning would have to ride the boot graph. Skipped entries stay recorded as failed, so a later successful graph reconciliation can revive them.
 +
- - **The application waits for the full roster** — one failed entry keeps the framework-free boot page visible with a per-entry report; partial UI availability is not supported.
++- **Optional boot failures degrade the mount** — an optional plugin that exhausts the bounded retry during the initial boot, including one whose creation the Loader rejects, is torn down and named in the degraded notice above the mounted application; Settings → Plugins → Plugin list lists it only after a later graph synchronization reconciles it.
  
  <a id="dev-note"></a>
+ ### Dev Note
 diff --git a/upstream/packages/client/web/README.zh.md b/upstream/packages/client/web/README.zh.md
-index c9133620..1fb77d71 100644
+index 8fed19b..9f8f31c 100644
 --- a/upstream/packages/client/web/README.zh.md
 +++ b/upstream/packages/client/web/README.zh.md
 @@ -39,7 +39,7 @@ Web 和 Desktop 的数学公式渲染要求支持 WOFF2。[Web 构建](../../../
  
  ### 启动页
  
--启动页只使用原生 DOM 与本地 CSS，因此 bundle 与插件激活失败保持可见：它显示一个 spinner 节点，其 CSS 圆弧随 entry 激活而增长，并逐 entry 报告状态。spinner 及其动画相位会一直保留，直到完整 UI 替换启动页。导入或激活失败的插件会按名称报告并给出原因（缺失服务、导入失败或状态），而不是白屏。控制台包含原始导入错误。
-+内置（`@deepseek-ai/*`）行保持启动页上的致命报告；市场与第三方行会被跳过。
+-启动页只使用原生 DOM 与本地 CSS，因此 bundle 与插件激活失败保持可见：它显示一个 spinner 节点，其 CSS 圆弧随 entry 激活而增长。spinner 及其动画相位会一直保留，直到完整 UI 替换启动页。必需插件导入或激活失败时，页面按名称列出每个未激活插件及原因（缺失服务、导入失败或激活错误），并标出必需项，而不是白屏。可选插件的失败只出现在一条控制台警告中，不会阻止应用启动。控制台包含原始导入错误。
++启动页只使用原生 DOM 与本地 CSS，因此 bundle 与插件激活失败保持可见：它显示一个 spinner 节点，其 CSS 圆弧随 entry 激活而增长。spinner 及其动画相位会一直保留，直到完整 UI 替换启动页。必需行保持启动页的失败报告；其余耗尽有界重试的行会被略过，并在挂载后的应用上方以降级提示点名。控制台包含原始导入错误。
  
  <a id="the-shared-module-table"></a>
  ### 共享模块表
-@@ -125,6 +125,8 @@ Web 和 Desktop 的数学公式渲染要求支持 WOFF2。[Web 构建](../../../
+@@ -128,7 +128,9 @@ Web 和 Desktop 的数学公式渲染要求支持 WOFF2。[Web 构建](../../../
  
  这些限制说明启动内核不支持什么。它们是当前包约束，不是任务积压。
  
-+entry 失败时的重试策略是固定的（`src/boot-client.ts` 中的 `DEFAULT_BOOT_RETRY`）；按部署调整需要走 boot graph 传递。被跳过的 entry 仍记录为失败，后续成功的 graph 对账可以将其复活。
+-- **可选插件的启动失败起初只在控制台可见**——初始启动时失败的可选插件（包括 Loader 拒绝创建的插件）出现在控制台警告中；只有后续图同步调和之后，「设置 → 插件 → 插件列表」才会列出它。
++entry 失败时的重试策略是固定的（`src/boot-client.ts` 中的 `DEFAULT_BOOT_RETRY`）；按部署调整需要走 boot graph 传递。被略过的 entry 仍记录为失败，后续成功的 graph 对账可以将其复活。
 +
- - **应用会等待全部 entry 就绪**——只要一个 entry 失败，无框架启动页就会保留并逐项报告；不支持部分 UI 可用。
++- **可选启动失败降级挂载** —— 初始启动期间耗尽有界重试的可选插件（包括 Loader 拒绝创建的插件）会被拆除，并在挂载后的应用上方以降级提示点名；后续图同步调和之后，「设置 → 插件 → 插件列表」才会列出它。
  
  <a id="dev-note"></a>
+ ### 开发备注
 diff --git a/upstream/packages/client/web/src/boot-client.ts b/upstream/packages/client/web/src/boot-client.ts
-index bbc8e215..27de78b9 100644
+index 9ad95f3..5daa950 100644
 --- a/upstream/packages/client/web/src/boot-client.ts
 +++ b/upstream/packages/client/web/src/boot-client.ts
-@@ -1,17 +1,62 @@
+@@ -1,10 +1,13 @@
  /**
   * Production client composition without the page: mount the Loader over a
 - * module system, create every manifest row, wait for quiescence, and audit
@@ -57,21 +61,20 @@ index bbc8e215..27de78b9 100644
 + * whole-client test carrier both call it.
   * @module @deepseek-ai/dsh-client-web/src/boot-client
   */
- import type { Context } from '@deepseek-ai/cordis'
+ import type { Context, Fiber } from '@deepseek-ai/cordis'
 +import type { Entry } from '@deepseek-ai/cordis-plugin-loader'
  import Loader from '@deepseek-ai/cordis-plugin-loader'
  import type { BootManifest, ClientModuleLoader } from '@deepseek-ai/dsh-client-modules/client'
  import { STATE_LABELS } from './loader-status.ts'
- 
-+/** Entry state label as the boot page renders it. */
- /** Entry state label as the boot page renders it. */
- export type EntryStateLabel = (typeof STATE_LABELS)[keyof typeof STATE_LABELS] | 'loading' | 'failed'
+@@ -32,6 +35,47 @@ const requiredClientEntryNames = new Set<string>([
+   '@deepseek-ai/dsh-client-ui-sidebar',
+ ])
  
 +/** One entry that never activated and was removed so the application could mount. */
 +export interface SkippedEntry {
 +  /** Entry name == package name. */
 +  readonly name: string
-+  /** Why the entry did not activate, as the audit reports it. */
++  /** Why the entry did not activate, self-contained as the degraded notice renders it. */
 +  readonly reason: string
 +}
 +
@@ -111,20 +114,12 @@ index bbc8e215..27de78b9 100644
  /** Inputs of {@link bootClient}. */
  export interface ClientBootOptions {
    /** Fresh root Context that will own the plugin tree. */
-@@ -22,18 +67,31 @@ export interface ClientBootOptions {
+@@ -42,19 +86,21 @@ export interface ClientBootOptions {
    readonly manifest: BootManifest
    /** Per-entry state reporting (the boot page); omitted when no one renders progress. */
    readonly onEntryState?: (name: string, state: EntryStateLabel) => void
 +  /** Bounded retry for failed entries; omitted fields fall back to {@link DEFAULT_BOOT_RETRY}. */
 +  readonly retry?: Partial<ClientBootRetryPolicy>
-+}
-+
-+/** One entry the audit found not active. */
-+interface BootFailure {
-+  readonly name: string
-+  readonly reason: string
-+  /** Built-in (`@deepseek-ai/*`) row, or a row the page does not own: its failure stays fatal. */
-+  readonly critical: boolean
  }
  
  /**
@@ -132,16 +127,15 @@ index bbc8e215..27de78b9 100644
 - * `loader.create({ name })` per manifest row, `loader.await()`, then
 - * {@link assertEntriesActive}. A row whose module cannot be imported is marked
 - * failed; the Loader logs its import error, the module system records it, and
-- * the audit rejects startup with that error text per entry.
+- * the audit reports that error text per entry.
 - * @param options - context, module system, manifest, optional progress sink.
-- * @returns resolves after every entry is active; rejects with the audit report otherwise.
+- * @returns resolves after the audit accepts the tree, including after optional-entry warnings;
+- * rejects with the audit report when a required entry is inactive.
 + * `loader.create({ name })` per manifest row, `loader.await()`, then retry
-+ * failed entries with a bounded backoff. Entries that still have not activated
-+  * and are outside the built-in `@deepseek-ai/*` scope — market and third-party
-+  * plugins — are torn down and reported as skipped, so one flaky plugin cannot
-+ * manifest are torn down and reported as skipped, so one flaky plugin cannot
-+ * keep the application from mounting; every remaining failure rejects startup
-+ * with that error text per entry.
++ * failed entries with a bounded backoff. Required entries (the minimum fatal
++ * set) reject startup with the audit report; every other entry that still has
++ * not activated is torn down and reported as skipped, so one flaky plugin
++ * cannot keep the application from mounting.
 + * @param options - context, module system, manifest, optional progress sink and retry policy.
 + * @returns resolves with the skipped entries after every required entry is active; rejects with the audit report otherwise.
   */
@@ -150,120 +144,134 @@ index bbc8e215..27de78b9 100644
    const { ctx, manifest, onEntryState } = options
    await ctx.plugin(Loader)
    const loader = ctx.loader
-@@ -53,7 +111,47 @@ export async function bootClient(options: ClientBootOptions): Promise<void> {
+@@ -74,7 +120,40 @@ export async function bootClient(options: ClientBootOptions): Promise<void> {
    }
  
    await loader.await()
--  assertEntriesActive(ctx, options.modules)
+-  await assertEntriesActive(ctx, options.modules)
 +
-+  // Only built-in plugins (the official @deepseek-ai/* scope) are critical:
-+  // market and third-party entries degrade, so one flaky plugin cannot keep
-+  // the page down. A row the page does not own stays fatal too.
-+  const criticalOf = (name: string): boolean => {
-+    const row = manifest.plugins.find(candidate => candidate.id === name)
-+    return row === undefined || name.startsWith('@deepseek-ai/')
-+  }
++  // Bounded retry: one flaky bundle or a slow dependency settles on the next
++  // round; the backoff doubles each round so a dead row cannot spin the boot.
 +  const policy = resolveBootRetry(options.retry)
-+  let failures = auditEntries(ctx, options.modules, criticalOf)
++  let failures = await collectAuditFailures(ctx, options.modules)
 +  for (let attempt = 0; failures.length > 0 && attempt < policy.attempts; attempt++) {
 +    await delay(policy.backoffMs * 2 ** attempt)
 +    await options.modules.entries.retry()
 +    await loader.await()
-+    failures = auditEntries(ctx, options.modules, criticalOf)
++    failures = await collectAuditFailures(ctx, options.modules)
 +  }
 +
++  // Required entries reject startup; every other still-inactive entry is torn
++  // down with the Loader-native removal — the same teardown reconcile uses for
++  // graph-removed entries — so a skipped entry may be revived by a later
++  // successful graph reconciliation.
 +  const skipped = new Map<string, string>()
-+  let fatal: BootFailure[] = []
 +  for (; ;) {
 +    const remaining = failures.filter(failure => !skipped.has(failure.name))
-+    const skipNow = remaining.filter(failure => !failure.critical)
-+    if (skipNow.length === 0) {
-+      fatal = remaining
-+      break
-+    }
++    const skipNow = remaining.filter(failure => !failure.required)
++    if (skipNow.length === 0) break
 +    for (const failure of skipNow) {
 +      const entry = entryNamed(ctx, failure.name)
 +      if (entry !== undefined) {
-+        // The Loader-native removal is the same teardown reconcile uses for
-+        // graph-removed entries; a skipped entry may be revived by a later
-+        // successful graph reconciliation.
 +        ctx.loader.remove(entry.id)
 +        while (entry.fiber?.inertia !== undefined) await entry.fiber.inertia
 +      }
-+      skipped.set(failure.name, failure.reason)
++      skipped.set(failure.name, `${failure.name}: ${failure.reason}`)
 +    }
-+    failures = auditEntries(ctx, options.modules, criticalOf)
++    console.warn(`web boot: warning: ${String(skipNow.length)} ${entryNoun(skipNow.length)} did not activate\n${[...skipped.values()].join('\n')}`)
++    failures = await collectAuditFailures(ctx, options.modules)
 +  }
-+  if (fatal.length > 0) throw new Error(bootFailureReport(fatal))
++  if (failures.length > 0) throw new Error(auditReport(failures))
 +  return { skipped: [...skipped].map(([name, reason]) => ({ name, reason })) }
  }
  
  /**
-@@ -64,26 +162,69 @@ export async function bootClient(options: ClientBootOptions): Promise<void> {
-  * @throws {Error} listing every non-active entry with its reason.
-  */
- export function assertEntriesActive(ctx: Context, modules: Pick<ClientModuleLoader, 'importError'>): void {
--  const failures: string[] = []
-+  const failures = auditEntries(ctx, modules, () => false)
-+  if (failures.length > 0) throw new Error(bootFailureReport(failures))
+@@ -98,13 +177,39 @@ export async function assertEntriesActive(
+   modules: Pick<ClientModuleLoader, 'importError'>,
+   warn: (message: string) => void = (message) => { console.warn(message) },
+ ): Promise<void> {
+-  const failures: { name: string; reason: string }[] = []
++  const failures = await collectAuditFailures(ctx, modules)
++  if (failures.length === 0) return
++  if (failures.some(({ required }) => required)) throw new Error(auditReport(failures))
++  warn(auditReport(failures))
++}
++
++/** One non-active entry as the audit reports it. */
++interface AuditFailure {
++  readonly name: string
++  readonly reason: string
++  /** A listed required entry: its failure rejects startup. */
++  readonly required: boolean
++}
++
++/**
++ * Collect every non-active entry with its reason and requiredness.
++ * @param ctx - root Context carrying the Loader.
++ * @param modules - the module system whose recorded import failures name why an entry
++ *   has no fiber; a row with no record points at the console. An entry without a fiber
++ *   failed to import or was rejected at creation (its module exports no plugin); like the
++ *   Host audit's `failed to import`, both are reported as an import failure.
++ * @returns one failure per non-active entry; empty when all are active.
++ */
++async function collectAuditFailures(ctx: Context, modules: Pick<ClientModuleLoader, 'importError'>): Promise<AuditFailure[]> {
++  const failures: AuditFailure[] = []
+   for (const entry of ctx.loader.entries()) {
+     const name = entry.options.name
++    const required = requiredClientEntryNames.has(name)
+     if (entry.fiber === undefined) {
+       const importError = modules.importError(name)
+       failures.push({
+         name,
++        required,
+         reason: importError === undefined
+           ? 'import failed (see console for the import error)'
+           : `import failed: ${importError.message}`,
+@@ -115,22 +220,30 @@ export async function assertEntriesActive(
+     if (state === 'active') continue
+     if (state === 'pending') {
+       const missing = Object.keys(entry.fiber.inject).filter(service => ctx.get(service) === undefined)
+-      failures.push({ name, reason: `pending (waiting for service${missing.length === 1 ? '' : 's'}: ${missing.join(', ') || 'unknown'})` })
++      failures.push({ name, required, reason: `pending (waiting for service${missing.length === 1 ? '' : 's'}: ${missing.join(', ') || 'unknown'})` })
+     } else if (state === 'failed') {
+-      failures.push({ name, reason: await activationFailure(entry.fiber) })
++      failures.push({ name, required, reason: await activationFailure(entry.fiber) })
+     } else {
+-      failures.push({ name, reason: state })
++      failures.push({ name, required, reason: state })
+     }
+   }
+-  if (failures.length === 0) return
+-  const isRequired = (name: string): boolean => requiredClientEntryNames.has(name)
+-  const required = failures.filter(({ name }) => isRequired(name)).length
+-  if (required > 0) {
+-    const lines = failures.map(({ name, reason }) => `${name}${isRequired(name) ? ' (required)' : ''}: ${reason}`)
+-    throw new Error(`web boot: ${String(required)} required ${entryNoun(required)} did not activate\n${lines.join('\n')}`)
++  return failures
++}
++
++/** Render the audit report: required failures reject startup, optional ones warn. */
++function auditReport(failures: readonly AuditFailure[]): string {
++  const required = failures.filter(failure => failure.required)
++  if (required.length > 0) {
++    const lines = failures.map(({ name, reason, required: isRequired }) => `${name}${isRequired ? ' (required)' : ''}: ${reason}`)
++    return `web boot: ${String(required.length)} required ${entryNoun(required.length)} did not activate\n${lines.join('\n')}`
+   }
+   const lines = failures.map(({ name, reason }) => `${name}: ${reason}`)
+-  warn(`web boot: warning: ${String(failures.length)} ${entryNoun(failures.length)} did not activate\n${lines.join('\n')}`)
++  return `web boot: warning: ${String(failures.length)} ${entryNoun(failures.length)} did not activate\n${lines.join('\n')}`
 +}
 +
 +/** Wait helper for the bounded retry backoff. */
 +function delay(ms: number): Promise<void> {
 +  return new Promise(resolve => { setTimeout(resolve, ms) })
-+}
-+
-+/** Render the fatal audit report in the boot failure message format. */
-+function bootFailureReport(failures: readonly BootFailure[]): string {
-+  return `web boot: ${String(failures.length)} entr${failures.length === 1 ? 'y' : 'ies'} did not activate\n${failures.map(failure => failure.reason).join('\n')}`
-+}
-+
-+/**
-+ * Collect every non-active entry with its reason and criticality.
-+ * @param ctx - root Context carrying the Loader.
-+ * @param modules - the module system whose recorded import failures name why an entry has no fiber.
-+ * @param criticalOf - criticality per entry name; critical failures cannot be skipped.
-+ * @returns one failure per non-active entry; empty when all are active.
-+ */
-+function auditEntries(
-+  ctx: Context,
-+  modules: Pick<ClientModuleLoader, 'importError'>,
-+  criticalOf: (name: string) => boolean,
-+): BootFailure[] {
-+  const failures: BootFailure[] = []
-   for (const entry of ctx.loader.entries()) {
-     const name = entry.options.name
-+    const critical = criticalOf(name)
-     if (entry.fiber === undefined) {
-       const importError = modules.importError(name)
--      failures.push(importError === undefined
--        ? `${name}: import failed (see console for the import error)`
--        : `${name}: import failed: ${importError.message}`)
-+      failures.push({
-+        name,
-+        critical,
-+        reason: importError === undefined
-+          ? `${name}: import failed (see console for the import error)`
-+          : `${name}: import failed: ${importError.message}`,
-+      })
-       continue
-     }
-     const state = STATE_LABELS[entry.fiber.state]
-     if (state === 'active') continue
-     if (state === 'pending') {
-       const missing = Object.keys(entry.fiber.inject).filter(service => ctx.get(service) === undefined)
--      failures.push(`${name}: pending (waiting for service${missing.length === 1 ? '' : 's'}: ${missing.join(', ') || 'unknown'})`)
-+      failures.push({ name, critical, reason: `${name}: pending (waiting for service${missing.length === 1 ? '' : 's'}: ${missing.join(', ') || 'unknown'})` })
-     } else {
--      failures.push(`${name}: ${state}`)
-+      failures.push({ name, critical, reason: `${name}: ${state}` })
-     }
-   }
--  if (failures.length > 0) {
--    throw new Error(`web boot: ${String(failures.length)} entr${failures.length === 1 ? 'y' : 'ies'} did not activate\n${failures.join('\n')}`)
-+  return failures
-+}
-+
+ }
+ 
+ /** Singular or plural noun for an entry count in audit reports. */
+@@ -138,6 +251,20 @@ function entryNoun(count: number): string {
+   return count === 1 ? 'entry' : 'entries'
+ }
+ 
 +/**
 + * Find the Loader entry with the given name.
 + * @param ctx - root Context carrying the Loader.
@@ -273,13 +281,17 @@ index bbc8e215..27de78b9 100644
 +function entryNamed(ctx: Context, name: string): Entry | undefined {
 +  for (const entry of ctx.loader.entries()) {
 +    if (entry.options.name === name) return entry
-   }
++  }
 +  /* v8 ignore next -- audit derives names from the same entry list, so the lookup always hits. */
 +  return undefined
- }
++}
++
+ /** A failed fiber's recorded activation error; Cordis exposes it only through `await()`, which rethrows it. */
+ async function activationFailure(fiber: Pick<Fiber, 'await'>): Promise<string> {
+   try {
 diff --git a/upstream/packages/client/web/src/boot-degraded.ts b/upstream/packages/client/web/src/boot-degraded.ts
 new file mode 100644
-index 00000000..115900da
+index 0000000..115900d
 --- /dev/null
 +++ b/upstream/packages/client/web/src/boot-degraded.ts
 @@ -0,0 +1,58 @@
@@ -342,10 +354,10 @@ index 00000000..115900da
 +  return root
 +}
 diff --git a/upstream/packages/client/web/src/boot-page.module.css b/upstream/packages/client/web/src/boot-page.module.css
-index f154c427..080be1bf 100644
+index c28097c..355c4c0 100644
 --- a/upstream/packages/client/web/src/boot-page.module.css
 +++ b/upstream/packages/client/web/src/boot-page.module.css
-@@ -101,3 +101,69 @@
+@@ -102,3 +102,69 @@
    color: var(--dsw-alias-label-secondary, var(--dsh-boot-label-secondary));
    white-space: pre-wrap;
  }
@@ -416,7 +428,7 @@ index f154c427..080be1bf 100644
 +  cursor: pointer;
 +}
 diff --git a/upstream/packages/client/web/src/boot.ts b/upstream/packages/client/web/src/boot.ts
-index 6515ed16..c81f494d 100644
+index fe49e19..d4ffc5a 100644
 --- a/upstream/packages/client/web/src/boot.ts
 +++ b/upstream/packages/client/web/src/boot.ts
 @@ -9,7 +9,8 @@ import { Context } from '@deepseek-ai/cordis'
@@ -437,7 +449,7 @@ index 6515ed16..c81f494d 100644
    private readonly page: BootPage
    private ctx: Context | undefined
    private stopDragRecall: (() => void) | undefined
-@@ -33,16 +35,20 @@ export class AppWebEntry {
+@@ -33,17 +35,20 @@ export class AppWebEntry {
     * Draw the boot page; {@link run} starts the loader.
     * @param container - Application mount point.
     * @param seams - Optional module transport replacement.
@@ -452,15 +464,15 @@ index 6515ed16..c81f494d 100644
    }
  
    /**
-    * Load and activate every client entry, then hand the mount point to the
--   * UI renderer. Plugin failures remain visible on the boot page.
-+   * UI renderer. Infrastructure failures stay fatal on the boot page; other
-+   * entries that exhaust the bounded retry are skipped, and a degraded notice
-+   * names them above the mounted application.
+    * Load and activate every client entry, audit activation, then hand the
+    * mount point to the UI renderer. A required-entry failure remains visible
+-   * on the boot page; optional-entry failures are reported to the console and
++   * on the boot page; optional entries that exhaust the bounded retry are
++   * skipped, a degraded notice names them above the mounted application, and
+    * the application mounts without them.
     * @param onFailure - Optional carrier-owned fatal presentation; keeps the boot page visible.
     * @returns Resolves after application mount or failure reporting.
-    */
-@@ -82,13 +88,14 @@ export class AppWebEntry {
+@@ -84,14 +89,15 @@ export class AppWebEntry {
        this.ctx = ctx
        this.page.setTotal(this.manifest.plugins.length)
        await prefetching
@@ -469,14 +481,16 @@ index 6515ed16..c81f494d 100644
          ctx,
          modules: this.modules,
          manifest: this.manifest,
+         // A failed entry may be optional; only the audit decides whether the boot page reports a failure.
          onEntryState: (name, state) => {
-           if (onFailure === undefined || state !== 'failed') this.page.setState(name, state)
+-          if (state !== 'failed') this.page.setState(name, state)
++          if (onFailure === undefined || state !== 'failed') this.page.setState(name, state)
          },
 +        ...(this.retry === undefined ? {} : { retry: this.retry }),
        })
        // The shell owns the one watcher that keeps Electron's window drag rects in
        // step with the rows that own them (electron#32341), so no chrome row has to
-@@ -96,6 +103,9 @@ export class AppWebEntry {
+@@ -99,6 +105,9 @@ export class AppWebEntry {
        // renderer draws is the one the first frame measures.
        this.stopDragRecall = installWindowDragRecall({ document: this.container.ownerDocument })
        await mountClient(ctx, this.container)
@@ -487,7 +501,7 @@ index 6515ed16..c81f494d 100644
        console.error(reason)
        if (onFailure !== undefined) onFailure(reason)
 diff --git a/upstream/packages/client/web/tests/boot-client.client.spec.ts b/upstream/packages/client/web/tests/boot-client.client.spec.ts
-index 17503e32..87f68285 100644
+index e362670..42da5bf 100644
 --- a/upstream/packages/client/web/tests/boot-client.client.spec.ts
 +++ b/upstream/packages/client/web/tests/boot-client.client.spec.ts
 @@ -5,7 +5,7 @@ import {
@@ -499,7 +513,7 @@ index 17503e32..87f68285 100644
  import { FIBER_STATE } from '../src/loader-status.ts'
  
  const BOOTSTRAP_ID = '@deepseek-ai/dsh-client-modules'
-@@ -20,7 +20,11 @@ function graphOf(ids: readonly string[]): WebBootGraph {
+@@ -22,7 +22,11 @@ function graphOf(ids: readonly string[]): WebBootGraph {
  }
  
  /** Module system seeded with inline plugin modules; `loaded` records every transport call. */
@@ -512,7 +526,7 @@ index 17503e32..87f68285 100644
    const loaded: string[] = []
    const pendingQueue: ClientBundleRegistration[] = []
    const target: ClientModuleLoaderTarget = {
-@@ -32,9 +36,9 @@ function modulesOf(graph: WebBootGraph, staticModules: Record<string, unknown>):
+@@ -34,9 +38,9 @@ function modulesOf(graph: WebBootGraph, staticModules: Record<string, unknown>):
    const modules = target.create({
      boot: graph,
      staticModules,
@@ -524,7 +538,7 @@ index 17503e32..87f68285 100644
  }
  
  /** Recording progress sink. */
-@@ -46,6 +50,8 @@ function stateSink(): { states: Map<string, EntryStateLabel[]>; onEntryState: (n
+@@ -48,19 +52,22 @@ function stateSink(): { states: Map<string, EntryStateLabel[]>; onEntryState: (n
    }
  }
  
@@ -533,7 +547,11 @@ index 17503e32..87f68285 100644
  describe('bootClient', () => {
    it('activates every seeded row without touching the bundle transport', async () => {
      const graph = graphOf(['provider', 'consumer'])
-@@ -56,9 +62,10 @@ describe('bootClient', () => {
+     const { modules, loaded } = modulesOf(graph, {
+       provider: { apply: (ctx: Context) => { ctx.reflect.provide('x', { marker: 'x' }) } },
+-      consumer: { inject: ['x'], apply: () => {} },
++      consumer: { inject: ['x'], apply: () => { } },
+     })
      const ctx = new Context()
      const sink = stateSink()
  
@@ -545,32 +563,25 @@ index 17503e32..87f68285 100644
      const consumer = sink.states.get('consumer') ?? []
      expect(consumer[0]).toBe('loading')
      expect(consumer.at(-1)).toBe('active')
-@@ -66,32 +73,94 @@ describe('bootClient', () => {
-     await ctx.fiber.dispose()
-   })
+@@ -70,25 +77,25 @@ describe('bootClient', () => {
  
--  it('reports a row waiting on a service the roster never provides', async () => {
-+  it('skips a row waiting on a service the roster never provides', async () => {
-     const graph = graphOf(['orphan'])
--    const { modules } = modulesOf(graph, { orphan: { inject: ['nothing'], apply: () => {} } })
-+    const { modules } = modulesOf(graph, { orphan: { inject: ['nothing'], apply: () => { } } })
+   it('rejects a required row waiting on a service the roster never provides', async () => {
+     const graph = graphOf([REQUIRED_ID])
+-    const { modules } = modulesOf(graph, { [REQUIRED_ID]: { inject: ['nothing'], apply: () => {} } })
++    const { modules } = modulesOf(graph, { [REQUIRED_ID]: { inject: ['nothing'], apply: () => { } } })
      const ctx = new Context()
+     onTestFinished(() => ctx.fiber.dispose())
  
 -    await expect(bootClient({ ctx, modules, manifest: modules.manifest })).rejects.toThrow(
--      'orphan: pending (waiting for service: nothing)',
--    )
-+    const result = await bootClient({ ctx, modules, manifest: modules.manifest, retry: FAST_RETRY })
-+
-+    expect(result.skipped.map(entry => entry.name)).toEqual(['orphan'])
-+    expect(result.skipped[0]?.reason).toContain('orphan: pending (waiting for service: nothing)')
-     await ctx.fiber.dispose()
++    await expect(bootClient({ ctx, modules, manifest: modules.manifest, retry: FAST_RETRY })).rejects.toThrow(
+       `${REQUIRED_ID} (required): pending (waiting for service: nothing)`,
+     )
    })
  
--  it('reports and logs an import failure for a row that is neither seeded nor a graph row', async () => {
+   it('reports and logs an import failure for a required row that is neither seeded nor a graph row', async () => {
 -    const { modules } = modulesOf(graphOf(['seeded']), { seeded: { apply: () => {} } })
-+  it('skips and reports an import failure for a row the module system cannot materialize', async () => {
 +    const { modules } = modulesOf(graphOf(['seeded']), { seeded: { apply: () => { } } })
-     const manifest = parseBootManifest(graphOf(['ghost']))
+     const manifest = parseBootManifest(graphOf([REQUIRED_ID]))
      const ctx = new Context()
      onTestFinished(() => ctx.fiber.dispose())
 -    const error = vi.spyOn(ctx.logger, 'error').mockImplementation(() => {})
@@ -579,16 +590,79 @@ index 17503e32..87f68285 100644
      const sink = stateSink()
  
 -    await expect(bootClient({ ctx, modules, manifest, onEntryState: sink.onEntryState })).rejects.toThrow(
--      'web boot: 1 entry did not activate\nghost: import failed (see console for the import error)',
--    )
-+    const result = await bootClient({ ctx, modules, manifest, onEntryState: sink.onEntryState, retry: FAST_RETRY })
-+
++    await expect(bootClient({ ctx, modules, manifest, onEntryState: sink.onEntryState, retry: FAST_RETRY })).rejects.toThrow(
+       `web boot: 1 required entry did not activate\n${REQUIRED_ID} (required): import failed (see console for the import error)`,
+     )
+     expect(sink.states.get(REQUIRED_ID)).toEqual(['loading', 'failed'])
+@@ -97,16 +104,17 @@ describe('bootClient', () => {
+   })
+ 
+   it('resolves past an optional row that cannot be imported and warns once', async () => {
+-    const { modules } = modulesOf(graphOf(['seeded']), { seeded: { apply: () => {} } })
++    const { modules } = modulesOf(graphOf(['seeded']), { seeded: { apply: () => { } } })
+     const manifest = parseBootManifest(graphOf(['ghost']))
+     const ctx = new Context()
+     onTestFinished(() => ctx.fiber.dispose())
+-    const error = vi.spyOn(ctx.logger, 'error').mockImplementation(() => {})
+-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
++    const error = vi.spyOn(ctx.logger, 'error').mockImplementation(() => { })
++    const warn = vi.spyOn(console, 'warn').mockImplementation(() => { })
+     onTestFinished(() => { error.mockRestore(); warn.mockRestore() })
+ 
+-    await bootClient({ ctx, modules, manifest })
++    const result = await bootClient({ ctx, modules, manifest, retry: FAST_RETRY })
+ 
 +    expect(result.skipped.map(entry => entry.name)).toEqual(['ghost'])
-+    expect(result.skipped[0]?.reason).toContain('ghost: import failed')
-     expect(sink.states.get('ghost')).toEqual(['loading', 'failed'])
--    expect(error).toHaveBeenCalledOnce()
--    expect(error.mock.calls[0]?.[0]).toHaveProperty('message', expect.stringContaining('client-modules: cannot resolve'))
-+    expect(error).toHaveBeenCalled()
+     expect(warn).toHaveBeenCalledExactlyOnceWith(
+       'web boot: warning: 1 entry did not activate\nghost: import failed (see console for the import error)',
+     )
+@@ -116,11 +124,11 @@ describe('bootClient', () => {
+     const { modules } = modulesOf(graphOf(['invalid']), { invalid: { default: 'invalid' } })
+     const ctx = new Context()
+     onTestFinished(() => ctx.fiber.dispose())
+-    const error = vi.spyOn(ctx.logger, 'error').mockImplementation(() => {})
+-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
++    const error = vi.spyOn(ctx.logger, 'error').mockImplementation(() => { })
++    const warn = vi.spyOn(console, 'warn').mockImplementation(() => { })
+     onTestFinished(() => { error.mockRestore(); warn.mockRestore() })
+ 
+-    await bootClient({ ctx, modules, manifest: modules.manifest })
++    const result = await bootClient({ ctx, modules, manifest: modules.manifest, retry: FAST_RETRY })
+ 
+     expect(error).toHaveBeenCalledOnce()
+     expect(error.mock.calls[0]?.[0]).toHaveProperty('message', expect.stringContaining('invalid plugin'))
+@@ -129,20 +137,94 @@ describe('bootClient', () => {
+     expect(warn).toHaveBeenCalledExactlyOnceWith(
+       'web boot: warning: 1 entry did not activate\ninvalid: import failed (see console for the import error)',
+     )
++    expect(result.skipped.map(entry => entry.name)).toEqual(['invalid'])
+   })
+ 
+   it('rejects a required row whose module exports no plugin and names it', async () => {
+     const { modules } = modulesOf(graphOf([REQUIRED_ID]), { [REQUIRED_ID]: { default: 'invalid' } })
+     const ctx = new Context()
+     onTestFinished(() => ctx.fiber.dispose())
+-    const error = vi.spyOn(ctx.logger, 'error').mockImplementation(() => {})
++    const error = vi.spyOn(ctx.logger, 'error').mockImplementation(() => { })
+     onTestFinished(() => { error.mockRestore() })
+ 
+     // Reported as an import failure like the Host audit's `failed to import`; the creation error goes to the log.
+-    await expect(bootClient({ ctx, modules, manifest: modules.manifest })).rejects.toThrow(
++    await expect(bootClient({ ctx, modules, manifest: modules.manifest, retry: FAST_RETRY })).rejects.toThrow(
++      `web boot: 1 required entry did not activate\n${REQUIRED_ID} (required): import failed (see console for the import error)`,
++    )
++  })
++
++  it('skips an optional row waiting on a service the roster never provides', async () => {
++    const graph = graphOf(['orphan'])
++    const { modules } = modulesOf(graph, { orphan: { inject: ['nothing'], apply: () => { } } })
++    const ctx = new Context()
++    onTestFinished(() => ctx.fiber.dispose())
++
++    const result = await bootClient({ ctx, modules, manifest: modules.manifest, retry: FAST_RETRY })
++
++    expect(result.skipped.map(entry => entry.name)).toEqual(['orphan'])
++    expect(result.skipped[0]?.reason).toContain('orphan: pending (waiting for service: nothing)')
 +  })
 +
 +  it('retries a transiently failing bundle until the entry activates', async () => {
@@ -624,11 +698,11 @@ index 17503e32..87f68285 100644
 +    expect(result.skipped.map(entry => entry.name)).toEqual(['core'])
 +  })
 +
-+  it('keeps the fatal report when a built-in row never activates', async () => {
++  it('keeps the fatal report when a required row never activates', async () => {
 +    const graph: WebBootGraph = {
 +      rev: 'graph',
-+      entries: [{ id: '@deepseek-ai/core', url: '/core.js', rev: '1', immediately: true }],
-+      batches: [{ phase: 'application', url: '/application.js', rev: 'batch', entries: ['@deepseek-ai/core'] }],
++      entries: [{ id: REQUIRED_ID, url: '/core.js', rev: '1', immediately: true }],
++      batches: [{ phase: 'application', url: '/application.js', rev: 'batch', entries: [REQUIRED_ID] }],
 +    }
 +    const { modules } = modulesOf(graph, {})
 +    const ctx = new Context()
@@ -637,9 +711,9 @@ index 17503e32..87f68285 100644
 +    onTestFinished(() => { error.mockRestore() })
 +
 +    await expect(bootClient({ ctx, modules, manifest: modules.manifest, retry: FAST_RETRY })).rejects.toThrow(
-+      'web boot: 1 entry did not activate\n@deepseek-ai/core: import failed',
-+    )
-+  })
+       `web boot: 1 required entry did not activate\n${REQUIRED_ID} (required): import failed (see console for the import error)`,
+     )
+   })
 +
 +  it('skips a pending consumer alongside the provider that never loaded', async () => {
 +    const graph = graphOf(['svc', 'user'])
@@ -650,10 +724,11 @@ index 17503e32..87f68285 100644
 +    const result = await bootClient({ ctx, modules, manifest: modules.manifest, retry: FAST_RETRY })
 +
 +    expect(result.skipped.map(entry => entry.name).sort()).toEqual(['svc', 'user'])
-   })
++  })
  })
  
-@@ -147,3 +216,12 @@ describe('assertEntriesActive', () => {
+ describe('assertEntriesActive', () => {
+@@ -231,3 +313,12 @@ describe('assertEntriesActive', () => {
      ].join('\n'))
    })
  })
@@ -668,7 +743,7 @@ index 17503e32..87f68285 100644
 +})
 diff --git a/upstream/packages/client/web/tests/boot-degraded.client.spec.ts b/upstream/packages/client/web/tests/boot-degraded.client.spec.ts
 new file mode 100644
-index 00000000..a1a31acf
+index 0000000..a1a31ac
 --- /dev/null
 +++ b/upstream/packages/client/web/tests/boot-degraded.client.spec.ts
 @@ -0,0 +1,47 @@
@@ -720,69 +795,88 @@ index 00000000..a1a31acf
 +  })
 +})
 diff --git a/upstream/packages/client/web/tests/boot.client.spec.ts b/upstream/packages/client/web/tests/boot.client.spec.ts
-index 9ac94507..33d084a6 100644
+index e3b1461..54fad9a 100644
 --- a/upstream/packages/client/web/tests/boot.client.spec.ts
 +++ b/upstream/packages/client/web/tests/boot.client.spec.ts
-@@ -70,35 +70,75 @@ describe('bootstrap failure rendering', () => {
-     await entry.dispose()
+@@ -45,7 +45,7 @@ function installFacade(
+ }
+ 
+ async function expectBootFailure(setup: () => void, message: string): Promise<void> {
+-  const error = vi.spyOn(console, 'error').mockImplementation(() => {})
++  const error = vi.spyOn(console, 'error').mockImplementation(() => { })
+   const container = document.createElement('div')
+   document.body.append(container)
+   setup()
+@@ -58,7 +58,7 @@ async function expectBootFailure(setup: () => void, message: string): Promise<vo
+ 
+ describe('bootstrap failure rendering', () => {
+   it('leaves the loading page visible when a carrier owns fatal presentation', async () => {
+-    vi.spyOn(console, 'error').mockImplementation(() => {})
++    vi.spyOn(console, 'error').mockImplementation(() => { })
+     const container = document.createElement('div')
+     document.body.append(container)
+     const entry = new AppWebEntry(container)
+@@ -72,7 +72,7 @@ describe('bootstrap failure rendering', () => {
    })
  
--  it.each([false, true])('routes failed plugin activation with carrier presentation=%s', async (carrier) => {
+   it.each([false, true])('routes failed required plugin activation with carrier presentation=%s', async (carrier) => {
 -    vi.spyOn(console, 'error').mockImplementation(() => {})
-+  it.each([false, true])('skips a failed plugin, mounts, and shows the degraded notice with carrier presentation=%s', async (carrier) => {
 +    vi.spyOn(console, 'error').mockImplementation(() => { })
      const container = document.createElement('div')
      document.body.append(container)
      const target = installFacade()
-     win.__DSH_BOOT__ = {
-       rev: 'graph',
--      entries: [{ id: 'broken', url: '/broken.js', rev: '1' }],
--      batches: [{ phase: 'application', url: '/application.js', rev: '1', entries: ['broken'] }],
-+      entries: [
-+        { id: 'renderer', url: '/renderer.js', rev: '1', immediately: true },
-+        { id: 'broken', url: '/broken.js', rev: '1' },
-+      ],
-+      batches: [{ phase: 'application', url: '/application.js', rev: '1', entries: ['renderer', 'broken'] }],
-     }
-     const entry = new AppWebEntry(container, {
+@@ -85,7 +85,7 @@ describe('bootstrap failure rendering', () => {
        loadBundle: async () => {
--        target.load({ id: 'broken', factory: () => ({ apply() { throw new Error('plugin activation failed') } }) })
-+        target.load({
-+          id: 'renderer',
-+          factory: () => ({
-+            apply: (ctx: Context) => {
-+              ctx.reflect.provide('uiRenderer', {
-+                mount: (element: HTMLElement) => {
-+                  element.textContent = 'mounted'
-+                  return () => { }
-+                },
-+              })
-+            },
-+          }),
-+        })
-+        target.load({
-+          id: 'broken',
-+          factory: () => ({ apply() { throw new Error('plugin activation failed') } }),
-+        })
+         target.load({ id: REQUIRED_ID, factory: () => ({ apply() { throw new Error('plugin activation failed') } }) })
        },
 -    })
 +    }, { attempts: 1, backoffMs: 1 })
      const report = vi.fn<(reason: unknown) => void>()
      try {
        await entry.run(carrier ? report : undefined)
--      if (carrier) {
--        expect(report).toHaveBeenCalledOnce()
--        expect(String(report.mock.calls[0]![0])).toContain('broken')
--        expect(container.querySelector('[data-dsh-boot-spinner]')).not.toBeNull()
--        expect(container.textContent).not.toContain('Failed to load plugins')
--      } else {
--        expect(report).not.toHaveBeenCalled()
--        expect(container.textContent).toContain('Failed to load plugins')
--        expect(container.textContent).toContain('broken')
--      }
-+      expect(report).not.toHaveBeenCalled()
-+      expect(container.textContent).toContain('mounted')
-+      expect(container.textContent).not.toContain('Failed to load plugins')
+@@ -104,31 +104,31 @@ describe('bootstrap failure rendering', () => {
+     }
+   })
+ 
+-  it.each([false, true])('mounts past a failed optional plugin without a failure report with carrier presentation=%s', async (carrier) => {
+-    vi.spyOn(console, 'error').mockImplementation(() => {})
+-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
++  it.each([false, true])('skips a failed optional plugin, mounts, and shows the degraded notice with carrier presentation=%s', async (carrier) => {
++    vi.spyOn(console, 'error').mockImplementation(() => { })
++    const warn = vi.spyOn(console, 'warn').mockImplementation(() => { })
+     const container = document.createElement('div')
+     document.body.append(container)
+     const target = installFacade()
+     const entries: WebBootEntry[] = [
+-      { id: 'broken', url: '/broken.js', rev: '1' },
+       { id: 'renderer', url: '/renderer.js', rev: '1' },
++      { id: 'broken', url: '/broken.js', rev: '1' },
+     ]
+     win.__DSH_BOOT__ = {
+       rev: 'graph',
+       entries,
+       batches: [{ phase: 'application', url: '/application.js', rev: '1', entries: entries.map(row => row.id) }],
+     }
+-    const mounted = vi.fn<(element: HTMLElement) => () => void>(() => () => {})
++    const mounted = vi.fn<(element: HTMLElement) => () => void>(() => () => { })
+     const entry = new AppWebEntry(container, {
+       loadBundle: async () => {
+-        target.load({ id: 'broken', factory: () => ({ apply() { throw new Error('plugin activation failed') } }) })
+         target.load({
+           id: 'renderer',
+           factory: () => ({ apply: (ctx: Context) => { ctx.reflect.provide('uiRenderer', { mount: mounted }) } }),
+         })
++        target.load({ id: 'broken', factory: () => ({ apply() { throw new Error('plugin activation failed') } }) })
+       },
+-    })
++    }, { attempts: 1, backoffMs: 1 })
+     const report = vi.fn<(reason: unknown) => void>()
+     try {
+       await entry.run(carrier ? report : undefined)
+@@ -136,7 +136,35 @@ describe('bootstrap failure rendering', () => {
+       expect(report).not.toHaveBeenCalled()
+       expect(warn).toHaveBeenCalledExactlyOnceWith('web boot: warning: 1 entry did not activate\nbroken: failed: Error: plugin activation failed')
+       expect(container.textContent).not.toContain('Failed to load plugins')
 +      const notice = document.querySelector('[data-dsh-boot-degraded]')
 +      expect(notice).not.toBeNull()
 +      expect(notice?.textContent).toContain('broken')
@@ -791,15 +885,15 @@ index 9ac94507..33d084a6 100644
 +    }
 +  })
 +
-+  it('keeps the fatal error page when an immediately row fails to activate', async () => {
++  it('keeps the fatal error page when a required row fails to load', async () => {
 +    const error = vi.spyOn(console, 'error').mockImplementation(() => { })
 +    installFacade()
 +    const container = document.createElement('div')
 +    document.body.append(container)
 +    win.__DSH_BOOT__ = {
 +      rev: 'graph',
-+      entries: [{ id: '@deepseek-ai/core', url: '/core.js', rev: '1', immediately: true }],
-+      batches: [{ phase: 'application', url: '/application.js', rev: '1', entries: ['@deepseek-ai/core'] }],
++      entries: [{ id: REQUIRED_ID, url: '/core.js', rev: '1', immediately: true }],
++      batches: [{ phase: 'application', url: '/application.js', rev: '1', entries: [REQUIRED_ID] }],
 +    }
 +    const entry = new AppWebEntry(container, {
 +      loadBundle: async () => {
@@ -809,9 +903,51 @@ index 9ac94507..33d084a6 100644
 +    try {
 +      await entry.run()
 +      expect(container.textContent).toContain('Failed to load plugins')
-+      expect(container.textContent).toContain('core')
++      expect(container.textContent).toContain(REQUIRED_ID)
      } finally {
 +      expect(error).toHaveBeenCalled()
        await entry.dispose()
      }
    })
+@@ -211,12 +239,12 @@ describe('plugin activation', () => {
+       },
+       {
+         id: 'provider',
+-        factory: require => ({ apply: () => {}, marker: 'provider', asset: require.asset('plugins/provider/assets/a.svg') }),
++        factory: require => ({ apply: () => { }, marker: 'provider', asset: require.asset('plugins/provider/assets/a.svg') }),
+       },
+       {
+         id: 'runtime',
+         factory: require => ({
+-          apply: () => {},
++          apply: () => { },
+           marker: (require(PROVIDER_CLIENT_ID) as { marker: string }).marker,
+         }),
+       },
+@@ -224,7 +252,7 @@ describe('plugin activation', () => {
+         id: 'renderer',
+         factory: () => ({
+           apply: (ctx: Context) => {
+-            ctx.reflect.provide('uiRenderer', { mount: () => () => {} })
++            ctx.reflect.provide('uiRenderer', { mount: () => () => { } })
+           },
+         }),
+       },
+@@ -284,7 +312,7 @@ describe('plugin activation', () => {
+               mount: (element: HTMLElement) => {
+                 events.push('mount')
+                 element.textContent = 'mounted'
+-                return () => {}
++                return () => { }
+               },
+             })
+           },
+@@ -313,7 +341,7 @@ it('draws the shared boot page before Host injections and resumes without replac
+   const container = document.createElement('div')
+   document.body.append(container)
+   const create = vi.fn(() => { throw new Error('injections consumed') })
+-  const error = vi.spyOn(console, 'error').mockImplementation(() => {})
++  const error = vi.spyOn(console, 'error').mockImplementation(() => { })
+   const entry = new AppWebEntry(container)
+   const boot = entry.run()
+   try {
