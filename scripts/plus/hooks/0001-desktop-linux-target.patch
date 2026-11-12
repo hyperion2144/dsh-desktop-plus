@@ -1,8 +1,8 @@
 diff --git a/upstream/apps/desktop-host/src/index.ts b/upstream/apps/desktop-host/src/index.ts
-index 31bbbffe..ccf05581 100644
+index 966e51a3..a8337d8a 100644
 --- a/upstream/apps/desktop-host/src/index.ts
 +++ b/upstream/apps/desktop-host/src/index.ts
-@@ -32,7 +32,9 @@ async function main(): Promise<void> {
+@@ -30,7 +30,9 @@ async function main(): Promise<void> {
      environment: loadLayeredEnv('dsh'),
      profile: 'desktop',
      resolvedProfile: { profile, installAnchor },
@@ -13,7 +13,7 @@ index 31bbbffe..ccf05581 100644
      args: ['--no-open', '--host', '127.0.0.1', '--port', '0'],
      ...(process.argv[5] === undefined ? {} : {
        packageManager: {
-@@ -72,6 +74,19 @@ async function main(): Promise<void> {
+@@ -70,6 +72,19 @@ async function main(): Promise<void> {
    process.on('message', (message: unknown) => {
      if (typeof message !== 'object' || message === null || !('type' in message)) return
      if (message.type === 'shutdown') { void stop(); return }
@@ -33,7 +33,7 @@ index 31bbbffe..ccf05581 100644
      if (message.type === 'file-drag-cancel') {
        if ('requestId' in message && typeof message.requestId === 'number') dragReads.get(message.requestId)?.abort()
        return
-@@ -129,6 +144,14 @@ async function main(): Promise<void> {
+@@ -127,13 +142,21 @@ async function main(): Promise<void> {
    process.once('disconnect', () => { void stop() })
    const { ctx } = await application
    installOperationDiagnostics(ctx, record => send({ type: 'plugin-operation', record }), 32, runId)
@@ -47,8 +47,6 @@ index 31bbbffe..ccf05581 100644
 +  })
    control.updateTasks = installDesktopUpdateTaskControl(ctx)
    control.quitInspection = installDesktopQuitInspection(ctx)
-   await ctx.plugin(desktopOffice, {
-@@ -139,8 +162,8 @@ async function main(): Promise<void> {
    installPlatformSessionPublisher(ctx, (session) => {
      if (process.connected) process.send?.({ type: 'platform-session', session })
    })
@@ -81,7 +79,7 @@ index 73af3353..ef13bce8 100644
 +"%~dp0..\..\..\..\DSH Desktop Plus.exe" --expose-internals "%~dp0..\..\..\app.asar\dsh\node_modules\@deepseek-ai\dsh-desktop-host\lib\cli.js" %*
  exit /b %errorlevel%
 diff --git a/upstream/apps/desktop/scripts/desktop-auto-update-environment.d.mts b/upstream/apps/desktop/scripts/desktop-auto-update-environment.d.mts
-index 4d42b3dd..87b29dee 100644
+index c58df5a0..f85721d2 100644
 --- a/upstream/apps/desktop/scripts/desktop-auto-update-environment.d.mts
 +++ b/upstream/apps/desktop/scripts/desktop-auto-update-environment.d.mts
 @@ -5,7 +5,7 @@ export const DESKTOP_AUTO_UPDATE_ENV: 'DSH_DESKTOP_AUTO_UPDATE_ENV'
@@ -94,7 +92,7 @@ index 4d42b3dd..87b29dee 100644
  /**
   * Name the fixed installer object shared by uploading and cache refresh.
 diff --git a/upstream/apps/desktop/scripts/desktop-auto-update-environment.mjs b/upstream/apps/desktop/scripts/desktop-auto-update-environment.mjs
-index 835beadd..251cd85f 100644
+index 24aaa0ea..2f98e987 100644
 --- a/upstream/apps/desktop/scripts/desktop-auto-update-environment.mjs
 +++ b/upstream/apps/desktop/scripts/desktop-auto-update-environment.mjs
 @@ -33,7 +33,7 @@ const UPDATE_ENVIRONMENTS = {
@@ -106,7 +104,7 @@ index 835beadd..251cd85f 100644
  
  /**
   * Name the fixed installer object shared by uploading and cache refresh.
-@@ -143,6 +143,27 @@ function httpsOrigin(value, name) {
+@@ -152,6 +152,27 @@ function httpsOrigin(value, name) {
    return parsed.origin
  }
  
@@ -134,10 +132,10 @@ index 835beadd..251cd85f 100644
  /**
   * Resolve the public updater URL and object prefixes for one release target.
   * @param {NodeJS.ProcessEnv} env - Packaging or upload environment.
-@@ -178,7 +199,7 @@ export function resolveDesktopAutoUpdateConfig(env, platform, arch) {
+@@ -187,7 +208,7 @@ export function resolveDesktopAutoUpdateConfig(env, platform, arch) {
      origin,
      keyPrefix,
-     binaryKeyPrefix: `${releasePrefix}/bin/${target}${channel === 'latest' ? '/latest' : ''}`,
+     binaryKeyPrefix: `${releasePrefix}/bin/${target}${channel === 'stable' ? '/stable' : ''}`,
 -    publicUrl: `${origin}/${keyPrefix}/`,
 +    publicUrl: explicitFeedUrl(env) ?? `${origin}/${keyPrefix}/`,
    }
@@ -225,10 +223,10 @@ index ec9da721..76c07e5e 100644
    options?: { unsigned?: boolean, prepareOnly?: boolean, skipNotarization?: boolean },
  ): void
 diff --git a/upstream/apps/desktop/scripts/desktop-package-environment.mjs b/upstream/apps/desktop/scripts/desktop-package-environment.mjs
-index 27a7f92c..02435b01 100644
+index 83e9dbbc..2e6a0e08 100644
 --- a/upstream/apps/desktop/scripts/desktop-package-environment.mjs
 +++ b/upstream/apps/desktop/scripts/desktop-package-environment.mjs
-@@ -29,7 +29,8 @@ const FILE_SETTINGS = ['DSH_DESKTOP_WINDOWS_CER_FILE', 'DSH_DESKTOP_WINDOWS_SIGN
+@@ -28,7 +28,8 @@ const AMBIENT_RELEASE_SETTING = /^(?:DSH_DESKTOP_(?:APP_ID|AUTO_UPDATE_ENV|MANDA
  export function localMacOSPackageEnvironment(environment = process.env) {
    return {
      ...Object.fromEntries(Object.entries(environment).filter(([name]) => !AMBIENT_RELEASE_SETTING.test(name))),
@@ -238,7 +236,7 @@ index 27a7f92c..02435b01 100644
      DSH_DESKTOP_UNSIGNED: '1',
    }
  }
-@@ -40,7 +41,7 @@ export function localMacOSPackageEnvironment(environment = process.env) {
+@@ -39,7 +40,7 @@ export function localMacOSPackageEnvironment(environment = process.env) {
   * Any defined Mac ZIP override rejects Windows, including an empty value; nonempty Windows overrides reject macOS.
   * PACKAGE_TEST_RELEASE_ID overrides the test preset only; blank retains its configured ID.
   * PACKAGE_WINDOWS_COMPRESSION_LEVEL selects 3 or 7 for Windows workflow builds; blank retains the file setting.
@@ -247,7 +245,7 @@ index 27a7f92c..02435b01 100644
   * @param {NodeJS.ProcessEnv} environment Parent environment, retained only for unrelated build tools.
   * @param {string} appRoot Desktop application directory; relative credential paths resolve here.
   * @param {{ unsigned?: boolean, prepareOnly?: boolean }} options Unsigned presets and Windows preparation-only presets never read signing credentials.
-@@ -59,6 +60,10 @@ export function loadDesktopPackageEnvironment(platform, environment = process.en
+@@ -58,6 +59,10 @@ export function loadDesktopPackageEnvironment(platform, environment = process.en
      if (!['3', '7'].includes(zipCompression)) throw new Error('desktop package: workflow ZIP compression must be 3 or 7')
    }
    const preset = environment.DSH_PACKAGING_PRESET
@@ -258,7 +256,7 @@ index 27a7f92c..02435b01 100644
    let path = join(appRoot, platform === 'win32' ? '.env.windows' : '.env.macos')
    if (preset !== undefined) {
      if (preset !== 'test' && preset !== 'production') throw new Error('desktop package: preset must be test or production')
-@@ -148,7 +153,7 @@ function requireReadableFile(environment, name) {
+@@ -113,7 +118,7 @@ function requireReadableFile(environment, name) {
  /**
   * Validate the packaging mode before preparation without invoking a token or Apple's services.
   * @param {NodeJS.ProcessEnv} environment Selected local defaults or file-owned release settings.
@@ -267,7 +265,7 @@ index 27a7f92c..02435b01 100644
   * @param {{ unsigned?: boolean, prepareOnly?: boolean, skipNotarization?: boolean }} options Explicit packaging mode.
   * @returns {void}
   */
-@@ -156,9 +161,10 @@ export function validateDesktopPackageEnvironment(environment, target, options =
+@@ -121,9 +126,10 @@ export function validateDesktopPackageEnvironment(environment, target, options =
    resolveDesktopTargetBuildPaths(environment, target.platform, target.arch)
    resolveDesktopAppId(environment)
    resolveNpmRegistry(environment)
@@ -281,11 +279,11 @@ index 27a7f92c..02435b01 100644
    if (!options.prepareOnly) resolveDesktopAutoUpdateConfig(environment, target.platform, target.arch)
    if (target.platform === 'win32') {
 diff --git a/upstream/apps/desktop/scripts/desktop-release-store.ts b/upstream/apps/desktop/scripts/desktop-release-store.ts
-index c080272e..83ec26c4 100644
+index eb9d5457..37798609 100644
 --- a/upstream/apps/desktop/scripts/desktop-release-store.ts
 +++ b/upstream/apps/desktop/scripts/desktop-release-store.ts
 @@ -17,7 +17,7 @@ const sourceSchema = z.strictObject({
-   channel: z.enum(['nightly', 'latest']),
+   channel: z.enum(['nightly', 'stable']),
    runnerName: z.string().min(1),
    // Storage accepts every Desktop target; CI routing separately limits currently provisioned platforms.
 -  target: z.enum(['mac-arm64', 'mac-x64', 'win-x64']),
@@ -316,7 +314,7 @@ index ff855cfd..08c8dc1f 100644
  ): Promise<void> {
    const failures = await probeDesktopToolchain(platform, environment)
 diff --git a/upstream/apps/desktop/scripts/desktop-upload-plan.ts b/upstream/apps/desktop/scripts/desktop-upload-plan.ts
-index 1461444f..1adda3f1 100644
+index 39ff954b..b53b1267 100644
 --- a/upstream/apps/desktop/scripts/desktop-upload-plan.ts
 +++ b/upstream/apps/desktop/scripts/desktop-upload-plan.ts
 @@ -21,6 +21,7 @@ const TARGETS = {
@@ -328,7 +326,7 @@ index 1461444f..1adda3f1 100644
    readonly platform: NodeJS.Platform
    readonly arch: string
 diff --git a/upstream/apps/desktop/scripts/electron-builder-config.mjs b/upstream/apps/desktop/scripts/electron-builder-config.mjs
-index cf0c19e8..921126a8 100644
+index d5522e3d..10de965a 100644
 --- a/upstream/apps/desktop/scripts/electron-builder-config.mjs
 +++ b/upstream/apps/desktop/scripts/electron-builder-config.mjs
 @@ -20,7 +20,7 @@ import {
@@ -349,7 +347,7 @@ index cf0c19e8..921126a8 100644
    if (resolvedPlatform === 'win32') installWindowsDirectoryInstaller()
    const macOSSigning = packagesMacOS && !unsigned ? resolveMacOSSigningEnvironment(env) : undefined
    if (packagesMacOS && !unsigned && !skipNotarization) resolveMacOSNotarizationEnvironment(env)
-@@ -96,7 +96,18 @@ export function createElectronBuilderConfig(
+@@ -99,7 +99,18 @@ export function createElectronBuilderConfig(
    if (windowsSigner !== undefined) {
      installWindowsNsisBootstrapSigner({ sign: windowsSigner })
    }
@@ -369,7 +367,7 @@ index cf0c19e8..921126a8 100644
    if (preparedRuntime !== undefined) buildPaths.dsh = preparedRuntime
    // electron-builder merges extraMetadata into the packaged manifest, so a build version here reaches
    // the artifact names, the update feed, and the installed app.getVersion() the updater compares against.
-@@ -114,11 +125,12 @@ export function createElectronBuilderConfig(
+@@ -116,11 +127,12 @@ export function createElectronBuilderConfig(
        ...buildVersion === productVersion ? {} : { version: buildVersion },
        ...packaged === undefined ? {} : { dshBuildCommit: packaged.commit, dshBuildDirty: packaged.dirty },
      },
@@ -385,7 +383,7 @@ index cf0c19e8..921126a8 100644
      directories: { output: output.directory },
      asar: true,
      electronDist: buildPaths.electron,
-@@ -143,6 +155,7 @@ export function createElectronBuilderConfig(
+@@ -145,6 +157,7 @@ export function createElectronBuilderConfig(
        'lib/welcome/**/*',
        'lib/preload-app.cjs',
        'lib/preload-mandatory.cjs',
@@ -393,7 +391,7 @@ index cf0c19e8..921126a8 100644
        'lib/preload-platform-account.cjs',
        'lib/preload-update-dialog.cjs',
        'lib/preload-welcome.cjs',
-@@ -150,9 +163,10 @@ export function createElectronBuilderConfig(
+@@ -152,9 +165,10 @@ export function createElectronBuilderConfig(
        'package.json',
        '!node_modules/**/*.{js,cjs,mjs,ts,cts,mts,css}.map',
        '!node_modules/**/*.tsbuildinfo',
@@ -406,7 +404,7 @@ index cf0c19e8..921126a8 100644
      ],
      asarUnpack: unpack,
      extraResources: [
-@@ -160,14 +174,24 @@ export function createElectronBuilderConfig(
+@@ -162,14 +176,24 @@ export function createElectronBuilderConfig(
        { from: fileURLToPath(new URL('../resources/icon-windows.png', import.meta.url)), to: 'icon.png' },
        // Windows tray bitmaps; macOS keeps the Dock and ships no menu bar icon.
        ...(packagesWindows ? [{ from: fileURLToPath(new URL('../resources/tray-windows.ico', import.meta.url)), to: 'tray.ico' }] : []),
@@ -432,7 +430,7 @@ index cf0c19e8..921126a8 100644
        },
        // Ad-hoc signing keeps the modified Electron executable runnable without a Developer ID.
        identity: unsigned ? '-' : macOSSigning?.signingIdentity,
-@@ -178,13 +202,23 @@ export function createElectronBuilderConfig(
+@@ -180,13 +204,23 @@ export function createElectronBuilderConfig(
        // Prepared runtime files retain their signatures; PAK resources are sealed by their enclosing bundle.
        signIgnore: ['/Contents/Resources/app\\.asar\\.unpacked/dsh(?:/|$)', '/Contents/Resources/runtime/primary-runtime(?:/|$)', '\\.pak$'],
        notarize: !unsigned && !skipNotarization,
@@ -457,7 +455,7 @@ index cf0c19e8..921126a8 100644
      beforePack: async context => {
        const office = await officePackageDirectories(buildPaths.dsh, { platform: resolvedPlatform, arch: resolvedArch })
        const patterns = office.map(directory => `**/${relative(buildPaths.dsh, directory).split(sep).join('/')}/**/*`)
-@@ -253,8 +287,11 @@ export function createElectronBuilderConfig(
+@@ -255,8 +289,11 @@ export function createElectronBuilderConfig(
        target: ['nsis'],
      },
      linux: {
@@ -656,7 +654,7 @@ index 6c3c12c8..e6c3e071 100644
    resolveDesktopPackageTarget(target))
  if (windows && !values.unsigned) await verifyWindowsCode(application)
 diff --git a/upstream/apps/desktop/scripts/smoke-prepared-runtime.ts b/upstream/apps/desktop/scripts/smoke-prepared-runtime.ts
-index e6afd574..0b78132a 100644
+index a67bc28c..aa4c4482 100644
 --- a/upstream/apps/desktop/scripts/smoke-prepared-runtime.ts
 +++ b/upstream/apps/desktop/scripts/smoke-prepared-runtime.ts
 @@ -23,8 +23,13 @@ export async function smokePreparedRuntime(
@@ -700,3 +698,16 @@ index 67e38da2..fa53ed6a 100644
    mkdirSync(dirname(electron), { recursive: true })
    if (platform === 'win32') copyFileSync(process.execPath, electron)
    else symlinkSync(process.execPath, electron)
+diff --git a/upstream/apps/desktop/scripts/desktop-publish-targets.ts b/upstream/apps/desktop/scripts/desktop-publish-targets.ts
+index 3270b99b..2e8a271e 100644
+--- a/upstream/apps/desktop/scripts/desktop-publish-targets.ts
++++ b/upstream/apps/desktop/scripts/desktop-publish-targets.ts
+@@ -8,7 +8,7 @@ export const desktopPackageWorkflows = {
+   'win-x64': '.github/workflows/windows-package.yml',
+ } as const
+ 
+-const targetSchema = z.enum(['mac-arm64', 'mac-x64', 'win-x64'])
++const targetSchema = z.enum(['mac-arm64', 'mac-x64', 'win-x64', 'linux-x64'])
+ 
+ /** Machine labels are unique; a scalar target is shorthand for a one-element target list. */
+ export const desktopPublishRunnersSchema = z.record(z.string(), z.object({
