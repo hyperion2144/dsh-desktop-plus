@@ -671,7 +671,7 @@ index 8e26fb8d..9517a2d6 100644
          const request = this.controlRequests.get(message.requestId)
          if (message.error === undefined) request?.resolve(message)
 diff --git a/upstream/apps/desktop/src/main.ts b/upstream/apps/desktop/src/main.ts
-index 8f9cd823..594cad00 100644
+index 8f9cd823..3bcf54f1 100644
 --- a/upstream/apps/desktop/src/main.ts
 +++ b/upstream/apps/desktop/src/main.ts
 @@ -18,6 +18,7 @@ import {
@@ -691,7 +691,7 @@ index 8f9cd823..594cad00 100644
 +import { existsSync, rmSync, writeFileSync } from 'node:fs'
 +import { spawn } from 'node:child_process'
 +import { applyLoginItemFromEnv, isLoginItemEnabled, setLoginItemEnabled, remoteProfileName, loadRemoteAddressList, partitionFor, remoteOrigin, listProfileDirs, createProfilesRpcHandlers, createUpdatesRpcHandlers, createSettingsRpcHandlers, createNotificationsRpcHandlers, applyWindowsAppUserModelId, attachDownloads, attachPackagedDevTools, toggleDevTools, windowDevToolsAction, attachPageConsole, collectDiagnostics, clearSelectedRuntime, createDownloadRpcHandlers, createElectronProfileRuntime, createLoggingKernel, createLoggingRpcHandlers, createProfileTray, observeWindowVisibility, createRpcRegistry, createShellKernel, ensurePlusProfileBundles, PLUS_BUNDLE_NAMES, DEFAULT_PROFILE, resolveStartupRuntimeSelection, restartApplicationInPlace, runPlusStartup, loadDesktopSettings, saveDesktopSettings, soundCapabilityReport, playSoundFile, createLifecycleRpcHandlers, resolveProxyEnv, proxyEnvRecord, detectSystemProxy, plusApplicationVersion, type RpcRegistry, type ProfileTray } from '@deepseek-ai/dsh-desktop-plus-shell'
-+import { createBusyLease, createPlusNotifier, createSleepGate, createSplashWindow, deliverHostNotice, loadNotificationConfig, noticePolicyFromConfig, systemDefaultSoundCommand, type RestartAllOutcome } from '@deepseek-ai/dsh-desktop-plus-shell'
++import { createBusyLease, createSleepGate, createSplashWindow, systemDefaultSoundCommand, type RestartAllOutcome } from '@deepseek-ai/dsh-desktop-plus-shell'
 +import { plusShellCopy } from '@deepseek-ai/dsh-desktop-plus-shell'
 +import { installShellConsoleTee } from '@deepseek-ai/dsh-desktop-plus-shell'
 +import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
@@ -1428,7 +1428,7 @@ index 8f9cd823..594cad00 100644
    if (typeof manifest !== 'object' || manifest === null) throw new Error('desktop policy: invalid application manifest')
    const developmentPolicy = app.isPackaged ? undefined : process.env.DSH_DESKTOP_MANDATORY_UPDATE_CONFIG
    const policyInput: unknown = app.isPackaged
-@@ -1601,15 +2009,672 @@ async function main(): Promise<void> {
+@@ -1601,15 +2009,663 @@ async function main(): Promise<void> {
    publishUpdate(updateState)
  }
  
@@ -1820,15 +1820,8 @@ index 8f9cd823..594cad00 100644
 +// 宿主里的插件（页面 client 的 host 半区）经宿主 IPC 发起 RPC：用同一张注册表派发。
 +setPlusShellRpcHandler(async (method, params, profile) => plusRpcRegistry.dispatch(method, params as Record<string, unknown> | undefined, profile === undefined ? undefined : { profile }))
 +
-+// ── 宿主插件单向事件（plus-shell-notify）：通知投递 + 防休眠忙租约 ──
-+const plusNotifier = createPlusNotifier({
-+  policy: () => noticePolicyFromConfig(loadNotificationConfig(resolveDshHome())),
-+  context: () => ({
-+    windowFocused: BrowserWindow.getAllWindows().some((win) => win.isFocused()),
-+    fullscreen: BrowserWindow.getAllWindows().some((win) => win.isFullScreen()),
-+  }),
-+  log: (line) => plusLogger.append(`[notifications] ${line}`),
-+})
++// ── 宿主插件单向事件（plus-shell-notify）：防休眠忙租约（通知已迁往 desktop-plugin）──
++// 通知已迁往 desktop-plugin（#116）：页面 Web Notification + 页面内点击跳转，壳不再投递。
 +const plusSleepGate = createSleepGate(powerSaveBlocker)
 +const plusSleepHolders = new Set<string>()
 +const plusReconcileSleepGate = (active: ReadonlySet<string>): void => {
@@ -1844,11 +1837,9 @@ index 8f9cd823..594cad00 100644
 +const plusBusySweep = setInterval(() => plusBusyLease.sweep(), 10_000)
 +plusBusySweep.unref()
 +setPlusShellNotifyHandler((notice) => {
-+  if (notice.type === 'busy-state') {
-+    plusBusyLease.report(notice.profile ?? 'desktop', notice.busy === true)
-+    return
-+  }
-+  deliverHostNotice({ notifier: plusNotifier, config: () => loadNotificationConfig(resolveDshHome()) }, notice)
++  // 通知已迁往 desktop-plugin；壳只消费防休眠忙租约。
++  if (notice.type !== 'busy-state') return
++  plusBusyLease.report(notice.profile ?? 'desktop', notice.busy === true)
 +})
 +
 +/** Lane 口：profile_lane_ports.<name> 显式覆盖优先；否则自动分配 3091 起的下一个空闲口并持久化（每个 profile 一个稳定端口）。 */
@@ -1865,14 +1856,14 @@ index 8f9cd823..594cad00 100644
 +  saveDesktopSettings(resolveDshHome(), { profile_lane_ports: { ...overrides, [profile]: port } })
 +  return port
 +}
- 
--if (ownsDesktopInstance) void app.whenReady().then(main).catch(async (error: unknown) => {
++
 +/** 代理注入记录：桌面设置显式代理优先，否则检测系统代理；关 = 空记录（不动用户 env）。 */
 +const resolvedProxyEnvRecord = (): Record<string, string> => {
 +  const proxy = resolveProxyEnv(loadDesktopSettings(resolveDshHome()), detectSystemProxy({ platform: process.platform, env: process.env }))
 +  return proxy === null ? {} : proxyEnvRecord(proxy)
 +}
-+
+ 
+-if (ownsDesktopInstance) void app.whenReady().then(main).catch(async (error: unknown) => {
 +
 +
 +

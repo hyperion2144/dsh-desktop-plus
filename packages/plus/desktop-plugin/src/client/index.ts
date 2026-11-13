@@ -174,6 +174,74 @@ export function apply(ctx: ClientContext): void {
     const t = installPlusCopy(ctx)
     captureShellChannelCaller(ctx)
     report('console 镜像')
+    report('会话定位缝')
+      // #116 腿二：壳侧点击通知后经 executeJavaScript 调这个全局，把页面切到对应会话。
+      // 幂等（重复调用 = 重复 openSession）；uiWorkspace 缺席（旧版 DSH 无该服务）或
+      // 跳转失败都静默跳过——腿一「把窗口叫回前台」不受影响。
+      ; (globalThis as Record<string, unknown>).__dshPlusFocusSession = (sessionId: unknown): void => {
+        if (typeof sessionId !== 'string' || sessionId === '') return
+        try {
+          const workspace = (ctx as unknown as { get?: (name: string) => { openSession?: (id: string) => void } | undefined }).get?.('uiWorkspace')
+          workspace?.openSession?.(sessionId)
+        } catch {
+          // 会话定位失败只降级为聚焦
+        }
+    }
+    // #116 纯插件侧通知（dsh-pet 逐行照抄）：页面轮询宿主单槽帧 → Web Notification，
+    // onclick 在 toast 点击的用户手势上下文里 openSession + window.focus() + iframe dsh://open ——
+    // 系统因此授予前台权，后台/被遮挡的窗口也能被拉到前台（壳侧进程内手段全被前台限制拦住）。
+    const jumpToSession = (sessionId?: string): void => {
+      if (sessionId !== undefined) {
+        const focusSession = (globalThis as { __dshPlusFocusSession?: (sessionId: string) => void }).__dshPlusFocusSession
+        try { focusSession?.(sessionId) } catch { /* 不跳会话而已，继续叫窗口 */ }
+      }
+      window.focus()
+      if (!/electron/i.test(navigator.userAgent)) return
+      const protocolFrame = document.createElement('iframe')
+      protocolFrame.style.display = 'none'
+      protocolFrame.src = 'dsh://open'
+      document.body.append(protocolFrame)
+      setTimeout(() => protocolFrame.remove(), 1000)
+    }
+    const isPageActive = (): boolean => document.visibilityState === 'visible' && document.hasFocus()
+    let lastNotifyFrameId = 0
+    let pushChannelReady = false
+    const pumpNotifyFrames = async (): Promise<void> => {
+      const callHost = (globalThis as { shellChannelRpc?: (endpoint: string, payload: unknown) => Promise<unknown> }).shellChannelRpc
+      if (typeof callHost !== 'function') return
+      // 触发式长轮询：请求挂起在宿主 notify-frame 路由，帧一入队立即推送回来；
+      // 后台窗口的定时器节流不影响网络回调，短时间离开也不会漏通知。
+      for (; ;) {
+        try {
+          const result = await callHost('plus.notify-frame', {}) as { ok?: unknown; value?: { id: number; type?: string; title?: string; body?: string; sessionId?: string; sound?: string } | null } | null
+          if (pushChannelReady === false) { pushChannelReady = true; console.info('[dsh-desktop-plus] 通知通道就绪（长轮询已挂上宿主）') }
+          const frame = result?.value ?? null
+          if (frame === null || typeof frame.id !== 'number' || frame.id <= lastNotifyFrameId) continue
+          lastNotifyFrameId = frame.id
+          console.info(`[dsh-desktop-plus] 通知帧到达：${frame.type} sound=${frame.sound ?? 'none'}`)
+          if (isPageActive()) { console.info('[dsh-desktop-plus] 页面正看着：横幅静默'); continue }
+          // dsh-pet 的 toast 没有权限门：直接创建，失败仅告警（Electron 下默认可弹）。
+          try {
+            // 「无声」走 silent: true；其余音效由宿主自播（Windows 上 Chromium toast 本身不带
+            // 提示音，宿主播系统通知 wav；系统免打扰由宿主 systemQuietActive 静音门压制）。
+            const silent = frame.sound === 'none'
+            const notification = new Notification(frame.title ?? 'DSH 桌面通知', { body: frame.body ?? '', tag: `dsh-plus-${frame.id}`, silent })
+            notification.onclick = () => { notification.close(); jumpToSession(frame.sessionId) }
+            console.info('[dsh-desktop-plus] 横幅已创建')
+            if (frame.sound !== undefined && frame.sound !== 'none') {
+              void callHost('plus.play-sound', { sound: frame.sound }).then(() => console.info('[dsh-desktop-plus] 声音已回呼播放')).catch((e: unknown) => console.warn(`[dsh-desktop-plus] 声音回呼失败：${String(e)}`))
+            }
+          } catch (error) {
+            console.warn(`[dsh-desktop-plus] 通知创建失败：${String(error)}`)
+          }
+        } catch (error) {
+          console.warn(`[dsh-desktop-plus] 通知推送通道中断，3s 后重连：${String(error)}`)
+          await new Promise((resolve) => setTimeout(resolve, 3_000))
+        }
+      }
+    }
+    void pumpNotifyFrames()
+    report('通知推送通道')
     // 最早装：把 console.* 镜像到 ~/.dsh/dsh-desktop-webview.log（开发期排查前端 bug 必备）。
     // 即使非 advanced 模式（普通浏览器直访 dsh）也装，便于离线调试。
     installWebviewConsoleMirror()
