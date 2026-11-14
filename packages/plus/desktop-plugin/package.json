@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-desktop-plus-plugin",
-  "version": "0.2.2-rc.2",
+  "version": "0.2.2-rc.3",
   "description": "dsh-desktop-plus 桌面插件：给 dsh 页面注入桌面 chrome（桌面设置面板/通知/下载/快捷键桥/控制台镜像），并注册「DSH 桌面壳」技能；壳侧服务经官方 /api/shell.invoke 路由暴露（宿主半区 → 宿主 IPC → Electron 壳）",
   "type": "module",
   "main": "index.js",
