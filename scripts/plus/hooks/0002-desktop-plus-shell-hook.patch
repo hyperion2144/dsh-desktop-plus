@@ -1,17 +1,17 @@
 diff --git a/upstream/apps/cli/package.json b/upstream/apps/cli/package.json
-index 0407a54d..1470f605 100644
+index fc77196c..61bd6fee 100644
 --- a/upstream/apps/cli/package.json
 +++ b/upstream/apps/cli/package.json
 @@ -115,6 +115,9 @@
      "@deepseek-ai/dsh-experimental-session-search": "workspace:*",
      "@deepseek-ai/dsh-experimental-tool-worktree": "workspace:*",
      "@deepseek-ai/dsh-cua-bundle": "workspace:*",
-+    "@deepseek-ai/dsh-desktop-plus-plugin": "0.2.2-rc.2",
-+    "@deepseek-ai/dsh-desktop-plus-remote-access": "0.2.2-rc.2",
-+    "@deepseek-ai/dsh-desktop-plus-brand": "0.2.2-rc.2",
++    "@deepseek-ai/dsh-desktop-plus-plugin": "0.2.2-rc.3",
++    "@deepseek-ai/dsh-desktop-plus-remote-access": "0.2.2-rc.3",
++    "@deepseek-ai/dsh-desktop-plus-brand": "0.2.2-rc.3",
      "@deepseek-ai/dsh-experimental-plugin-market-bundle": "workspace:*",
      "@deepseek-ai/dsh-personalized-recommendations": "workspace:*",
-     "@deepseek-ai/dsh-experimental-forge-bundle": "workspace:*"
+     "@deepseek-ai/dsh-experimental-forge-bundle": "workspace:*",
 diff --git a/upstream/apps/desktop/renderer/profile-delete.html b/upstream/apps/desktop/renderer/profile-delete.html
 new file mode 100644
 index 00000000..6402b2b2
@@ -2395,7 +2395,7 @@ index 40ed1a03..b3184f6a 100644
      entry: { [name]: `lib/types/${name}.js` },
      plugins: [packagedImportsPlugin(preloadImports)],
 diff --git a/upstream/pnpm-lock.yaml b/upstream/pnpm-lock.yaml
-index 65f0388b..934454fc 100644
+index 9a84d64b..064beb09 100644
 --- a/upstream/pnpm-lock.yaml
 +++ b/upstream/pnpm-lock.yaml
 @@ -8,6 +8,9 @@ overrides:
@@ -2424,7 +2424,7 @@ index 65f0388b..934454fc 100644
        '@deepseek-ai/dsh-cua-bundle':
          specifier: workspace:*
          version: link:../../packages/experimental/cua-bundle
-@@ -3178,6 +3190,9 @@ importers:
+@@ -3181,6 +3193,9 @@ importers:
        '@deepseek-ai/dsh-deliverable-file-references':
          specifier: workspace:*
          version: link:../../deliverables/deliverable-file-references

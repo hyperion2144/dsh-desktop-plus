@@ -278,6 +278,19 @@ index 83e9dbbc..2e6a0e08 100644
    if (options.unsigned) return
    if (!options.prepareOnly) resolveDesktopAutoUpdateConfig(environment, target.platform, target.arch)
    if (target.platform === 'win32') {
+diff --git a/upstream/apps/desktop/scripts/desktop-publish-targets.ts b/upstream/apps/desktop/scripts/desktop-publish-targets.ts
+index 3270b99b..2e8a271e 100644
+--- a/upstream/apps/desktop/scripts/desktop-publish-targets.ts
++++ b/upstream/apps/desktop/scripts/desktop-publish-targets.ts
+@@ -8,7 +8,7 @@ export const desktopPackageWorkflows = {
+   'win-x64': '.github/workflows/windows-package.yml',
+ } as const
+ 
+-const targetSchema = z.enum(['mac-arm64', 'mac-x64', 'win-x64'])
++const targetSchema = z.enum(['mac-arm64', 'mac-x64', 'win-x64', 'linux-x64'])
+ 
+ /** Machine labels are unique; a scalar target is shorthand for a one-element target list. */
+ export const desktopPublishRunnersSchema = z.record(z.string(), z.object({
 diff --git a/upstream/apps/desktop/scripts/desktop-release-store.ts b/upstream/apps/desktop/scripts/desktop-release-store.ts
 index eb9d5457..37798609 100644
 --- a/upstream/apps/desktop/scripts/desktop-release-store.ts
@@ -698,16 +711,3 @@ index 67e38da2..fa53ed6a 100644
    mkdirSync(dirname(electron), { recursive: true })
    if (platform === 'win32') copyFileSync(process.execPath, electron)
    else symlinkSync(process.execPath, electron)
-diff --git a/upstream/apps/desktop/scripts/desktop-publish-targets.ts b/upstream/apps/desktop/scripts/desktop-publish-targets.ts
-index 3270b99b..2e8a271e 100644
---- a/upstream/apps/desktop/scripts/desktop-publish-targets.ts
-+++ b/upstream/apps/desktop/scripts/desktop-publish-targets.ts
-@@ -8,7 +8,7 @@ export const desktopPackageWorkflows = {
-   'win-x64': '.github/workflows/windows-package.yml',
- } as const
- 
--const targetSchema = z.enum(['mac-arm64', 'mac-x64', 'win-x64'])
-+const targetSchema = z.enum(['mac-arm64', 'mac-x64', 'win-x64', 'linux-x64'])
- 
- /** Machine labels are unique; a scalar target is shorthand for a one-element target list. */
- export const desktopPublishRunnersSchema = z.record(z.string(), z.object({
