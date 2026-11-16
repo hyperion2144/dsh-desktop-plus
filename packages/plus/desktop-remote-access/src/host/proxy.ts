@@ -14,6 +14,7 @@ import { createGzip, createBrotliCompress, constants as zlibConstants } from 'no
 import type { Duplex } from 'node:stream'
 import type { Socket } from 'node:net'
 import { FRAME_INCOMPLETE, FRAME_INVALID, decodeFrame, wsFrameLength } from './ws-frame.js'
+import { clientIp } from './client-info.js'
 import { createDeflateDirection, wantsPermessageDeflate, stripDeflateOffer, DEFLATE_EXTENSION } from './ws-deflate.js'
 
 /** 可变的请求头袋（反代自己协商的头集合）。 */
@@ -77,6 +78,31 @@ try {
   logStream.once('error', () => { })
 } catch { /* noop */ }
 
+/** 401 UNPAIRED 的限频窗口：同一目标的重复探测 60s 内聚合，首条附 UA/IP 供定位来源。 */
+const UNPAIRED_LOG_WINDOW_MS = 60_000
+let unpairedLogKey = ''
+let unpairedLogSuppressed = 0
+let unpairedLogWindowAt = 0
+
+/**
+ * 未配对请求的访问日志（限频）：失效令牌的客户端会按固定节奏无限重连，
+ * 同一目标的重复 401 只在窗口首条记录（附 UA 与来源 IP 便于定位来源设备），
+ * 窗口内其余聚合为抑制计数——避免 shell.log 被重连风暴刷爆。
+ */
+function unpairedAccessLog(req: http.IncomingMessage, base: (string | number | undefined)[]): void {
+  const key = base.join(' ')
+  const now = Date.now()
+  if (key === unpairedLogKey && now - unpairedLogWindowAt < UNPAIRED_LOG_WINDOW_MS) {
+    unpairedLogSuppressed += 1
+    return
+  }
+  const suppressed = unpairedLogSuppressed
+  unpairedLogSuppressed = 0
+  unpairedLogKey = key
+  unpairedLogWindowAt = now
+  const ua = String(req.headers['user-agent'] ?? '-').slice(0, 48)
+  accessLog([...base, `ip=${clientIp(req)}`, `ua=${ua}`, suppressed > 0 ? `(已抑制 ${suppressed} 条重复)` : ''])
+}
 // ── 上游连接复用与 Nagle（#144 传输层）──
 // 原先每次 http.request 都 agent:false → **每请求新建 TCP**。手机上「打字」这类小请求高频场景
 // （每次输入/回显都是若干小 POST）会被连接建立 + Nagle 小包合并延迟放大；LAN 快不代表公网穿透快。
@@ -426,7 +452,7 @@ export function createRewriteProxy(opts: RewriteProxyOptions): RewriteProxy {
     if (auth) {
       const r = auth(req)
       if (!r.ok) {
-        accessLog(['HTTP', req.method, req.headers.host ?? '-', '->', req.url!, '= 401 UNPAIRED'])
+        unpairedAccessLog(req, ['HTTP', req.method, req.headers.host ?? '-', '->', req.url!, '= 401 UNPAIRED'])
         res.writeHead(401, { 'content-type': 'application/json' })
         res.end(JSON.stringify({ error: 'unpaired' }))
         return
@@ -601,7 +627,7 @@ export function createRewriteProxy(opts: RewriteProxyOptions): RewriteProxy {
     if (auth) {
       const r = auth(req)
       if (!r.ok) {
-        accessLog(['WS', req.method, req.headers.host ?? '-', '->', req.url!, '= 401 UNPAIRED'])
+        unpairedAccessLog(req, ['WS', req.method, req.headers.host ?? '-', '->', req.url!, '= 401 UNPAIRED'])
         socket.write('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n')
         socket.end()
         return
