@@ -38,6 +38,13 @@ export type PlusShellCopy = {
   readonly copyLink: string
   readonly reloadPage: string
   readonly openDevTools: string
+  readonly manualInstallFetchingTitle: string
+  readonly manualInstallFetchingBody: string
+  readonly manualInstallOpenedTitle: string
+  readonly manualInstallOpenedDetail: string
+  readonly manualInstallFailedTitle: string
+  readonly manualInstallFailedDetail: string
+  readonly openReleasePage: string
 }
 
 const en: PlusShellCopy = {
@@ -78,6 +85,13 @@ const en: PlusShellCopy = {
   copyLink: 'Copy Link Address',
   reloadPage: 'Reload Page',
   openDevTools: 'Developer Tools',
+  manualInstallFetchingTitle: 'Fetching update installer',
+  manualInstallFetchingBody: 'Downloading the DMG installer for version {version}.',
+  manualInstallOpenedTitle: 'Update package opened',
+  manualInstallOpenedDetail: 'The DMG installer for version {version} is open. Drag DSH Desktop Plus into Applications to finish, then reopen the app. The current installation was not changed.',
+  manualInstallFailedTitle: 'Could not fetch the update installer',
+  manualInstallFailedDetail: 'Downloading the DMG installer failed: {reason}. You can download it from the releases page instead.',
+  openReleasePage: 'Open Releases Page',
 }
 
 const zh: PlusShellCopy = {
@@ -118,6 +132,13 @@ const zh: PlusShellCopy = {
   copyLink: '复制链接地址',
   reloadPage: '重新加载页面',
   openDevTools: '开发者工具',
+  manualInstallFetchingTitle: '正在获取更新安装镜像',
+  manualInstallFetchingBody: '版本 {version} 的 DMG 安装镜像开始下载。',
+  manualInstallOpenedTitle: '更新安装包已打开',
+  manualInstallOpenedDetail: '版本 {version} 的 DMG 安装镜像已打开：把 DSH Desktop Plus 拖入「应用程序」完成安装，再重新打开应用。当前安装未被改动。',
+  manualInstallFailedTitle: '未能获取更新安装镜像',
+  manualInstallFailedDetail: '下载 DMG 安装镜像失败：{reason}。可到发布页手动下载。',
+  openReleasePage: '打开发布页',
 }
 
 /**
