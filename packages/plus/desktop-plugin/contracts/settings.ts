@@ -83,10 +83,4 @@ export interface SettingsCommands {
     result: { status: number; mode: string; origin: string; port: number }
   }
 
-  /** 桌面档快捷键偏好（#187）：壳只存原文，页面侧解析。 */
-  read_desktop_keybindings: { args: {}; result: string | null }
-  write_desktop_keybindings: {
-    args: { raw: string }
-    result: {}
-  }
 }

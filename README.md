@@ -14,7 +14,6 @@
 | --- | --- |
 | macOS（Apple Silicon） | `.dmg` / `.zip` |
 | Windows（x64） | `.exe` 安装器 |
-| Linux（x64） | `.AppImage` / `.tar.gz` |
 | Android | `.apk`（固定签名，可覆盖升级） |
 | iOS | `.ipa`（未签名，侧载工具重签） |
 
@@ -90,7 +89,8 @@ pnpm run sync:upstream        # 跟进上游新版本
 
 ### 打包与发版
 
-- **Package Desktop**（手动触发）出三平台 unsigned 安装包，作为 workflow artifact；`linux-x64` 是上游没有的目标，由本仓补上。
+- **Package Desktop**（手动触发）出 macOS 与 Windows 的 unsigned 安装包，作为 workflow artifact。
+- **Linux 暂不支持**：上游不发布 Linux 桌面目标，本仓也不再自行补。等官方支持后再接回来（届时补 `build-desktop.yml` 的矩阵、`package-target.ts` 的目标表与 `electron-builder-config.mjs` 的 `linux` 段）。
 - **发版** = 推 tag `v<X.Y.Z[-pre].plus.N>`：`Release Desktop` 建 Release 并上传桌面资产，`Release Mobile` 在同一个 Release 追加 apk / ipa 与 channel 元数据。版本号由 `scripts/plus/version.mjs` 从上游版本与 CHANGELOG 推导并校验，不要用 `+plus.N` 的 build metadata（`electron-updater` 会忽略它）。
 - **重发**（同一个 tag 重打一次）：流水线会覆盖资产与发布说明，并强制把 Release 置为已发布，不需要先删。
 - 发布说明取自 `CHANGELOG.md`：未发布段或该版本已发布段，二选一。

@@ -17,7 +17,6 @@ import type { NotificationCommands } from './notifications.ts'
 import type { DiagnosticsCommands } from './diagnostics.ts'
 import type { LoggingCommands } from './logging.ts'
 import type { ProfileCommands } from './profiles.ts'
-import type { BrowserGuestCommands } from './guests.ts'
 import type { UpdateCommands } from './updates.ts'
 
 export type {
@@ -56,13 +55,6 @@ export type {
   ProfileCommands,
 } from './profiles.ts'
 export type {
-  GuestPushKind,
-  GuestState,
-  GuestPush,
-  GuestReservation,
-  BrowserGuestCommands,
-} from './guests.ts'
-export type {
   UpdatePhase,
   UpdateView,
   UpdateActions,
@@ -81,7 +73,6 @@ export interface Commands
   DiagnosticsCommands,
   LoggingCommands,
   ProfileCommands,
-  BrowserGuestCommands,
   UpdateCommands { }
 
 /** 命令名（= Commands 的键；COMMAND_NAMES 是它的运行时清单，拼写錨在类型上）。 */
@@ -101,8 +92,6 @@ export const COMMAND_NAMES: readonly CommandName[] = [
   'save_proxy_settings',
   'toggle_zoom',
   'get_dsh_status',
-  'read_desktop_keybindings',
-  'write_desktop_keybindings',
   // lifecycle（运行时下载/切换已删：dsh 随应用分发，更新走官方更新能力）
   'restart_dsh_service',
   'restart_desktop_app',
@@ -152,15 +141,6 @@ export const COMMAND_NAMES: readonly CommandName[] = [
   'rebuild_profile_dependencies',
   'migrate_profile',
   'migration_status',
-  // guests
-  'browser_guest_acquire',
-  'browser_guest_release',
-  'browser_guest_navigate',
-  'browser_guest_control',
-  'browser_guest_set_bounds',
-  'browser_guest_set_visible',
-  'browser_guest_state',
-  'browser_guest_release_all',
   // updates
   'get_update_state',
   'check_update',

@@ -11,15 +11,17 @@ export interface ProxyTarget {
 /**
  * 规范化代理 URL：只认 http/https/socks5/socks；多粘贴的路径/查询/锚点丢掉；端口缺省按 scheme 补
  * （https 443 / socks 1080 / http 80）；裸 IPv6 补方括号。
+ * 这是底层解析器，系统代理检测也用它；面向用户的手动代理入口只放行 HTTP，
+ * 见 `validateManualProxyUrl`。
  */
 export function normalizeProxyUrl(raw: string): { ok: true; target: ProxyTarget } | { ok: false; error: string } {
   const trimmed = raw.trim()
   if (trimmed === '') return { ok: false, error: '代理地址为空' }
   const split = trimmed.indexOf('://')
-  if (split < 0) return { ok: false, error: `代理 URL 非法（需 http/https/socks5://host:port）：${raw}` }
+  if (split < 0) return { ok: false, error: `代理 URL 非法（需 scheme://host:port）：${raw}` }
   const rawScheme = trimmed.slice(0, split).toLowerCase()
   if (!['http', 'https', 'socks5', 'socks'].includes(rawScheme)) {
-    return { ok: false, error: `代理 URL 非法（需 http/https/socks5://host:port）：${raw}` }
+    return { ok: false, error: `代理 URL 非法（需 scheme://host:port）：${raw}` }
   }
   const scheme = rawScheme === 'socks' ? 'socks5' : rawScheme
   const rest = trimmed.slice(split + 3)

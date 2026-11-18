@@ -181,31 +181,13 @@ describe('createElectronProfileRuntime', () => {
 		expect(window.shown).toBe(1)
 	})
 
-	it('marks the local profile window via its partition session preload (#74)', async () => {
-		const { created } = runtime()
-		await created.manager.open('work')
-		expect(native.registerPreloadScript).toHaveBeenCalledWith({
-			id: 'plus-local-window-work',
-			type: 'frame',
-			filePath: join(userDataDir, 'plus-preloads', 'work.js'),
-		})
-		const source = readFileSync(join(userDataDir, 'plus-preloads', 'work.js'), 'utf8')
-		expect(source).toContain('__DSH_PLUS_LOCAL_WINDOW__')
-		expect(source).toContain('"work"')
-	})
-
-	it('re-registers the marker preload after a restart without stacking (#74)', async () => {
+	it('leaves window identity to the window instead of a session marker preload (#125)', async () => {
 		const { created } = runtime()
 		await created.manager.open('work')
 		await created.restartProfile('work')
-		expect(native.unregisterPreloadScript).toHaveBeenCalledWith('plus-local-window-work')
-		expect(native.registerPreloadScript).toHaveBeenCalledTimes(2)
-	})
-
-	it('does not mark the default profile session (#74)', async () => {
-		const { created } = runtime()
-		await created.manager.open('desktop')
 		expect(native.registerPreloadScript).not.toHaveBeenCalled()
+		expect(native.unregisterPreloadScript).not.toHaveBeenCalled()
+		expect(existsSync(join(userDataDir, 'plus-preloads'))).toBe(false)
 	})
 
 	it('hides the window instead of closing it, and keeps the host running', async () => {

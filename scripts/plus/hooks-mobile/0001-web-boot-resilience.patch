@@ -1,5 +1,5 @@
 diff --git a/upstream/packages/client/web/README.md b/upstream/packages/client/web/README.md
-index e42719d..082bd53 100644
+index 57d0195c..a729f6e3 100644
 --- a/upstream/packages/client/web/README.md
 +++ b/upstream/packages/client/web/README.md
 @@ -39,7 +39,7 @@ Boot runs in two stages: the module stage adopts the parser-loaded bootstrap bat
@@ -11,22 +11,22 @@ index e42719d..082bd53 100644
  
  <a id="the-shared-module-table"></a>
  ### The shared module table
-@@ -128,7 +128,9 @@ None; this package neither assembles nor sends a provider request.
+@@ -130,7 +130,9 @@ None; this package neither assembles nor sends a provider request.
  
  These limits define what the boot kernel does not support. They are current package constraints, not a task backlog.
  
--- **Optional boot failures start console-only** — an optional plugin that fails during the initial boot, including one whose creation the Loader rejects, appears in the console warning; Settings → Plugins → Plugin list lists it only after a later graph synchronization reconciles it.
+-- **Optional boot failures start console-only** — an optional plugin that fails during the initial boot, including one whose creation the Loader rejects, appears in the console warning; the Plugins page's synchronization notice lists it only after a later graph synchronization reconciles it.
 +When an entry fails, the retry policy is fixed (`DEFAULT_BOOT_RETRY` in `src/boot-client.ts`); deployment-varying tuning would have to ride the boot graph. Skipped entries stay recorded as failed, so a later successful graph reconciliation can revive them.
 +
-+- **Optional boot failures degrade the mount** — an optional plugin that exhausts the bounded retry during the initial boot, including one whose creation the Loader rejects, is torn down and named in the degraded notice above the mounted application; Settings → Plugins → Plugin list lists it only after a later graph synchronization reconciles it.
++- **Optional boot failures degrade the mount** — an optional plugin that exhausts the bounded retry during the initial boot, including one whose creation the Loader rejects, is torn down and named in the degraded notice above the mounted application; the Plugins page's synchronization notice lists it only after a later graph synchronization reconciles it.
  
  <a id="dev-note"></a>
  ### Dev Note
 diff --git a/upstream/packages/client/web/README.zh.md b/upstream/packages/client/web/README.zh.md
-index 8fed19b..9f8f31c 100644
+index 8ded8825..3a06fb3f 100644
 --- a/upstream/packages/client/web/README.zh.md
 +++ b/upstream/packages/client/web/README.zh.md
-@@ -39,7 +39,7 @@ Web 和 Desktop 的数学公式渲染要求支持 WOFF2。[Web 构建](../../../
+@@ -39,7 +39,7 @@ kind: "package-library"
  
  ### 启动页
  
@@ -35,19 +35,19 @@ index 8fed19b..9f8f31c 100644
  
  <a id="the-shared-module-table"></a>
  ### 共享模块表
-@@ -128,7 +128,9 @@ Web 和 Desktop 的数学公式渲染要求支持 WOFF2。[Web 构建](../../../
+@@ -130,7 +130,9 @@ kind: "package-library"
  
  这些限制说明启动内核不支持什么。它们是当前包约束，不是任务积压。
  
--- **可选插件的启动失败起初只在控制台可见**——初始启动时失败的可选插件（包括 Loader 拒绝创建的插件）出现在控制台警告中；只有后续图同步调和之后，「设置 → 插件 → 插件列表」才会列出它。
+-- **可选插件的启动失败起初只在控制台可见**——初始启动时失败的可选插件（包括 Loader 拒绝创建的插件）出现在控制台警告中；只有后续图同步调和之后，插件页面的同步提示才会列出它。
 +entry 失败时的重试策略是固定的（`src/boot-client.ts` 中的 `DEFAULT_BOOT_RETRY`）；按部署调整需要走 boot graph 传递。被略过的 entry 仍记录为失败，后续成功的 graph 对账可以将其复活。
 +
-+- **可选启动失败降级挂载** —— 初始启动期间耗尽有界重试的可选插件（包括 Loader 拒绝创建的插件）会被拆除，并在挂载后的应用上方以降级提示点名；后续图同步调和之后，「设置 → 插件 → 插件列表」才会列出它。
++- **可选启动失败降级挂载** —— 初始启动期间耗尽有界重试的可选插件（包括 Loader 拒绝创建的插件）会被拆除，并在挂载后的应用上方以降级提示点名；后续图同步调和之后，插件页面的同步提示才会列出它。
  
  <a id="dev-note"></a>
  ### 开发备注
 diff --git a/upstream/packages/client/web/src/boot-client.ts b/upstream/packages/client/web/src/boot-client.ts
-index 9ad95f3..5daa950 100644
+index 2dffd17e..6c5b76ee 100644
 --- a/upstream/packages/client/web/src/boot-client.ts
 +++ b/upstream/packages/client/web/src/boot-client.ts
 @@ -1,10 +1,13 @@
@@ -66,7 +66,7 @@ index 9ad95f3..5daa950 100644
  import Loader from '@deepseek-ai/cordis-plugin-loader'
  import type { BootManifest, ClientModuleLoader } from '@deepseek-ai/dsh-client-modules/client'
  import { STATE_LABELS } from './loader-status.ts'
-@@ -32,6 +35,47 @@ const requiredClientEntryNames = new Set<string>([
+@@ -34,6 +37,47 @@ const requiredClientEntryNames = new Set<string>([
    '@deepseek-ai/dsh-client-ui-sidebar',
  ])
  
@@ -114,7 +114,7 @@ index 9ad95f3..5daa950 100644
  /** Inputs of {@link bootClient}. */
  export interface ClientBootOptions {
    /** Fresh root Context that will own the plugin tree. */
-@@ -42,19 +86,21 @@ export interface ClientBootOptions {
+@@ -44,19 +88,21 @@ export interface ClientBootOptions {
    readonly manifest: BootManifest
    /** Per-entry state reporting (the boot page); omitted when no one renders progress. */
    readonly onEntryState?: (name: string, state: EntryStateLabel) => void
@@ -144,7 +144,7 @@ index 9ad95f3..5daa950 100644
    const { ctx, manifest, onEntryState } = options
    await ctx.plugin(Loader)
    const loader = ctx.loader
-@@ -74,7 +120,40 @@ export async function bootClient(options: ClientBootOptions): Promise<void> {
+@@ -76,7 +122,40 @@ export async function bootClient(options: ClientBootOptions): Promise<void> {
    }
  
    await loader.await()
@@ -186,7 +186,7 @@ index 9ad95f3..5daa950 100644
  }
  
  /**
-@@ -98,13 +177,39 @@ export async function assertEntriesActive(
+@@ -100,13 +179,39 @@ export async function assertEntriesActive(
    modules: Pick<ClientModuleLoader, 'importError'>,
    warn: (message: string) => void = (message) => { console.warn(message) },
  ): Promise<void> {
@@ -227,7 +227,7 @@ index 9ad95f3..5daa950 100644
          reason: importError === undefined
            ? 'import failed (see console for the import error)'
            : `import failed: ${importError.message}`,
-@@ -115,22 +220,30 @@ export async function assertEntriesActive(
+@@ -117,22 +222,30 @@ export async function assertEntriesActive(
      if (state === 'active') continue
      if (state === 'pending') {
        const missing = Object.keys(entry.fiber.inject).filter(service => ctx.get(service) === undefined)
@@ -268,7 +268,7 @@ index 9ad95f3..5daa950 100644
  }
  
  /** Singular or plural noun for an entry count in audit reports. */
-@@ -138,6 +251,20 @@ function entryNoun(count: number): string {
+@@ -140,6 +253,20 @@ function entryNoun(count: number): string {
    return count === 1 ? 'entry' : 'entries'
  }
  
@@ -291,7 +291,7 @@ index 9ad95f3..5daa950 100644
    try {
 diff --git a/upstream/packages/client/web/src/boot-degraded.ts b/upstream/packages/client/web/src/boot-degraded.ts
 new file mode 100644
-index 0000000..115900d
+index 00000000..115900da
 --- /dev/null
 +++ b/upstream/packages/client/web/src/boot-degraded.ts
 @@ -0,0 +1,58 @@
@@ -354,7 +354,7 @@ index 0000000..115900d
 +  return root
 +}
 diff --git a/upstream/packages/client/web/src/boot-page.module.css b/upstream/packages/client/web/src/boot-page.module.css
-index c28097c..355c4c0 100644
+index c28097cf..355c4c0a 100644
 --- a/upstream/packages/client/web/src/boot-page.module.css
 +++ b/upstream/packages/client/web/src/boot-page.module.css
 @@ -102,3 +102,69 @@
@@ -428,7 +428,7 @@ index c28097c..355c4c0 100644
 +  cursor: pointer;
 +}
 diff --git a/upstream/packages/client/web/src/boot.ts b/upstream/packages/client/web/src/boot.ts
-index fe49e19..d4ffc5a 100644
+index d30eb67a..af88d664 100644
 --- a/upstream/packages/client/web/src/boot.ts
 +++ b/upstream/packages/client/web/src/boot.ts
 @@ -9,7 +9,8 @@ import { Context } from '@deepseek-ai/cordis'
@@ -472,14 +472,14 @@ index fe49e19..d4ffc5a 100644
     * the application mounts without them.
     * @param onFailure - Optional carrier-owned fatal presentation; keeps the boot page visible.
     * @returns Resolves after application mount or failure reporting.
-@@ -84,14 +89,15 @@ export class AppWebEntry {
+@@ -85,14 +90,15 @@ export class AppWebEntry {
        this.ctx = ctx
        this.page.setTotal(this.manifest.plugins.length)
        await prefetching
 -      await bootClient({
 +      const result = await bootClient({
          ctx,
-         modules: this.modules,
+         modules,
          manifest: this.manifest,
          // A failed entry may be optional; only the audit decides whether the boot page reports a failure.
          onEntryState: (name, state) => {
@@ -490,10 +490,13 @@ index fe49e19..d4ffc5a 100644
        })
        // The shell owns the one watcher that keeps Electron's window drag rects in
        // step with the rows that own them (electron#32341), so no chrome row has to
-@@ -99,6 +105,9 @@ export class AppWebEntry {
+@@ -100,6 +106,12 @@ export class AppWebEntry {
        // renderer draws is the one the first frame measures.
        this.stopDragRecall = installWindowDragRecall({ document: this.container.ownerDocument })
        await mountClient(ctx, this.container)
++      if (result.skipped.length > 0) {
++        mountDegradedNotice(this.container.ownerDocument.body, result.skipped)
++      }
 +      if (result.skipped.length > 0) {
 +        mountDegradedNotice(this.container.ownerDocument.body, result.skipped)
 +      }
@@ -501,7 +504,7 @@ index fe49e19..d4ffc5a 100644
        console.error(reason)
        if (onFailure !== undefined) onFailure(reason)
 diff --git a/upstream/packages/client/web/tests/boot-client.client.spec.ts b/upstream/packages/client/web/tests/boot-client.client.spec.ts
-index e362670..42da5bf 100644
+index cebbbf4e..4b715deb 100644
 --- a/upstream/packages/client/web/tests/boot-client.client.spec.ts
 +++ b/upstream/packages/client/web/tests/boot-client.client.spec.ts
 @@ -5,7 +5,7 @@ import {
@@ -513,7 +516,7 @@ index e362670..42da5bf 100644
  import { FIBER_STATE } from '../src/loader-status.ts'
  
  const BOOTSTRAP_ID = '@deepseek-ai/dsh-client-modules'
-@@ -22,7 +22,11 @@ function graphOf(ids: readonly string[]): WebBootGraph {
+@@ -23,7 +23,11 @@ function graphOf(ids: readonly string[]): WebBootGraph {
  }
  
  /** Module system seeded with inline plugin modules; `loaded` records every transport call. */
@@ -526,19 +529,7 @@ index e362670..42da5bf 100644
    const loaded: string[] = []
    const pendingQueue: ClientBundleRegistration[] = []
    const target: ClientModuleLoaderTarget = {
-@@ -34,9 +38,9 @@ function modulesOf(graph: WebBootGraph, staticModules: Record<string, unknown>):
-   const modules = target.create({
-     boot: graph,
-     staticModules,
--    loadBundle: async (url) => { loaded.push(url) },
-+    loadBundle: loadBundle ?? (async (url) => { loaded.push(url) }),
-   })
--  return { modules, loaded }
-+  return { modules, loaded, target }
- }
- 
- /** Recording progress sink. */
-@@ -48,19 +52,22 @@ function stateSink(): { states: Map<string, EntryStateLabel[]>; onEntryState: (n
+@@ -51,19 +55,22 @@ function stateSink(): { states: Map<string, EntryStateLabel[]>; onEntryState: (n
    }
  }
  
@@ -563,7 +554,7 @@ index e362670..42da5bf 100644
      const consumer = sink.states.get('consumer') ?? []
      expect(consumer[0]).toBe('loading')
      expect(consumer.at(-1)).toBe('active')
-@@ -70,25 +77,25 @@ describe('bootClient', () => {
+@@ -73,25 +80,25 @@ describe('bootClient', () => {
  
    it('rejects a required row waiting on a service the roster never provides', async () => {
      const graph = graphOf([REQUIRED_ID])
@@ -594,7 +585,7 @@ index e362670..42da5bf 100644
        `web boot: 1 required entry did not activate\n${REQUIRED_ID} (required): import failed (see console for the import error)`,
      )
      expect(sink.states.get(REQUIRED_ID)).toEqual(['loading', 'failed'])
-@@ -97,16 +104,17 @@ describe('bootClient', () => {
+@@ -100,16 +107,17 @@ describe('bootClient', () => {
    })
  
    it('resolves past an optional row that cannot be imported and warns once', async () => {
@@ -616,7 +607,7 @@ index e362670..42da5bf 100644
      expect(warn).toHaveBeenCalledExactlyOnceWith(
        'web boot: warning: 1 entry did not activate\nghost: import failed (see console for the import error)',
      )
-@@ -116,11 +124,11 @@ describe('bootClient', () => {
+@@ -119,11 +127,11 @@ describe('bootClient', () => {
      const { modules } = modulesOf(graphOf(['invalid']), { invalid: { default: 'invalid' } })
      const ctx = new Context()
      onTestFinished(() => ctx.fiber.dispose())
@@ -631,27 +622,27 @@ index e362670..42da5bf 100644
  
      expect(error).toHaveBeenCalledOnce()
      expect(error.mock.calls[0]?.[0]).toHaveProperty('message', expect.stringContaining('invalid plugin'))
-@@ -129,20 +137,94 @@ describe('bootClient', () => {
+@@ -132,6 +140,7 @@ describe('bootClient', () => {
      expect(warn).toHaveBeenCalledExactlyOnceWith(
        'web boot: warning: 1 entry did not activate\ninvalid: import failed (see console for the import error)',
      )
 +    expect(result.skipped.map(entry => entry.name)).toEqual(['invalid'])
    })
  
-   it('rejects a required row whose module exports no plugin and names it', async () => {
-     const { modules } = modulesOf(graphOf([REQUIRED_ID]), { [REQUIRED_ID]: { default: 'invalid' } })
-     const ctx = new Context()
-     onTestFinished(() => ctx.fiber.dispose())
--    const error = vi.spyOn(ctx.logger, 'error').mockImplementation(() => {})
-+    const error = vi.spyOn(ctx.logger, 'error').mockImplementation(() => { })
+   it('rejects startup when the Session status row cannot be imported', async () => {
+@@ -142,7 +151,7 @@ describe('bootClient', () => {
+     const error = vi.spyOn(ctx.logger, 'error').mockImplementation(() => {})
      onTestFinished(() => { error.mockRestore() })
  
-     // Reported as an import failure like the Host audit's `failed to import`; the creation error goes to the log.
--    await expect(bootClient({ ctx, modules, manifest: modules.manifest })).rejects.toThrow(
-+    await expect(bootClient({ ctx, modules, manifest: modules.manifest, retry: FAST_RETRY })).rejects.toThrow(
-+      `web boot: 1 required entry did not activate\n${REQUIRED_ID} (required): import failed (see console for the import error)`,
-+    )
-+  })
+-    await expect(bootClient({ ctx, modules, manifest })).rejects.toThrow(
++    await expect(bootClient({ ctx, modules, manifest, retry: FAST_RETRY })).rejects.toThrow(
+       `web boot: 1 required entry did not activate\n${SESSION_STATUS_ID} (required): import failed (see console for the import error)`,
+     )
+   })
+@@ -173,6 +182,79 @@ describe('bootClient', () => {
+       `web boot: 1 required entry did not activate\n${REQUIRED_ID} (required): import failed (see console for the import error)`,
+     )
+   })
 +
 +  it('skips an optional row waiting on a service the roster never provides', async () => {
 +    const graph = graphOf(['orphan'])
@@ -711,9 +702,9 @@ index e362670..42da5bf 100644
 +    onTestFinished(() => { error.mockRestore() })
 +
 +    await expect(bootClient({ ctx, modules, manifest: modules.manifest, retry: FAST_RETRY })).rejects.toThrow(
-       `web boot: 1 required entry did not activate\n${REQUIRED_ID} (required): import failed (see console for the import error)`,
-     )
-   })
++      `web boot: 1 required entry did not activate\n${REQUIRED_ID} (required): import failed (see console for the import error)`,
++    )
++  })
 +
 +  it('skips a pending consumer alongside the provider that never loaded', async () => {
 +    const graph = graphOf(['svc', 'user'])
@@ -728,7 +719,7 @@ index e362670..42da5bf 100644
  })
  
  describe('assertEntriesActive', () => {
-@@ -231,3 +313,12 @@ describe('assertEntriesActive', () => {
+@@ -261,3 +343,12 @@ describe('assertEntriesActive', () => {
      ].join('\n'))
    })
  })
@@ -743,7 +734,7 @@ index e362670..42da5bf 100644
 +})
 diff --git a/upstream/packages/client/web/tests/boot-degraded.client.spec.ts b/upstream/packages/client/web/tests/boot-degraded.client.spec.ts
 new file mode 100644
-index 0000000..a1a31ac
+index 00000000..a1a31acf
 --- /dev/null
 +++ b/upstream/packages/client/web/tests/boot-degraded.client.spec.ts
 @@ -0,0 +1,47 @@
@@ -795,10 +786,10 @@ index 0000000..a1a31ac
 +  })
 +})
 diff --git a/upstream/packages/client/web/tests/boot.client.spec.ts b/upstream/packages/client/web/tests/boot.client.spec.ts
-index e3b1461..54fad9a 100644
+index ed4b93ee..92ddd7cd 100644
 --- a/upstream/packages/client/web/tests/boot.client.spec.ts
 +++ b/upstream/packages/client/web/tests/boot.client.spec.ts
-@@ -45,7 +45,7 @@ function installFacade(
+@@ -50,7 +50,7 @@ function installFacade(
  }
  
  async function expectBootFailure(setup: () => void, message: string): Promise<void> {
@@ -807,7 +798,7 @@ index e3b1461..54fad9a 100644
    const container = document.createElement('div')
    document.body.append(container)
    setup()
-@@ -58,7 +58,7 @@ async function expectBootFailure(setup: () => void, message: string): Promise<vo
+@@ -63,7 +63,7 @@ async function expectBootFailure(setup: () => void, message: string): Promise<vo
  
  describe('bootstrap failure rendering', () => {
    it('leaves the loading page visible when a carrier owns fatal presentation', async () => {
@@ -816,7 +807,7 @@ index e3b1461..54fad9a 100644
      const container = document.createElement('div')
      document.body.append(container)
      const entry = new AppWebEntry(container)
-@@ -72,7 +72,7 @@ describe('bootstrap failure rendering', () => {
+@@ -77,7 +77,7 @@ describe('bootstrap failure rendering', () => {
    })
  
    it.each([false, true])('routes failed required plugin activation with carrier presentation=%s', async (carrier) => {
@@ -825,7 +816,7 @@ index e3b1461..54fad9a 100644
      const container = document.createElement('div')
      document.body.append(container)
      const target = installFacade()
-@@ -85,7 +85,7 @@ describe('bootstrap failure rendering', () => {
+@@ -90,7 +90,7 @@ describe('bootstrap failure rendering', () => {
        loadBundle: async () => {
          target.load({ id: REQUIRED_ID, factory: () => ({ apply() { throw new Error('plugin activation failed') } }) })
        },
@@ -834,7 +825,7 @@ index e3b1461..54fad9a 100644
      const report = vi.fn<(reason: unknown) => void>()
      try {
        await entry.run(carrier ? report : undefined)
-@@ -104,31 +104,31 @@ describe('bootstrap failure rendering', () => {
+@@ -109,31 +109,31 @@ describe('bootstrap failure rendering', () => {
      }
    })
  
@@ -873,7 +864,7 @@ index e3b1461..54fad9a 100644
      const report = vi.fn<(reason: unknown) => void>()
      try {
        await entry.run(carrier ? report : undefined)
-@@ -136,7 +136,35 @@ describe('bootstrap failure rendering', () => {
+@@ -141,7 +141,35 @@ describe('bootstrap failure rendering', () => {
        expect(report).not.toHaveBeenCalled()
        expect(warn).toHaveBeenCalledExactlyOnceWith('web boot: warning: 1 entry did not activate\nbroken: failed: Error: plugin activation failed')
        expect(container.textContent).not.toContain('Failed to load plugins')
@@ -909,7 +900,7 @@ index e3b1461..54fad9a 100644
        await entry.dispose()
      }
    })
-@@ -211,12 +239,12 @@ describe('plugin activation', () => {
+@@ -216,12 +244,12 @@ describe('plugin activation', () => {
        },
        {
          id: 'provider',
@@ -924,7 +915,7 @@ index e3b1461..54fad9a 100644
            marker: (require(PROVIDER_CLIENT_ID) as { marker: string }).marker,
          }),
        },
-@@ -224,7 +252,7 @@ describe('plugin activation', () => {
+@@ -229,7 +257,7 @@ describe('plugin activation', () => {
          id: 'renderer',
          factory: () => ({
            apply: (ctx: Context) => {
@@ -933,7 +924,7 @@ index e3b1461..54fad9a 100644
            },
          }),
        },
-@@ -284,7 +312,7 @@ describe('plugin activation', () => {
+@@ -289,7 +317,7 @@ describe('plugin activation', () => {
                mount: (element: HTMLElement) => {
                  events.push('mount')
                  element.textContent = 'mounted'
@@ -942,7 +933,7 @@ index e3b1461..54fad9a 100644
                },
              })
            },
-@@ -313,7 +341,7 @@ it('draws the shared boot page before Host injections and resumes without replac
+@@ -318,7 +346,7 @@ it('draws the shared boot page before Host injections and resumes without replac
    const container = document.createElement('div')
    document.body.append(container)
    const create = vi.fn(() => { throw new Error('injections consumed') })

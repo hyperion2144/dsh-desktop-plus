@@ -3,14 +3,12 @@ import type {} from '@deepseek-ai/dsh-client-ui-theme/client'
 import { applyAdvancedShell } from './shell/advanced-shell.ts'
 import { registerDownloadsTab } from './features/downloads-tab.tsx'
 import { installDownloadInterceptor } from './bridge/download-intercept.ts'
-import { installDesktopBrowserBridge } from './bridge/desktop-browser-bridge.ts'
 import { registerDesktopSettings } from './desktop-settings.tsx'
 import { registerNotificationsTab } from './features/notifications-tab.tsx'
 import { installDesktopNotify } from './notify/index.ts'
 import { requestDesktopClientEnvironment } from './features/environment.ts'
 import { installPlusCopy } from './i18n/install.ts'
 import type { PlusT } from './i18n/namespace.ts'
-import { installDesktopPlatformBridge } from './bridge/platform-keyboard.ts'
 import { captureShellChannelCaller, shellRpc } from './shell/shell-rpc.ts'
 import type { CommandName } from '../../contracts/index.ts'
 import { installComposerInputGuard } from './ui/composer-input-guard.ts'
@@ -132,8 +130,9 @@ function installNoRubberBand(): void {
 }
 
 /**
- * 安装依赖桌面壳的面板能力：下载管理器、浏览器 guest 桥、桌面档快捷键、
- * 桌面设置与通知设置。纯浏览器不装（壳不在场时这些面板没有数据来源）。
+ * 安装依赖桌面壳的面板能力：下载管理器、下载拦截、桌面设置与通知设置。
+ * 纯浏览器不装（壳不在场时这些面板没有数据来源）。浏览器 guest 载体与桌面档键盘
+ * 都由官方窗口 preload 提供（#125），插件不再补桥。
  * @param ctx - browser Cordis context.
  * @param report - 汇报当前激活步骤（异常时定位失败点）。
  */
@@ -144,13 +143,6 @@ function installShellFeatures(ctx: ClientContext, report: (step: string) => void
   report('下载拦截')
   // blob:/data: 下载拦截转 IPC（纯浏览器不装）
   installDownloadInterceptor()
-  report('浏览器 guest 桥')
-  // 侧边栏浏览器 guest 桥（#118/#134）：仅壳在场（本地窗口）时安装，纯浏览器无副作用
-  installDesktopBrowserBridge()
-  report('桌面档快捷键桥')
-  // 桌面档（desktop:<os>）快捷键桥（#187）：把 dsh 的 desktop 档键盘输入与 keybindings
-  // 偏好接到壳上；只在壳注入了 dshDesktop.keyboard 的本地窗口生效（远程/纯浏览器不装）
-  installDesktopPlatformBridge(ctx)
   report('桌面设置 tab')
   registerDesktopSettings(ctx, t)
   report('通知设置 tab')
