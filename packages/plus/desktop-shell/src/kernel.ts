@@ -28,7 +28,7 @@ export function createShellKernel(deps: ShellKernelDeps): ShellKernel {
     get state(): ShellKernelState {
       return { tray: tray !== undefined, hostPhase }
     },
-    claimSingleInstance(refocus: () => void): boolean {
+    claimSingleInstance(refocus: (argv: string[]) => void): boolean {
       if (isolatedInstance()) {
         // Isolated instances must never touch the running application: a distinct userData directory
         // keeps Electron's single-instance lock and its storage apart from the user's installation.

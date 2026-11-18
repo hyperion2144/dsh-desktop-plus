@@ -5,6 +5,21 @@
 // 转 Electron 壳 plusRpcRegistry（命令名与形状见 contracts/）。
 // 移植自 dsh-desktop-bun 的 desktop-plugin（Electrobun 壳已换成本仓的 Electron 官方壳 fork）。
 
+// 宿主加载器与静态 import 声明不兼容（实测：整插件加载失败，全部路由注册失效）——
+// node 能力一律动态 import 惰性加载，加载失败时优雅降级（无声/不探测，不影响横幅本身）。
+const nodeModules = {}
+void Promise.all([
+  import('node:child_process').then((m) => { nodeModules.cp = m }),
+  import('node:fs').then((m) => { nodeModules.fs = m }),
+  import('node:os').then((m) => { nodeModules.os = m }),
+  import('node:path').then((m) => { nodeModules.path = m }),
+]).catch(() => { /* 无模块能力：静默降级 */ })
+// 宿主诊断走子进程标准流：stdout 行被壳收进 shell.log 的 info 级，stderr 行是 error 级
+//（Node 里 console.error 走 stderr；console.warn 走 stdout 会被当 info，别用它打告警）。
+const pluginLog = (line, level) => {
+  if (level === 'error') console.error(`[dsh-desktop-plus] ${line}`)
+  else console.log(`[dsh-desktop-plus] ${line}`)
+}
 export const name = 'dsh-desktop-plus'
 
 // 注意：不可为 skills 声明 export const inject——skills 在本插件作用域不可见，
@@ -214,13 +229,347 @@ export function apply(ctx) {
           }
       },
     })
-    ctx.logger?.info?.('dsh-desktop-plus: 壳命令桥已注册（/api/shell.invoke）')
+    pluginLog('routes registered: /api/shell.invoke')
   }
   try {
     if (typeof ctx.inject === 'function') ctx.inject(['connection'], registerShellRpc)
     else registerShellRpc(ctx)
   } catch (error) {
     ctx.logger?.warn?.(`dsh-desktop-plus: 壳命令桥注册失败（${String(error)}）`)
+  }
+
+  // ── 纯插件侧通知（#116 重做，dsh-notify-me 同款架构，壳零改动）──
+  // 页面半区订阅服务快照存储（sessions.list / uiSession.sessionStatus）的边沿，
+  // 经宿主 webServer 路由投递：
+  //   Windows：宿主 spawn PowerShell 原生 toast（系统音 + 协议点击，DND 由系统管控）；
+  //   macOS/Linux：页面 Web Notification（系统横幅+系统音），点击页面手势跳会话。
+  // 通知正文（回复摘要 / 回合终态）由宿主 session/event 累积（该事件只在宿主半区存在），
+  // 页面经 /__dsh-plus/notify-summary 取用。
+  // 设置决策（总开关/场景/免打扰时段/音效档）在宿主读 desktop-settings.json。
+  // toast 的 AUMID 与空激活器 CLSID：未打包应用必须自己注册 AUMID（DisplayName + 指向空
+  // CLSID 的 CustomActivator），否则 Windows 把激活交给同名 AUMID 的 COM 服务器吞掉点击
+  // （dsh-notify-me #41）；CLSID 键空注册 = 无 COM 服务器，系统改走 XML 协议激活。
+  const TOAST_AUMID = 'io.github.hyperion2144.dsh.plus'
+  const TOAST_ACTIVATOR_CLSID = '{9C1D3E48-7A5B-4F62-B8E0-2D4C6A9F3B17}'
+  // 会话通知正文累积（#116）：最后回复文本 + 回合终态；页面在 running 边沿时经
+  // notify-summary 路由读取。条目在下一回合开始（turn/start）时清除——边沿与事件
+  // 的相对时序不保证，保留到下回合开始对两边都安全。
+  const notifyDigestBySession = new Map()
+  const NOTIFY_DIGEST_MAX = 128
+  const recordDigest = (sid, patch) => {
+    if (typeof sid !== 'string' || sid === '') return
+    const prev = notifyDigestBySession.get(sid) ?? {}
+    notifyDigestBySession.delete(sid)
+    notifyDigestBySession.set(sid, { ...prev, ...patch, at: Date.now() })
+    if (notifyDigestBySession.size > NOTIFY_DIGEST_MAX) {
+      notifyDigestBySession.delete(notifyDigestBySession.keys().next().value)
+    }
+  }
+  const dshHomeDir = () => process.env.DSH_HOME || (nodeModules.path !== undefined && nodeModules.os !== undefined ? nodeModules.path.join(nodeModules.os.homedir(), '.dsh') : undefined)
+  const readNotificationConfig = () => {
+    const fallback = { enabled: true, dnd: { on: false, from: '22:00', to: '08:00', suppressFullscreen: true }, scenarios: {} }
+    if (nodeModules.fs === undefined || nodeModules.path === undefined) return fallback
+    try {
+      const raw = JSON.parse(nodeModules.fs.readFileSync(nodeModules.path.join(dshHomeDir(), 'desktop-settings.json'), 'utf8'))
+      const config = raw !== null && typeof raw === 'object' ? raw.notification_config : undefined
+      if (config === null || typeof config !== 'object') return fallback
+      return {
+        enabled: config.enabled !== false,
+        dnd: config.dnd !== null && typeof config.dnd === 'object' ? config.dnd : fallback.dnd,
+        scenarios: config.scenarios !== null && typeof config.scenarios === 'object' ? config.scenarios : {},
+      }
+    } catch {
+      return fallback // 读不到设置：按全开处理（fail-open）
+    }
+  }
+  const inDndWindow = (dnd, now) => {
+    if (dnd?.on !== true) return false
+    const minutes = (value) => {
+      const [h, m] = String(value ?? '').split(':').map(Number)
+      return Number.isFinite(h) && Number.isFinite(m) ? h * 60 + m : null
+    }
+    const start = minutes(dnd.from)
+    const end = minutes(dnd.to)
+    if (start === null || end === null || start === end) return false
+    const current = now.getHours() * 60 + now.getMinutes()
+    return start < end ? current >= start && current < end : current >= start || current < end
+  }
+  // 注册表同步读（Windows 探测用）：reg query 文本 / 二进制值。
+  const regQueryTextSync = (key, args) => {
+    if (nodeModules.cp === undefined) return null
+    try {
+      const r = nodeModules.cp.spawnSync('reg', ['query', key, ...args], { encoding: 'utf8', timeout: 3000 })
+      return r.status === 0 ? (r.stdout ?? '') : null
+    } catch {
+      return null
+    }
+  }
+  const regBinarySync = (key, value) => {
+    const text = regQueryTextSync(key, ['/v', value])
+    if (text === null) return null
+    const m = /REG_BINARY\s+([0-9a-fA-F\s]+)/.exec(text)
+    return m ? Buffer.from(m[1].replace(/\s+/g, ''), 'hex') : null
+  }
+  // 系统免打扰探测（自播音效压制用，三平台）：
+  //   macOS：专注模式断言库；
+  //   Windows：勿扰状态在 CloudStore 二进制里内嵌 UTF-16 文本（Microsoft.QuietHoursProfile.<模式>，
+  //     实时翻转实测有效）。文本起点是奇信偏移（本机 29），只从 0 解码永远解不出——两个偏移各解一次。
+  //     解不出 = 缺席，fail-open。
+  const systemQuietActive = () => {
+    if (process.platform === 'win32') {
+      const raw = regBinarySync(
+        'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\CloudStore\\Store\\DefaultAccount\\Current\\default$windows.data.donotdisturb.quiethourssettings\\windows.data.donotdisturb.quiethourssettings',
+        'Data',
+      )
+      if (raw === null || raw.length === 0) return false
+      const text = `${raw.toString('utf16le')}${raw.subarray(1).toString('utf16le')}`
+      const profile = /QuietHoursProfile\.(\w+)/.exec(text)?.[1]
+      return profile !== undefined && profile !== 'Unrestricted'
+    }
+    if (process.platform !== 'darwin') return false
+    if (nodeModules.cp === undefined || nodeModules.path === undefined || nodeModules.os === undefined) return false
+    try {
+      const assertions = nodeModules.path.join(nodeModules.os.homedir(), 'Library', 'DoNotDisturbDB', 'Assertions.json')
+      const out = nodeModules.cp.spawnSync('/usr/bin/plutil', ['-convert', 'json', '-o', '-', assertions], { encoding: 'utf8', timeout: 3000, stdio: ['ignore', 'pipe', 'ignore'] }).stdout ?? ''
+      const parsed = JSON.parse(out)
+      return (Array.isArray(parsed?.data) ? parsed.data : []).some((entry) => (entry?.storeAssertionRecords ?? []).length > 0)
+    } catch {
+      return false
+    }
+  }
+  // 声音方案映射探测（Windows）：Notification.Default 的 .current 为空（企业镜像常见）时，
+  // toast 隐式/显式默认音全部静默——default 档需回退自播系统通知音。
+  const systemToastSoundAvailable = () => {
+    if (process.platform !== 'win32') return true
+    const text = regQueryTextSync('HKCU\\AppEvents\\Schemes\\Apps\\.Default\\Notification.Default\\.current', ['/ve'])
+    if (text === null) return true // 读不到 = 不确定，按健全处理（不额外自播）
+    // 值类型是 REG_EXPAND_SZ（系统默认 hive / ExpandString 写回均为此类型），只认 REG_SZ 会永不命中
+    // → 健全映射被误判缺失 → default 档回退自播与系统 toast 声叠成两声（#117 实测回归）。
+    const m = /REG_(?:EXPAND_)?SZ\s+(.*)/.exec(text)
+    const value = m?.[1]?.trim() ?? ''
+    return value !== '' && !value.includes('值不存在') && !value.includes('The system cannot find')
+  }
+  // 自播一个音频文件（绝对路径）；播放后端缺席时静默降级，不影响横幅本身。
+  const playSoundFile = (file) => {
+    if (nodeModules.cp === undefined || typeof file !== 'string' || file === '') return
+    try {
+      if (process.platform === 'win32') {
+        nodeModules.cp.spawn('powershell', ['-NoProfile', '-NonInteractive', '-STA', '-Command', `$p = New-Object System.Media.SoundPlayer -ArgumentList '${file}'; $p.PlaySync()`], { stdio: 'ignore' })?.unref?.()
+        return
+      }
+      if (process.platform === 'darwin') {
+        nodeModules.cp.spawn('/usr/bin/afplay', [file], { stdio: 'ignore' })?.unref?.()
+        return
+      }
+      nodeModules.cp.spawn('paplay', [file], { stdio: 'ignore' })?.unref?.()
+    } catch {
+      // 播放后端缺席：静默降级，不影响横幅本身。
+    }
+  }
+  // 自定义音效自播：$DSH_HOME/sounds/<名>。
+  const playNotificationSound = (sound) => {
+    if (nodeModules.path === undefined) return
+    if (sound === 'default' || sound === 'none' || sound === '') return
+    playSoundFile(nodeModules.path.join(dshHomeDir(), 'sounds', sound))
+  }
+  // 通知决策：设置门 + 音效档（页面与宿主 toast 共用同一决策）。
+  const decideNotify = (type) => {
+    const settings = readNotificationConfig()
+    // 场景 key 归一化：设置 UI 写点号（task.complete），通知类型传连字符（task-complete）——
+    // 不归一化时场景开关与场景音效永远匹配不上（静默全开，#116 整改发现）。
+    const scenario = settings.scenarios[type] ?? settings.scenarios[String(type).replace(/-/g, '.')]
+    if (settings.enabled === false || scenario?.enabled === false) return { allow: false, sound: 'none' }
+    const sound = inDndWindow(settings.dnd, new Date()) || scenario?.sound === 'none' ? 'none' : scenario?.sound ?? 'default'
+    return { allow: true, sound }
+  }
+
+  // ── 通知路由（dsh-notify-me 同款）：页面同源 fetch 直达宿主 webServer（壳转发 dsh-app://app）──
+  // 壳以 ELECTRON_RUN_AS_NODE=1 跑宿主（desktopNodeEnvironment），process.versions.electron 是 undefined——
+  // 不能拿它当桌面宿主信号；宿主进程本身就是桌面宿主，win32 即可判定。
+  const isWindowsDesktop = process.platform === 'win32'
+  // Windows 10（build < 22000）不分发未打包应用的 toast 协议激活（microsoft-ui-xaml #1939，
+  // 未回移 19041/19045 分支）：原生 toast 能弹但点击被吞。页面据 notify-config 的 native
+  // 标志回退 Web Notification（Electron 渲染层 toast，点击走 onclick 手势，完整可用）。
+  const isWindowsToastCapable = () => {
+    if (!isWindowsDesktop) return false
+    try {
+      const build = Number(nodeModules.os?.release?.().split('.')[2])
+      return Number.isFinite(build) ? build >= 22000 : true
+    } catch {
+      return true
+    }
+  }
+  const notifyHelpersDir = () => {
+    if (nodeModules.path === undefined || nodeModules.os === undefined) return undefined
+    const local = process.env.LOCALAPPDATA || nodeModules.path.join(nodeModules.os.homedir(), 'AppData', 'Local')
+    return nodeModules.path.join(local, 'dsh-desktop-plus', 'notify')
+  }
+  // 首次部署：asar 内脚本复制到磁盘（PowerShell 不能执行 asar 内文件）+ 注册 dsh-plus:// 协议。
+  let notifyHelpersReady = null
+  const deployNotifyHelpers = () => {
+    if (notifyHelpersReady !== null) return notifyHelpersReady
+    notifyHelpersReady = (async () => {
+      if (!isWindowsDesktop || nodeModules.fs === undefined || nodeModules.path === undefined) return false
+      const dir = notifyHelpersDir()
+      if (dir === undefined) return false
+      try {
+        for (const name of ['win-toast.ps1', 'icon.png']) {
+          // icon.png 是二进制：不能用 utf8 文本读（会毁图）。
+          const src = await nodeModules.fs.promises.readFile(new URL('./notify/' + name, import.meta.url))
+          nodeModules.fs.writeFileSync(nodeModules.path.join(dir, name), src)
+        }
+        // #116 直通：协议命令指向应用本体（宿主 execPath = 应用 exe，已实测），
+        // URL 完整进 argv → 单实例 second-instance → 壳路由窗口 + executeJavaScript。
+        // 记录-消费整套（vbs / actions 目录 / 轮询）已退役。
+        const command = '"' + process.execPath + '" "%1"'
+        const reg = (args) => new Promise((resolve) => { nodeModules.cp.execFile('reg', args, () => resolve(true)) })
+        await reg(['add', 'HKCU\\Software\\Classes\\dsh-plus', '/ve', '/d', 'URL:DSH Desktop Plus', '/f'])
+        await reg(['add', 'HKCU\\Software\\Classes\\dsh-plus', '/v', 'URL Protocol', '/d', '', '/f'])
+        await reg(['add', 'HKCU\\Software\\Classes\\dsh-plus\\shell\\open\\command', '/ve', '/d', command, '/f'])
+        // toast 的应用身份（dsh-notify-me #41 教训）：AUMID 指向空 CLSID 的 CustomActivator，
+        // Windows 11 才会把激活按 XML 协议分发；不注册则点击可能被同名 AUMID 的 COM 服务器吞掉。
+        const aumidKey = 'HKCU\\Software\\Classes\\AppUserModelId\\' + TOAST_AUMID
+        await reg(['add', aumidKey, '/v', 'DisplayName', '/d', 'DSH Desktop Plus', '/f'])
+        await reg(['add', aumidKey, '/v', 'CustomActivator', '/d', TOAST_ACTIVATOR_CLSID, '/f'])
+        await reg(['add', 'HKCU\\Software\\Classes\\CLSID\\' + TOAST_ACTIVATOR_CLSID, '/f'])
+        // toast 图标：AUMID 不带 IconUri 时 ToastGeneric 左下角是空白（#117 实测）；file:/// 指向部署出的图标。
+        const iconUri = 'file:///' + nodeModules.path.join(dir, 'icon.png').replace(/\\/g, '/')
+        await reg(['add', aumidKey, '/v', 'IconUri', '/d', iconUri, '/f'])
+        pluginLog('notify helpers deployed')
+        return true
+      } catch (e) {
+        pluginLog(`helpers deploy failed: ${String(e?.message ?? e)}`, 'error')
+        return false
+      }
+    })()
+    return notifyHelpersReady
+  }
+  const runNotifyPowerShell = (script, extraArgs) => new Promise((resolve) => {
+    const dir = notifyHelpersDir()
+    if (dir === undefined || nodeModules.cp === undefined || nodeModules.path === undefined) { resolve({ ok: false, detail: 'no-dir' }); return }
+    const ps = nodeModules.path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
+    let child
+    try {
+      child = nodeModules.cp.spawn(ps, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', nodeModules.path.join(dir, script)].concat(extraArgs), { windowsHide: true, stdio: ['ignore', 'ignore', 'pipe'] })
+    } catch (e) { resolve({ ok: false, detail: 'spawn-failed' }); return }
+    let stderr = ''
+    let settled = false
+    const timer = setTimeout(() => { if (settled) return; settled = true; try { child.kill() } catch { }; resolve({ ok: false, detail: 'timeout' }) }, 20000)
+    child.stderr.setEncoding('utf8')
+    child.stderr.on('data', (c) => { stderr += c })
+    child.on('error', () => { if (settled) return; settled = true; clearTimeout(timer); resolve({ ok: false, detail: 'spawn-error' }) })
+    child.on('close', (code) => { if (settled) return; settled = true; clearTimeout(timer); resolve({ ok: code === 0, detail: stderr.trim().slice(0, 200) || ('exit-' + code) }) })
+  })
+  let notifyTagSeq = 0
+  const registerNotifyRoutes = (scope) => {
+    const webServer = scope?.webServer
+    if (webServer?.register === undefined) {
+      pluginLog('webServer service unavailable; notify routes not registered')
+      return
+    }
+    // 发送方的 profile 名（多 profile 通知路由用）：宿主知道自己是谁（busy 代码同源）。
+    const notifyProfileName = (() => {
+      try { return String(scope?.get?.('profileContext')?.name ?? '') } catch { return '' }
+    })()
+    const json = (res, status, body) => {
+      const data = JSON.stringify(body)
+      res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Content-Length': Buffer.byteLength(data) })
+      res.end(data)
+    }
+    const readJsonBody = (req, limit) => new Promise((resolve) => {
+      let size = 0
+      const chunks = []
+      req.on('data', (c) => { size += c.length; if (size > limit) { resolve(null); return } chunks.push(c) })
+      req.on('end', () => { try { resolve(JSON.parse(Buffer.concat(chunks).toString('utf8'))) } catch { resolve(null) } })
+      req.on('error', () => resolve(null))
+    })
+    const INTENT = { 'x-dsh-plus-notify': '1' }
+    webServer.register({
+      kind: 'exact', path: '/__dsh-plus/notify-config',
+      handler: (req, res) => {
+        if (req.method !== 'GET' && req.method !== 'HEAD') { json(res, 405, { ok: false }); return }
+        const scenario = String(new URL(req.url ?? '/', 'http://x').searchParams.get('scenario') ?? '')
+        const decision = decideNotify(scenario)
+        json(res, 200, { ok: true, native: isWindowsToastCapable(), ...decision })
+      },
+    })
+    webServer.register({
+      kind: 'exact', path: '/__dsh-plus/notify',
+      handler: (req, res) => {
+        if (req.method !== 'POST') { json(res, 405, { ok: false }); return }
+        if (req.headers['x-dsh-plus-notify'] !== '1') { json(res, 403, { ok: false }); return }
+        if (!isWindowsToastCapable()) { json(res, 501, { ok: false, reason: isWindowsDesktop ? 'toast-activation-unsupported' : 'non-windows' }); return }
+        void (async () => {
+          const note = await readJsonBody(req, 16 * 1024)
+          if (note === null || typeof note !== 'object' || typeof note.title !== 'string') { json(res, 400, { ok: false }); return }
+          const decision = decideNotify(String(note.type ?? ''))
+          if (!decision.allow) {
+            pluginLog(`toast skipped: scenario disabled: ${String(note.type ?? '')}`)
+            json(res, 200, { ok: true, delivered: false })
+            return
+          }
+          const ready = await deployNotifyHelpers()
+          if (!ready) {
+            pluginLog('toast abort: notify helpers unavailable', 'error')
+            json(res, 502, { ok: false, reason: 'helpers-unavailable' })
+            return
+          }
+          notifyTagSeq += 1
+          const payload = {
+            aumid: TOAST_AUMID,
+            title: String(note.title).slice(0, 200),
+            body: String(note.body ?? '').slice(0, 1000),
+            tag: 'dshp' + notifyTagSeq.toString(36),
+            session: typeof note.sessionId === 'string' ? note.sessionId.slice(0, 200) : '',
+            sound: typeof note.sound === 'string' && note.sound !== '' ? note.sound : decision.sound,
+            // 发送方 profile：#116 直通路由用（哪条横幅跳哪个 profile 的窗口，不写死）。
+            profile: notifyProfileName,
+          }
+          const encoded = Buffer.from(JSON.stringify(payload), 'utf8').toString('base64')
+          const result = await runNotifyPowerShell('win-toast.ps1', ['-Base64', encoded])
+          const sound = payload.sound
+          if (sound !== 'default' && sound !== 'none') {
+            // 自定义档：toast 静音 + 自播，过系统勿扰闸（自播不受勿扰管辖，#117 实测）。
+            if (!systemQuietActive()) playNotificationSound(sound)
+          } else if (sound === 'default' && !systemQuietActive() && !systemToastSoundAvailable()) {
+            // default 档回退：声音方案映射被清（企业镜像）时 toast 无声，自播系统通知音兑底。
+            playSoundFile(nodeModules.path.join(process.env.SystemRoot || 'C:\\Windows', 'media', 'Windows Notify System Generic.wav'))
+          }
+          pluginLog(`toast: ${String(note.type ?? '')} sound=${sound} -> ${result.ok ? 'ok' : result.detail}`)
+          json(res, result.ok ? 200 : 502, { ok: result.ok, delivered: result.ok })
+        })()
+      },
+    })
+    webServer.register({
+      kind: 'exact', path: '/__dsh-plus/play-sound',
+      handler: (req, res) => {
+        if (req.method !== 'POST') { json(res, 405, { ok: false }); return }
+        void (async () => {
+          const body = await readJsonBody(req, 4096)
+          const sound = body !== null && typeof body === 'object' ? String(body.sound ?? '') : ''
+          const quiet = systemQuietActive()
+          pluginLog(`play-sound: ${sound} quiet=${quiet}`)
+          if (sound !== '' && sound !== 'default' && sound !== 'none' && !quiet) playNotificationSound(sound)
+          json(res, 200, { ok: true, quiet })
+        })()
+      },
+    })
+    webServer.register({
+      kind: 'exact', path: '/__dsh-plus/notify-summary',
+      handler: (req, res) => {
+        if (req.method !== 'GET' && req.method !== 'HEAD') { json(res, 405, { ok: false }); return }
+        const session = String(new URL(req.url ?? '/', 'http://x').searchParams.get('session') ?? '').slice(0, 200)
+        const digest = session !== '' ? notifyDigestBySession.get(session) : undefined
+        json(res, 200, { ok: true, summary: digest?.summary ?? '', kind: digest?.kind ?? '', error: digest?.error ?? '' })
+      },
+    })
+    pluginLog('notify routes registered: /__dsh-plus/notify, notify-config, play-sound, notify-summary')
+  }
+  try {
+    if (typeof ctx.inject === 'function') ctx.inject(['webServer'], registerNotifyRoutes)
+    else registerNotifyRoutes(ctx)
+  } catch (error) {
+    pluginLog(`notify routes registration failed: ${String(error)}`, 'error')
   }
 
   // ── dsh 原生事件桥（#142）：session/event → 桌面壳（宿主 IPC plus-shell-notify）──
@@ -233,10 +582,12 @@ export function apply(ctx) {
   const sendShellNotice = (notice) => {
     try { process.send({ type: 'plus-shell-notify', notice }) } catch { /* 壳不在：通知不是关键路径 */ }
   }
-  const report = (type, body) => sendShellNotice({ type, body })
+  const report = (type, body, extra) => {
+    // busy 心跳走壳（托盘防休眠）；会话通知不再经壳——页面半区订阅事件后直接投递。
+    if (type === 'busy-state') { sendShellNotice({ type, body, ...extra }); return }
+  }
 
-  const lastTurnEndAt = new Map()
-  const TURN_END_DEBOUNCE_MS = 10_000
+  // 摘要与通知触发已迁页面半区（#116 重做）：宿主只保留 busy 状态机。
 
   // ── 会话忙状态上报（#186）：驱动桌面壳的防休眠断言 ──
   // 口径（用户拍板）：正在跑的会话 = 有 turn 在跑，且**不在等人工**
@@ -272,17 +623,34 @@ export function apply(ctx) {
           ;({ session, event } = args[0])
         }
         if (!event || typeof event.type !== 'string') return
+        if (event.type === 'assistant/message') {
+          // 回复摘要（宿主事件，页面拿不到）：取最后一个 text block，入会话 digest。
+          const sid = session?.id ?? ''
+          const content = event.data?.message?.content
+          if (sid !== '' && Array.isArray(content)) {
+            for (let i = content.length - 1; i >= 0; i -= 1) {
+              const block = content[i]
+              if (block?.type !== 'text' || typeof block.text !== 'string') continue
+              const text = block.text.replace(/\s+/g, ' ').trim()
+              if (text !== '') { recordDigest(sid, { summary: text.slice(0, 500) }); break }
+            }
+          }
+          return
+        }
 
         // #186：忙状态转移（与通知解耦——busy-state 不投递通知，只驱动防休眠）
         if (event.type === 'turn/start') {
-          if (session?.id) busySessions.add(session.id)
+          if (session?.id) {
+            busySessions.add(session.id)
+            // 新回合开始：上一回合的 digest 作废（避免旧摘要配新完成）。
+            notifyDigestBySession.delete(session.id)
+          }
           reportBusy(false)
           return
         }
         if (event.type === 'approval/asked') {
           if (session?.id) waitingSessions.add(session.id)
           reportBusy(false)
-          report('dsh-approval', session?.title ? `「${session.title}」等待你的审批确认` : '')
           return
         }
         if (event.type === 'approval/decided') {
@@ -313,28 +681,19 @@ export function apply(ctx) {
 
         if (event.type === 'turn/end') {
           const sid = session?.id ?? ''
-          // 忙状态先摘（不受下面的 10s 防抖影响：防休眠要随回合**立刻**释放）
+          // 忙状态先摘：防休眠要随回合立刻释放；通知触发在页面半区（#116 重做）。
           if (sid) {
             busySessions.delete(sid)
             waitingSessions.delete(sid)
           }
+          const reason = event.data?.reason
+          if (sid !== '') {
+            recordDigest(sid, {
+              kind: typeof reason?.kind === 'string' ? reason.kind : 'done',
+              error: reason?.kind === 'error' && typeof reason?.error?.message === 'string' ? reason.error.message.slice(0, 500) : '',
+            })
+          }
           reportBusy(false)
-          const now = Date.now()
-          const last = lastTurnEndAt.get(sid) ?? 0
-          if (now - last < TURN_END_DEBOUNCE_MS) return
-          lastTurnEndAt.set(sid, now)
-          // event.data.reason.kind 区分结束原因（dsh-notifier 同源语义），
-          // 文案不依赖 session.title（实测载荷中常不可用）。
-          const kind = event.data?.reason?.kind ?? 'done'
-          const kindText = {
-            error: '回合异常结束',
-            blocked: '回合被阻塞',
-            'max-tokens': '回合达到 token 上限',
-            interrupted: '回合被打断',
-            done: '回合已结束',
-          }[kind] ?? '回合已结束'
-          const err = kind === 'error' ? (event.data?.reason?.error?.message ?? '') : ''
-          report('task-complete', err ? `${kindText}：${err}`.slice(0, 200) : kindText)
         }
       } catch { /* 单个事件处理失败不影响 dsh */ }
     },
@@ -361,10 +720,11 @@ export function apply(ctx) {
     'agent/error',
     (payload = {}) => {
       try {
-        const agent = payload?.agent
+        const sid = payload?.agent?.session?.id ?? ''
         const msg = typeof payload?.error === 'string' ? payload.error : (payload?.error?.message ?? '')
-        const title = agent?.session?.title ?? ''
-        report('dsh-error', [title ? `「${title}」` : '', msg].filter(Boolean).join(' ').slice(0, 200))
+        // 错误情报入会话 digest（页面 running 边沿时取用）；不再走 report——它只放行
+        // busy-state，旧调用是死代码（#116 整改）。
+        if (sid !== '' && msg !== '') recordDigest(sid, { kind: 'error', error: String(msg).slice(0, 500) })
       } catch { /* 忽略 */ }
     },
     { global: true },

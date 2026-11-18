@@ -1,6 +1,8 @@
 /** Public surface of the plus shell kernel. */
 
 export { createShellKernel, isolatedInstance, NO_SINGLETON_ENV } from './kernel.ts'
+export { PLUS_OPEN_URL_PREFIX, parsePlusOpenUrl, plusFocusSessionScript } from './notify-open.ts'
+export type { PlusOpenTarget } from './notify-open.ts'
 export type { HostPhase, ShellApp, ShellKernel, ShellKernelDeps, ShellKernelState, TrayHandle } from './types.ts'
 export { createPlusTray } from './tray.ts'
 export type { PlusTrayActions } from './tray.ts'
@@ -23,7 +25,8 @@ export { soundCapabilityReport, playSoundFile, soundCapabilityOf, createSoundPro
 export { resolveProxyEnv, proxyEnvRecord, type ProxyEnv, type DesktopProxySettings } from './net/proxy-env.ts'
 export { detectSystemProxy } from './net/detect.ts'
 export { PLUS_APP_USER_MODEL_ID, applyWindowsAppUserModelId, createPlusNotifier } from './notifications/electron.ts'
-export type { NotificationFactory, NotifierDeps, PlusNotifier } from './notifications/electron.ts'
+export { createSystemQuietGate, quietModeFromRegOutput, focusAssertionsFromPlutilJson, type SystemQuietGate, type SystemQuietGateOptions } from './notifications/system-quiet.ts'
+export type { NotificationFactory, NotifierDeps, NoticeClickTarget, PlusNotifier } from './notifications/electron.ts'
 export { deliverHostNotice, isPlusHostNotice, noticePolicyFromConfig, PLUS_NOTICE_SCENARIOS, type HostNoticeDeps, type PlusHostNotice } from './notifications/host-bridge.ts'
 export { createBusyLease, type BusyLease, type BusyLeaseDeps } from './notifications/busy-lease.ts'
 export * from './logging/logger.ts'

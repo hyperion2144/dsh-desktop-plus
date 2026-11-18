@@ -1,10 +1,16 @@
 diff --git a/upstream/apps/desktop-host/src/index.ts b/upstream/apps/desktop-host/src/index.ts
-index 966e51a3..a8337d8a 100644
+index 966e51a3..5db8adc2 100644
 --- a/upstream/apps/desktop-host/src/index.ts
 +++ b/upstream/apps/desktop-host/src/index.ts
-@@ -30,7 +30,9 @@ async function main(): Promise<void> {
+@@ -28,9 +28,14 @@ async function main(): Promise<void> {
+   reportSkippedBundles('dsh', profile)
+   const application = runProfile({
      environment: loadLayeredEnv('dsh'),
-     profile: 'desktop',
+-    profile: 'desktop',
++    // #117 多 profile 路由：上报真实 profile 名（loadProfileDirectory 已算出 basename(dir)：
++    // 默认 profile 的目录名就是 desktop，smoke 为 smoke）。写死 'desktop' 会让 profile 宿主
++    // 自报错误身份——通知路由、忙状态标签、UA 后缀全挂错窗口。
++    profile: profile.name,
      resolvedProfile: { profile, installAnchor },
 -    patchFiles: [],
 +    // 壳自己的插件走 --patch 叠加层（bun 同款）：不写进 profile 的 package.json.bundles，
@@ -13,7 +19,7 @@ index 966e51a3..a8337d8a 100644
      args: ['--no-open', '--host', '127.0.0.1', '--port', '0'],
      ...(process.argv[5] === undefined ? {} : {
        packageManager: {
-@@ -70,6 +72,19 @@ async function main(): Promise<void> {
+@@ -70,6 +75,19 @@ async function main(): Promise<void> {
    process.on('message', (message: unknown) => {
      if (typeof message !== 'object' || message === null || !('type' in message)) return
      if (message.type === 'shutdown') { void stop(); return }
@@ -33,7 +39,7 @@ index 966e51a3..a8337d8a 100644
      if (message.type === 'file-drag-cancel') {
        if ('requestId' in message && typeof message.requestId === 'number') dragReads.get(message.requestId)?.abort()
        return
-@@ -127,13 +142,21 @@ async function main(): Promise<void> {
+@@ -127,13 +145,21 @@ async function main(): Promise<void> {
    process.once('disconnect', () => { void stop() })
    const { ctx } = await application
    installOperationDiagnostics(ctx, record => send({ type: 'plugin-operation', record }), 32, runId)

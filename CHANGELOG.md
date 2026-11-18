@@ -3,6 +3,14 @@
 ## 未发布
 - 修复 macOS 未签名构建应用内更新必然被 ShipIt 签名校验拒绝的问题：未签名构建的「安装更新」改为下载并打开 dmg 由用户手动安装，签名构建流程不变 (#122)。
 - 内核升级到官方 dsh-v0.2.2-rc.3（38a6a5c9）：补丁集随上游重新生成，依赖图同步更新。
+- 通知改为纯插件侧实现（dsh-notify-me 同款触发源）：页面订阅 sessions.list / uiSession.sessionStatus 快照边沿，待交互与回复完成都触发；Windows 走宿主原生 toast（注册自有 AUMID + 空激活器，Win10 自动回退 Web Notification），其余平台 Web Notification；正文摘要与回合终态由宿主事件累积、页面经路由取用 (#116)。
+- 通知点击改为直通触发：toast 的 dsh-plus:// 协议携带 profile + session，协议命令指向应用本体，壳单实例 second-instance（应用未运行时为启动 argv）按 profile 路由窗口（先聚焦）并 executeJavaScript 跳会话，跳转失败落日志；记录文件+消费（vbs/队列/轮询）整套退役 (#116)。
+- profile 宿主上报真实身份：入口不再写死 `profile: 'desktop'`，多 profile 的通知路由、忙状态标签与 UA 后缀不再串到桌面窗口 (#116)。
+- 通知脚本门禁：Windows 测试用 PowerShell 解析器校验 notify/*.ps1 语法，并以带 profile+session 的完整 payload 跑 `-DryRun`（只构建并 LoadXml 不弹），语法错误与非法 XML 两类缺陷挡在构建期；修复 launch 属性裸 `&` 导致的 toast XML 非法 (#116)。
+- 每场景音效与免打扰时段真实生效：设置「无声」不再被忽略、自定义音效按设置播放、免打扰时段内静默；场景 key 归一化修复——设置页关闭「任务完成 / 等待审批」此前永远匹配不上 (#116)。
+- 系统级免打扰（Windows 免打扰、macOS 专注模式）开启时不再出声：Windows 声音全部经系统 toast 默认音（受系统管控），自播（自定义档与映射缺失回退）过勿扰闸，macOS 自播受静音探针门 (#116)。
+- Windows toast 图标：AUMID 部署时写入 IconUri（应用图标随插件分发），不再空白 (#116)。
+- 声音方案映射被清（企业镜像）时默认音自播系统通知音兑底；试听改为直接触发一次真实通知（同一投递链路、同音效档，试到的即实际行为）(#116)。
 
 ## 已发布
 

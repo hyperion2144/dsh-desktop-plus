@@ -23,12 +23,12 @@ import type { Commands } from '../../../contracts/index.ts'
 import {
   capabilityHint,
   configuredSoundWarning,
-  previewFailure,
   customSoundOptions,
   permissionUnavailableCopy,
   deniedPermissionCopy,
   type SoundCapability,
 } from './notification-sound-ui.ts'
+import { previewNotification } from '../notify/deliver.ts'
 
 export const inject = ['slots']
 
@@ -178,16 +178,14 @@ function NotificationSettingsPanel(): React.ReactElement {
       .catch((e) => console.warn('[notifications] 导入音效失败', e))
   }
 
-  /** 试听（#74）：壳会说「真放出去了但没出声」——那种必须看得见，不许静默。 */
+  /** 试听（#117 实测口径）：直接触发一次真实通知——同一投递链路、同音效档，
+   *  试到的横幅形态/声音/免打扰表现就是实际行为，不再单独实现预览音逻辑。 */
   const previewSound = (id: string, sound: string): void => {
-    invokeCommand('preview_notification_sound', { sound })
-      .then((res) => {
-        const failure = previewFailure(res, t)
-        setPreviewNote(failure === null ? null : { id, text: failure })
-      })
+    void previewNotification(sound)
+      .then((failure) => { setPreviewNote(failure === null ? null : { id, text: failure }) })
       .catch((e) => {
         logFail(e)
-        setPreviewNote({ id, text: t('试听失败：桌面壳没有响应（详见控制台）') })
+        setPreviewNote({ id, text: t('试听失败：通知投递链路没有响应（详见控制台）') })
       })
   }
 
