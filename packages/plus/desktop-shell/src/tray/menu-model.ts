@@ -44,6 +44,27 @@ export function resolveProfileClick(state: TrayWindowState): 'show-or-focus' | '
 }
 
 /**
+ * Resolves the tray's application-level left click across every open profile.
+ * The target window decides: a focused window hides, anything else comes forward.
+ * A window that is on screen but lost focus is focused, never hidden — hiding it
+ * would make the user click twice to get back to it.
+ * @param states - every open profile with its live window facts.
+ * @param target - profile the click acts on.
+ * @returns the action the click maps to, the profiles it applies to, and the focus target.
+ */
+export function resolveTrayClick(
+  states: readonly { readonly name: string, readonly window: TrayWindowState }[],
+  target: string | undefined,
+): { readonly action: 'hide' | 'show', readonly names: readonly string[], readonly focus: string | undefined } {
+  const focused = target === undefined ? undefined : states.find((state) => state.name === target)
+  const decision = focused === undefined ? 'show-or-focus' : resolveProfileClick(focused.window)
+  if (decision === 'hide') {
+    return { action: 'hide', names: states.filter((state) => state.window.visible).map((state) => state.name), focus: undefined }
+  }
+  return { action: 'show', names: states.map((state) => state.name), focus: target }
+}
+
+/**
  * Dispatches a profile click to the injected actions.
  *
  * @param name profile name from the menu entry.

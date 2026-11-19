@@ -40,10 +40,16 @@ export function listStoreOf(ctx: ClientContext): SnapshotStore<SessionListState>
   return list as SnapshotStore<SessionListState>
 }
 
-/** uiSession 的待交互存储：sessionStatus（0.1.6+ 唯一 live 源）。 */
+/**
+ * uiSession 的待交互存储：sessionStatus（0.1.6+ 唯一 live 源）。
+ *
+ * rc.5 起 `sessionStatus` 是 Cordis 子服务，按 `uiSession.sessionStatus` 读会被属性
+ * 代理拒绝（`cannot get property "uiSession.sessionStatus" without inject`），而这条
+ * 读取不在 try/catch 里，会直接冒泡让整个客户端插件激活失败。按服务名直接
+ * `ctx.get('uiSession.sessionStatus')` 读，与上游 ui-session-status 自己的用法一致。
+ */
 export function statusStoreOf(ctx: ClientContext): SnapshotStore<ReadonlyMap<string, SessionStatusEntry>> | null {
-  const uiSession = lookupService(ctx, 'uiSession') as { sessionStatus?: unknown } | null
-  const store = uiSession?.sessionStatus
+  const store = lookupService(ctx, 'uiSession.sessionStatus')
   if (!isStore(store)) return null
   return store as SnapshotStore<ReadonlyMap<string, SessionStatusEntry>>
 }

@@ -78,4 +78,25 @@ describe('settings rpc handlers', () => {
 		expect(saved.effective?.http).toBe('http://127.0.0.1:7890')
 		expect(handlers.get_proxy_settings({}).proxy_mode).toBe('system')
 	})
+
+	it('refuses a proxy address the product cannot use instead of storing it', () => {
+		const { handlers } = harness()
+		// A stored-but-unusable address would leave the shell and the Host disagreeing.
+		expect(() => handlers.save_proxy_settings({ proxy_url: 'socks5://127.0.0.1:1080' })).toThrow('仅支持 HTTP 代理')
+		expect(handlers.get_proxy_settings({}).proxy_url).toBe('')
+	})
+
+	it('refuses an unusable proxy address through the settings save the panel uses', () => {
+		const { handlers } = harness()
+		// The settings panel saves through save_desktop_settings, not save_proxy_settings.
+		expect(() => handlers.save_desktop_settings({ patch: { proxy_url: 'socks5://127.0.0.1:1080' } }))
+			.toThrow('仅支持 HTTP 代理')
+		expect(handlers.get_proxy_settings({}).proxy_url).toBe('')
+	})
+
+	it('stores the normalized form of an accepted proxy address', () => {
+		const { handlers } = harness()
+		handlers.save_desktop_settings({ patch: { proxy_url: 'http://proxy.corp' } })
+		expect(handlers.get_proxy_settings({}).proxy_url).toBe('http://proxy.corp:80')
+	})
 })

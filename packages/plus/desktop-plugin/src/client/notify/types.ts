@@ -1,5 +1,5 @@
 // #116 通知触发源的本地 duck-typing 契约。
-// 形状对照 upstream 0.2.2-rc.3 的真实服务定义（不 import upstream 类型——本插件
+// 形状对照 upstream 0.2.2-rc.4 的真实服务定义（不 import upstream 类型——本插件
 // 的 client 面向运行时宿主服务，字段以我们实际读取的子集声明）：
 //   - api/session-controller client `sessions.list`：SnapshotStore<SessionListState>
 //     （upstream packages/api/session-controller/src/client/sessions/service.ts）

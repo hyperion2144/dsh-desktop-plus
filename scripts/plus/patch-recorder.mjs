@@ -102,17 +102,25 @@ export function recordPatches({ root, set, adopt }) {
     for (const patch of patches) {
       for (const path of patchFiles(patch)) owners.set(path, patch)
     }
-    // Adopted patch names that no file owns yet join the rewrite set below, so
-    // the first patch of an empty set can be recorded from its claimed paths.
+    // Adopted paths join the named patch's rewrite set, whether that patch file
+    // exists yet or not: a set's first patch is created from them, and an
+    // existing patch takes them over so a path no patch owned is not dropped.
     const adopted = new Map()
     if (typeof adopt === 'string') {
       const separator = adopt.indexOf('=')
       if (separator === -1) throw new Error('--adopt needs <patch>=<path[,path...]>')
       const patch = adopt.slice(0, separator)
       const paths = adopt.slice(separator + 1).split(',').map(path => path.trim()).filter(path => path !== '')
-      for (const path of paths) owners.set(path, patch)
-      const file = patch.endsWith('.patch') ? patch : `${patch}.patch`
-      if (!patches.some(existing => basename(existing) === file)) adopted.set(file, paths)
+      for (const path of paths) {
+        const current = owners.get(path)
+        // A path one patch already owns stays there: adopting it into another patch would
+        // write the same diff into two files, and replaying both would apply it twice.
+        if (typeof current === 'string' && basename(current, '.patch') !== basename(patch, '.patch')) {
+          throw new Error(`--adopt ${patch}: ${path} already belongs to ${basename(current)}`)
+        }
+        owners.set(path, patch)
+      }
+      adopted.set(patch.endsWith('.patch') ? patch : `${patch}.patch`, paths)
     }
     const orphans = changed.filter(path => !owners.has(path))
     if (orphans.length > 0) {
@@ -122,7 +130,7 @@ export function recordPatches({ root, set, adopt }) {
 
     const rewritten = []
     const targets = new Map(patches.map(patch => [basename(patch), patchFiles(patch)]))
-    for (const [name, paths] of adopted) if (!targets.has(name)) targets.set(name, paths)
+    for (const [name, paths] of adopted) targets.set(name, [...targets.get(name) ?? [], ...paths])
     for (const [name, paths] of targets) {
       if (paths.length === 0) continue
       // `--abbrev=8` keeps the recorded blob ids the same length as the ones the

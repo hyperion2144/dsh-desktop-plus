@@ -4,7 +4,24 @@
 
 import type { RpcHandlers } from './types.ts'
 import { loadDesktopSettings, loadRemoteAddressList, saveDesktopSettings } from './desktop-settings.ts'
+import { validateManualProxyUrl } from '../net/proxy-env.ts'
 
+/**
+ * 校验并规范化补丁里的手动代理地址。
+ *
+ * 设置面板与代理卡片是两个入口，但只有一份可用的代理语义：存下用不了的地址
+ * 只会让壳与宿主各自失效，所以两个入口都先过这里，拒绝就不落盘。
+ * @param patch - 待写入的设置补丁。
+ * @returns 同一个补丁对象，`proxy_url` 已换成规范化形式。
+ */
+function validatedProxyPatch(patch: Record<string, unknown>): Record<string, unknown> {
+        const raw = patch['proxy_url']
+        if (typeof raw !== 'string' || raw.trim() === '') return patch
+        const validated = validateManualProxyUrl(raw)
+        if (!validated.ok) throw new Error(validated.error)
+        patch['proxy_url'] = validated.url
+        return patch
+}
 /** 设置组依赖（壳侧注入；测试注入内存实现）。 */
 export interface SettingsRpcDeps {
         platform: () => string
@@ -51,7 +68,7 @@ export function createSettingsRpcHandlers(deps: SettingsRpcDeps): RpcHandlers {
                 },
 
                 save_desktop_settings: (params) => {
-                        const patch = typeof params.patch === 'object' && params.patch !== null ? params.patch as Record<string, unknown> : {}
+                        const patch = validatedProxyPatch(typeof params.patch === 'object' && params.patch !== null ? params.patch as Record<string, unknown> : {})
                         const settings = saveDesktopSettings(deps.dshHome(), patch)
                         for (const key of Object.keys(patch)) {
                                 try {
@@ -74,7 +91,7 @@ export function createSettingsRpcHandlers(deps: SettingsRpcDeps): RpcHandlers {
                         const effective = proxyUrl === '' ? null : {
                                 http: proxyUrl,
                                 https: proxyUrl,
-                                all: proxyUrl,
+                                all: null,
                                 no_proxy: noProxy,
                         }
                         return {
@@ -93,14 +110,14 @@ export function createSettingsRpcHandlers(deps: SettingsRpcDeps): RpcHandlers {
                                 const value = params[key]
                                 if (typeof value === 'string') patch[key] = value
                         }
-                        const settings = saveDesktopSettings(deps.dshHome(), patch)
+                        const settings = saveDesktopSettings(deps.dshHome(), validatedProxyPatch(patch))
                         const proxyUrl = typeof settings['proxy_url'] === 'string' ? settings['proxy_url'] : ''
                         return {
                                 ok: true,
                                 effective: proxyUrl === '' ? null : {
                                         http: proxyUrl,
                                         https: proxyUrl,
-                                        all: proxyUrl,
+                                        all: null,
                                         no_proxy: typeof settings['no_proxy'] === 'string' ? settings['no_proxy'] : '',
                                 },
                         }
@@ -109,6 +126,5 @@ export function createSettingsRpcHandlers(deps: SettingsRpcDeps): RpcHandlers {
                 get_dsh_status: () => ({ status: 2, mode: 'builtin', origin: '127.0.0.1', port: deps.port() ?? 0 }),
                 toggle_zoom: () => ({ ok: true }),
                 ui_input_confirm: () => ({ ok: true }),
-                read_desktop_keybindings: () => null,
         }
 }

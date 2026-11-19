@@ -3,7 +3,7 @@ import {
   dispatchApplicationClick,
   trayMenuOrder,
   dispatchProfileClick,
-  resolveProfileClick,
+  resolveTrayClick,
   type TrayProfileActions,
   type TrayWindowState,
 } from './menu-model.ts'
@@ -166,12 +166,16 @@ export function createProfileTray(deps: ProfileTrayDeps): ProfileTray {
     }
   }
   // 左键：show-hide 才接管，否则交回系统（带 ContextMenu 时系统自己弹）。
+  // 有可见桌面窗口 → 全部隐藏；否则全部还原并聚焦主窗口。对话框不参与。
   tray.on('click', () => {
     if (deps.clickBehavior?.() !== 'show-hide') return
-    const name = deps.clickTargetProfile?.() ?? deps.getStates()[0]?.name
-    if (name === undefined) return
-    const window = deps.getWindowState(name)
-    dispatchProfileClick(name, resolveProfileClick(window), window, deps.actions)
+    const states = deps.getStates().map((state) => ({ name: state.name, window: deps.getWindowState(state.name) }))
+    const click = resolveTrayClick(states, deps.clickTargetProfile?.() ?? states[0]?.name)
+    for (const name of click.names) {
+      if (click.action === 'hide') deps.actions.hide(name)
+      else deps.actions.showOrFocus(name)
+    }
+    if (click.focus !== undefined) deps.actions.showOrFocus(click.focus)
   })
   build()
   return {

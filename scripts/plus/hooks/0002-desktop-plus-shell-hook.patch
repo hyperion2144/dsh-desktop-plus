@@ -1,17 +1,29 @@
 diff --git a/upstream/apps/cli/package.json b/upstream/apps/cli/package.json
-index fc77196c..61bd6fee 100644
+index d44314dc..466d32aa 100644
 --- a/upstream/apps/cli/package.json
 +++ b/upstream/apps/cli/package.json
-@@ -115,6 +115,9 @@
+@@ -116,6 +116,9 @@
      "@deepseek-ai/dsh-experimental-session-search": "workspace:*",
      "@deepseek-ai/dsh-experimental-tool-worktree": "workspace:*",
      "@deepseek-ai/dsh-cua-bundle": "workspace:*",
-+    "@deepseek-ai/dsh-desktop-plus-plugin": "0.2.2-rc.3",
-+    "@deepseek-ai/dsh-desktop-plus-remote-access": "0.2.2-rc.3",
-+    "@deepseek-ai/dsh-desktop-plus-brand": "0.2.2-rc.3",
++    "@deepseek-ai/dsh-desktop-plus-plugin": "0.2.2-rc.5",
++    "@deepseek-ai/dsh-desktop-plus-remote-access": "0.2.2-rc.5",
++    "@deepseek-ai/dsh-desktop-plus-brand": "0.2.2-rc.5",
+     "@deepseek-ai/dsh-cua-mcp": "workspace:*",
+     "@deepseek-ai/dsh-timeline": "workspace:*",
      "@deepseek-ai/dsh-experimental-plugin-market-bundle": "workspace:*",
-     "@deepseek-ai/dsh-personalized-recommendations": "workspace:*",
-     "@deepseek-ai/dsh-experimental-forge-bundle": "workspace:*",
+diff --git a/upstream/apps/desktop/package.json b/upstream/apps/desktop/package.json
+index bb51e36d..37b6deb2 100644
+--- a/upstream/apps/desktop/package.json
++++ b/upstream/apps/desktop/package.json
+@@ -94,6 +94,7 @@
+     "@deepseek-ai/dsh-plugin-manager": "workspace:*",
+     "zod": "4.6.6",
+     "@deepseek-ai/dsh-util-file-drag": "workspace:*",
++    "@deepseek-ai/dsh-util-workspace-path": "workspace:*",
+     "@deepseek-ai/dsh-client-ui-file-actions": "workspace:*",
+     "tencentcloud-sdk-nodejs-teo": "4.1.330",
+     "@deepseek-ai/dsh-desktop-publisher": "workspace:*"
 diff --git a/upstream/apps/desktop/renderer/profile-delete.html b/upstream/apps/desktop/renderer/profile-delete.html
 new file mode 100644
 index 00000000..6402b2b2
@@ -268,10 +280,10 @@ index 00000000..a3c5bbce
 +})
 +input.focus()
 diff --git a/upstream/apps/desktop/scripts/dev.ts b/upstream/apps/desktop/scripts/dev.ts
-index 37515c20..237c3b02 100644
+index 0753678c..c0896891 100644
 --- a/upstream/apps/desktop/scripts/dev.ts
 +++ b/upstream/apps/desktop/scripts/dev.ts
-@@ -60,9 +60,10 @@ async function launchElectron(): Promise<void> {
+@@ -61,17 +61,29 @@ async function launchElectron(): Promise<void> {
    const require = createRequire(import.meta.url)
    const electron: unknown = require('electron')
    if (typeof electron !== 'string') throw new Error('desktop development: electron executable is unavailable')
@@ -282,10 +294,9 @@ index 37515c20..237c3b02 100644
 +  const mainPort = debugPort('DSH_DESKTOP_MAIN_INSPECT_PORT', 9349)
 +  const rendererPort = debugPort('DSH_DESKTOP_RENDERER_DEBUG_PORT', 9342)
 +  const hostPort = debugPort('DSH_DESKTOP_HOST_INSPECT_PORT', 9350)
-   const home = resolve(process.env.DSH_HOME ?? join(DEVELOPMENT_ROOT, 'home'))
-   const userData = resolve(process.env.DSH_DESKTOP_USER_DATA_DIR ?? join(DEVELOPMENT_ROOT, 'electron-user-data'))
+   const { home, userData } = prepareDevelopmentState(APP_ROOT)
    const environment: NodeJS.ProcessEnv = {
-@@ -70,8 +71,19 @@ async function launchElectron(): Promise<void> {
+     ...process.env,
      DSH_HOME: home,
      DSH_DESKTOP_PRIMARY_RUNTIME_DIR: process.env.DSH_DESKTOP_PRIMARY_RUNTIME_DIR ?? developmentRuntimeDirectory(),
      DSH_DESKTOP_HOST_INSPECT_PORT: String(hostPort),
@@ -381,10 +392,10 @@ index 79136479..5205e963 100644
  
  await main()
 diff --git a/upstream/apps/desktop/scripts/smoke-runtime.ts b/upstream/apps/desktop/scripts/smoke-runtime.ts
-index fa2b2f5c..84fb7e50 100644
+index 7f618b72..cee43ec2 100644
 --- a/upstream/apps/desktop/scripts/smoke-runtime.ts
 +++ b/upstream/apps/desktop/scripts/smoke-runtime.ts
-@@ -201,35 +201,41 @@ export function apply(ctx) {
+@@ -200,35 +200,37 @@ export function apply(ctx) {
      if (!installation.ok || !installed.ok || await installed.text() !== 'installed plugin ready') {
        throw new Error(`desktop runtime: bundled pnpm plugin installation failed: ${installationResult}`)
      }
@@ -402,11 +413,7 @@ index fa2b2f5c..84fb7e50 100644
 -      if (!/^%PDF-\d\.\d/u.test(pdf.subarray(0, 8).toString())
 -        || !pdf.subarray(-1024).toString().trimEnd().endsWith('%%EOF')) {
 -        throw new Error(`desktop runtime: invalid ${extension} PDF output`)
-+    // linux 包里没有 LibreOffice 原生 kit（官方只在 mac/win 发布），office 转换探针在 linux 上跳过；
-+    // 其它平台照旧全跑。需要强制跑时置 DSH_DESKTOP_SMOKE_OFFICE=1。
-+    if (process.platform === 'linux' && process.env.DSH_DESKTOP_SMOKE_OFFICE !== '1') {
-+      console.log('desktop runtime: office conversion probe skipped on linux (no native LibreOffice kit)')
-+    } else {
++    {
 +      const skills = await fetch(new URL('/desktop-smoke-skills', ready.url), { headers: { cookie }, signal: AbortSignal.timeout(120_000) })
 +      if (!skills.ok) throw new Error(`desktop runtime: Office skill loading failed: ${await skills.text()}`)
 +      const loadedSkills = await skills.json() as { name: string; bytes: number }[]
@@ -481,11 +488,498 @@ index 8508730b..d4811d75 100644
    const prototype = NsisTarget.prototype
    if (prototype[patched]) return
    prototype[patched] = true
+diff --git a/upstream/apps/desktop/src/browser-guests.ts b/upstream/apps/desktop/src/browser-guests.ts
+index c3f0b10e..e0ad73ea 100644
+--- a/upstream/apps/desktop/src/browser-guests.ts
++++ b/upstream/apps/desktop/src/browser-guests.ts
+@@ -17,8 +17,8 @@ export class DesktopBrowserGuests {
+   private readonly partitions = new Map<string, string>()
+   private readonly leases = new Map<DesktopBrowserLeaseId, GuestLease>()
+ 
+-  /** @param hostUrl - current authenticated DSH Host, which guests cannot request. */
+-  constructor(private readonly hostUrl: () => string | undefined) {}
++  /** @param isHostUrl - whether a URL belongs to an authenticated DSH Host, which guests cannot request. */
++  constructor(private readonly isHostUrl: (url: URL) => boolean) {}
+ 
+   /**
+    * Reserve one guest in a workspace's process-lifetime partition.
+@@ -148,7 +148,7 @@ export class DesktopBrowserGuests {
+       const url = new URL(details.url)
+       const network = ['http:', 'https:', 'ws:', 'wss:'].includes(url.protocol)
+       callback({ cancel: network
+-        ? url.username !== '' || url.password !== '' || this.isApplicationHost(url)
++        ? url.username !== '' || url.password !== '' || this.isHostUrl(url)
+         : !['about:', 'data:', 'blob:'].includes(url.protocol) })
+     })
+   }
+@@ -157,14 +157,6 @@ export class DesktopBrowserGuests {
+     if (!URL.canParse(value)) return false
+     const url = new URL(value)
+     return ['http:', 'https:'].includes(url.protocol) && url.username === '' && url.password === ''
+-      && !this.isApplicationHost(url)
+-  }
+-
+-  private isApplicationHost(url: URL): boolean {
+-    const value = this.hostUrl()
+-    if (value === undefined) return false
+-    const host = new URL(value)
+-    return url.port === host.port
+-      && (url.hostname === host.hostname || ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname))
++      && !this.isHostUrl(url)
+   }
+ }
+diff --git a/upstream/apps/desktop/src/desktop-window.ts b/upstream/apps/desktop/src/desktop-window.ts
+new file mode 100644
+index 00000000..d2aad60f
+--- /dev/null
++++ b/upstream/apps/desktop/src/desktop-window.ts
+@@ -0,0 +1,131 @@
++/** The one construction path for every desktop-shell window: chrome, web preferences, and capability role. */
++
++import type { BrowserWindowConstructorOptions } from 'electron'
++import { WINDOWS_TITLEBAR_HEIGHT } from './windows-layout.ts'
++
++/**
++ * The document role a shell window hosts. The role is a window property: the
++ * main process declares it when it constructs the window, and the preload reads
++ * it back from its own argv. Nothing in the renderer decides its desktop
++ * capability from the document URL it happens to load.
++ *
++ * `product` serves the application document, `profile` serves a local profile
++ * Host, and `remote` shows a profile whose backend and resources live on another
++ * machine while the front end still runs from this install. All three are real
++ * desktop windows and get the same capability carrier; only the two globals that
++ * mean "this machine" (native directory dialog, host file paths) are withheld
++ * from `remote`, where the correct answer comes from the remote Host instead.
++ */
++export type DesktopWindowRole = 'product' | 'profile' | 'remote'
++
++/** Roles whose document is served by this machine, so machine-local globals apply. */
++export const LOCAL_DESKTOP_ROLES: readonly DesktopWindowRole[] = ['product', 'profile']
++
++/**
++ * Whether a role hosts a document served by this machine, so globals that mean
++ * "a path or dialog on this computer" are correct for it.
++ * @param role - role declared by the constructing window.
++ * @returns true for a window whose document comes from this machine.
++ */
++export function isLocalDesktopRole(role: DesktopWindowRole): boolean {
++  return LOCAL_DESKTOP_ROLES.includes(role)
++}
++
++/** `webPreferences.additionalArguments` switch that carries the role to the preload. */
++const ROLE_SWITCH = '--dsh-desktop-window='
++
++/**
++ * Encode one window role for the renderer.
++ * @param role - role declared by the constructing window.
++ * @returns the additional-argument token the preload reads.
++ */
++export function desktopWindowRoleArgument(role: DesktopWindowRole): string {
++  return `${ROLE_SWITCH}${role}`
++}
++
++/**
++ * Read the role the main process declared for this renderer.
++ * @param argv - renderer process argv (sandboxed preloads see the same array).
++ * @returns the declared role, or undefined when this renderer is not a shell window.
++ */
++export function desktopWindowRole(argv: readonly string[]): DesktopWindowRole | undefined {
++  // Every declaration must agree: two different roles mean the renderer cannot be
++  // classified, so it gets no desktop capability at all.
++  const declared = argv.filter(value => value.startsWith(ROLE_SWITCH)).map(value => value.slice(ROLE_SWITCH.length))
++  const role = declared.at(-1)
++  if (role === undefined || declared.some(value => value !== role)) return undefined
++  return role === 'product' || role === 'profile' || role === 'remote' ? role : undefined
++}
++
++/**
++ * The opaque chrome fill matching the built-in sidebar palette (the resolved
++ * `--dsw-static-neutral-bluish-900` / `-50` tokens).
++ * @param dark - whether the effective application palette is dark.
++ * @returns the sidebar fill hex color.
++ */
++export function desktopChromeFill(dark: boolean): string {
++  return dark ? '#1b1b1c' : '#f9fafb'
++}
++
++/** Inputs the shared window construction resolves from. */
++export interface DesktopWindowOptionsInput {
++  /** Declared window role; only the renderer capability argument derives from it. */
++  readonly role: DesktopWindowRole
++  /** Absolute preload script path. */
++  readonly preload: string
++  /** Create the window visible. */
++  readonly show: boolean
++  /** Session partition for an isolated profile window; the default session otherwise. */
++  readonly partition?: string
++  /** Host platform, passed in so the options are a pure function. */
++  readonly platform: NodeJS.Platform
++  /** Effective application palette is dark. */
++  readonly dark: boolean
++}
++
++/**
++ * Build the options every desktop-shell window is constructed from. Product and
++ * profile windows differ in their preload arguments and session partition only:
++ * native chrome, transparency, and web preferences are identical, so a profile
++ * window that follows this path is a desktop window rather than an imitation.
++ * @param input - role, preload, visibility, partition, platform, and palette.
++ * @returns the BrowserWindow options for one desktop-shell window.
++ */
++export function desktopWindowOptions(input: DesktopWindowOptionsInput): BrowserWindowConstructorOptions {
++  const { role, preload, show, partition, platform, dark } = input
++  return {
++    width: 1280,
++    height: 820,
++    minWidth: 520,
++    minHeight: 600,
++    show,
++    ...(platform === 'win32' ? {
++      backgroundColor: desktopChromeFill(dark),
++      titleBarStyle: 'hidden' as const,
++      titleBarOverlay: { height: WINDOWS_TITLEBAR_HEIGHT, color: desktopChromeFill(dark),
++        symbolColor: dark ? '#f9fafb' : '#0f1115' },
++    } : {}),
++    // hiddenInset places traffic lights inside the sidebar; sidebar vibrancy
++    // needs a transparent window background to show through the page.
++    ...(platform === 'darwin' ? {
++      titleBarStyle: 'hiddenInset' as const,
++      trafficLightPosition: { x: 16, y: 18 },
++      vibrancy: 'sidebar' as const,
++      // 'active' keeps the vibrancy material stable when the window blurs;
++      // 'followWindow' washes the sidebar out behind an unfocused window.
++      visualEffectState: 'active' as const,
++      backgroundColor: '#00000000',
++    } : {}),
++    webPreferences: {
++      preload,
++      ...(partition === undefined ? {} : { partition }),
++      nodeIntegration: false,
++      contextIsolation: true,
++      sandbox: true,
++      webSecurity: true,
++      webviewTag: true,
++      devTools: true,
++      additionalArguments: [desktopWindowRoleArgument(role)],
++    },
++  }
++}
+diff --git a/upstream/apps/desktop/src/desktop-windows.ts b/upstream/apps/desktop/src/desktop-windows.ts
+new file mode 100644
+index 00000000..69848d9c
+--- /dev/null
++++ b/upstream/apps/desktop/src/desktop-windows.ts
+@@ -0,0 +1,170 @@
++/** Ownership and document-origin verification for every desktop-shell window. */
++
++import type { DesktopWindowRole } from './desktop-window.ts'
++
++/** The parts of a native window this registry addresses. */
++export interface DesktopWindowFrame {
++  /** Native window contents; its id identifies the renderer process. */
++  readonly webContents: { readonly id: number; readonly mainFrame: object }
++}
++
++/** One IPC sender as the registry needs to see it; Electron's own events satisfy this. */
++export interface DesktopIpcEvent {
++  /** Renderer that sent the request. */
++  readonly sender: { readonly id: number; readonly mainFrame: object }
++  /** Frame that sent the request, absent for a destroyed sender. */
++  readonly senderFrame: { readonly url: string } | null
++}
++
++/**
++ * Origin of a document URL, including custom schemes whose `URL.origin` is opaque.
++ *
++ * Loopback host names are normalized: `localhost`, `127.0.0.1`, and `[::1]` with
++ * the same port address one Host, and a Host that reports a different loopback
++ * spelling across restarts must keep its window authorized.
++ * @param url - document URL.
++ * @returns `scheme://host` for every scheme; '' when the URL cannot be parsed.
++ */
++export function documentOriginOf(url: string): string {
++  try {
++    const parsed = new URL(url)
++    const loopback = parsed.hostname === 'localhost' || parsed.hostname === '[::1]' || parsed.hostname === '::1'
++    const hostname = loopback ? '127.0.0.1' : parsed.hostname
++    return `${parsed.protocol}//${hostname}${parsed.port === '' ? '' : `:${parsed.port}`}`
++  } catch { return '' }
++}
++
++/**
++ * Whether an origin addresses a Host on this machine.
++ * @param origin - value produced by `documentOriginOf`.
++ * @returns true for a loopback HTTP origin.
++ */
++export function isLoopbackOrigin(origin: string): boolean {
++  try {
++    const url = new URL(origin)
++    return url.protocol === 'http:' && url.hostname === '127.0.0.1'
++  } catch { return false }
++}
++
++/** One window the shell constructed through its shared desktop-window path. */
++export interface DesktopWindowEntry {
++  /** The role the main process declared at construction. */
++  readonly role: DesktopWindowRole
++  /** The native window this entry describes. */
++  readonly window: DesktopWindowFrame
++}
++
++interface Registered<E> {
++  readonly entry: E
++  /**
++   * Origin of the document this window is allowed to run; undefined until its
++   * first committed main-frame load. IPC from a window without a pinned origin
++   * is rejected, so a fresh window cannot act before its document exists.
++   */
++  documentOrigin: string | undefined
++}
++
++/**
++ * Tracks the windows the shell itself created. Desktop capabilities attach to
++ * these windows rather than to one privileged window: whatever window a request
++ * comes from, the request is authorized by that window's own entry — its role,
++ * its main frame, and the origin it committed.
++ */
++export class DesktopWindows<E extends DesktopWindowEntry> {
++  private readonly byContents = new Map<number, Registered<E>>()
++  /**
++   * Renderer id captured at registration. A destroyed window throws on any
++   * `webContents` access, so cleanup and lookups read this instead of the window.
++   */
++  private readonly ids = new WeakMap<object, number>()
++
++  /**
++   * Renderer id of a registered window, captured before it could be destroyed.
++   * @param window - window to identify.
++   * @returns the captured id, or undefined for a window the shell did not create.
++   */
++  private idOf(window: E['window']): number | undefined {
++    return this.ids.get(window)
++  }
++
++  /**
++   * Record one desktop window.
++   * @param entry - window and declared role.
++   * @param documentOrigin - origin known at construction (the product window's document URL).
++   * @returns the recorded entry.
++   */
++  register(entry: E, documentOrigin?: string): E {
++    const id = entry.window.webContents.id
++    this.ids.set(entry.window, id)
++    this.byContents.set(id, { entry, documentOrigin })
++    return entry
++  }
++
++  /**
++   * Pin the origin of a window's committed document.
++   * @param window - window whose main frame committed.
++   * @param origin - origin of the committed document.
++   */
++  pinDocumentOrigin(window: E['window'], origin: string): void {
++    const normalized = documentOriginOf(origin)
++    const id = this.idOf(window)
++    const registered = id === undefined ? undefined : this.byContents.get(id)
++    if (registered !== undefined && normalized !== '') registered.documentOrigin = normalized
++  }
++
++  /**
++   * Drop a window when it is destroyed. The window is already gone, so this
++   * reads the id captured at registration rather than the window itself.
++   * @param window - destroyed window.
++   */
++  forget(window: E['window']): void {
++    const id = this.idOf(window)
++    if (id === undefined) return
++    this.byContents.delete(id)
++    this.ids.delete(window)
++  }
++
++  /**
++   * Read one window's entry without authorizing a request.
++   * @param window - window to look up.
++   * @returns the entry, or undefined for a window the shell did not create.
++   */
++  entryOf(window: E['window']): E | undefined {
++    const id = this.idOf(window)
++    return id === undefined ? undefined : this.byContents.get(id)?.entry
++  }
++
++  /** @returns every live desktop window, in registration order. */
++  list(): readonly E[] {
++    return [...this.byContents.values()].map(registered => registered.entry)
++  }
++
++  /**
++   * Read the origin a window is currently allowed to run.
++   * @param window - window to inspect.
++   * @returns the pinned origin, or undefined before the first committed load.
++   */
++  documentOrigin(window: E['window']): string | undefined {
++    const id = this.idOf(window)
++    return id === undefined ? undefined : this.byContents.get(id)?.documentOrigin
++  }
++
++  /**
++   * Authorize one IPC sender as the main frame of a desktop window whose
++   * committed document still has its pinned origin.
++   * @param event - IPC invocation or message event.
++   * @returns the owning window's entry.
++   */
++  owner(event: DesktopIpcEvent): E {
++    const registered = this.byContents.get(event.sender.id)
++    const frame = event.senderFrame
++    if (registered === undefined) throw new Error('dsh desktop: rejected IPC from an unowned renderer')
++    if (frame === null || frame !== event.sender.mainFrame) {
++      throw new Error('dsh desktop: rejected IPC from a subframe of a desktop window')
++    }
++    if (registered.documentOrigin === undefined || documentOriginOf(frame.url) !== registered.documentOrigin) {
++      throw new Error('dsh desktop: rejected IPC from a window whose document moved')
++    }
++    return registered.entry
++  }
++}
+diff --git a/upstream/apps/desktop/src/directory-picker.ts b/upstream/apps/desktop/src/directory-picker.ts
+index e7cf84c3..94645c38 100644
+--- a/upstream/apps/desktop/src/directory-picker.ts
++++ b/upstream/apps/desktop/src/directory-picker.ts
+@@ -1,21 +1,19 @@
+ /** Window-owned workspace directory dialogs for the local Desktop renderer. */
+ 
+-import { dialog, ipcMain, type BrowserWindow } from 'electron'
+-import { DESKTOP_IPC, assertDesktopSender } from './ipc.ts'
++import { dialog, ipcMain, type BrowserWindow, type IpcMainInvokeEvent } from 'electron'
++import { DESKTOP_IPC } from './ipc.ts'
+ 
+ /**
+  * Install the application-lifetime directory picker IPC handler.
+- * @param getWindow - Current local application window; shell pages and subframes cannot open dialogs.
++ * @param owner - Resolves the desktop window that owns a request; shell pages and subframes cannot open dialogs.
+  */
+-export function installDesktopDirectoryPicker(getWindow: () => BrowserWindow | undefined): void {
++export function installDesktopDirectoryPicker(owner: (event: IpcMainInvokeEvent) => BrowserWindow): void {
+   const pending = new WeakMap<BrowserWindow, Promise<string | null>>()
+   ipcMain.handle(DESKTOP_IPC.directoryPick, async (event) => {
+-    const window = getWindow()
+-    if (window === undefined || window.isDestroyed() || event.sender !== window.webContents
+-      || event.senderFrame !== window.webContents.mainFrame) {
++    const window = owner(event)
++    if (window.isDestroyed()) {
+       throw new Error('dsh desktop: rejected directory picker from an unowned renderer')
+     }
+-    assertDesktopSender(event, ['app'])
+     const existing = pending.get(window)
+     if (existing !== undefined) return existing
+     if (window.isMinimized()) window.restore()
+diff --git a/upstream/apps/desktop/src/file-actions.ts b/upstream/apps/desktop/src/file-actions.ts
+index 45c4a25f..5da5581a 100644
+--- a/upstream/apps/desktop/src/file-actions.ts
++++ b/upstream/apps/desktop/src/file-actions.ts
+@@ -27,10 +27,10 @@ function saveRequest(value: unknown): { url: URL; name?: string; mediaType?: str
+ /**
+  * Install trusted-window original-file operations.
+  * @param assertOwner - rejects shell pages, subframes, and unowned windows.
+- * @param hostUrl - current application Host excluded from image reads.
++ * @param isApplicationHost - whether a URL belongs to an authenticated DSH Host, which image reads never touch.
+  */
+ export function installFileActions(
+-  assertOwner: (event: IpcMainInvokeEvent) => BrowserWindow, hostUrl: () => string | undefined = () => undefined,
++  assertOwner: (event: IpcMainInvokeEvent) => BrowserWindow, isApplicationHost: (url: URL) => boolean = () => false,
+ ): void {
+   const timeoutMs = resolveDurationMs(process.env, 'DSH_DESKTOP_IMAGE_READ_TIMEOUT_MS', 30_000)
+   const maxBytes = Number(process.env.DSH_DESKTOP_IMAGE_READ_MAX_BYTES ?? 64 * 1024 * 1024)
+@@ -138,11 +138,7 @@ export function installFileActions(
+     if (typeof value !== 'string') throw new Error('Invalid image URL')
+     const checkedUrl = (value: string): URL => {
+       const url = new URL(value)
+-      const host = hostUrl()
+-      const application = host === undefined ? undefined : new URL(host)
+-      if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password
+-        || application !== undefined && url.port === application.port
+-        && (url.hostname === application.hostname || ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname))) {
++      if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password || isApplicationHost(url)) {
+         throw new Error('Invalid image URL')
+       }
+       return url
+diff --git a/upstream/apps/desktop/src/file-drag-files.ts b/upstream/apps/desktop/src/file-drag-files.ts
+index b659b757..5ab2598b 100644
+--- a/upstream/apps/desktop/src/file-drag-files.ts
++++ b/upstream/apps/desktop/src/file-drag-files.ts
+@@ -62,12 +62,13 @@ export class DragFiles {
+   /**
+    * Register an authorized source without owning its content.
+    * @param path - verified local source.
++   * @param directory - private directory the caller owns and this handle removes on release.
+    * @returns borrowed handle.
+    */
+-  borrow(path: string): FileDragHandle {
++  borrow(path: string, directory?: string): FileDragHandle {
+     if (this.disposed) throw new Error('File transfer closed')
+     const handle = randomUUID() as FileDragHandle
+-    this.files.set(handle, { path, bytes: 0, used: false, ready: true })
++    this.files.set(handle, { path, ...directory === undefined ? {} : { directory }, bytes: 0, used: false, ready: true })
+     return handle
+   }
+ 
+diff --git a/upstream/apps/desktop/src/file-drag.ts b/upstream/apps/desktop/src/file-drag.ts
+index 33478e6e..69f2b181 100644
+--- a/upstream/apps/desktop/src/file-drag.ts
++++ b/upstream/apps/desktop/src/file-drag.ts
+@@ -4,11 +4,11 @@ import { createReadStream, statSync, type Stats } from 'node:fs'
+ import { stat } from 'node:fs/promises'
+ import { basename } from 'node:path'
+ import { app, ipcMain, type BrowserWindow, type IpcMainInvokeEvent, type NativeImage } from 'electron'
+-import { resolveDragFileName, type DesktopFileSource, type FileDragHandle } from '@deepseek-ai/dsh-util-file-drag'
++import { resolveDragFileName, type DesktopFileSource, type DragFileName, type FileDragHandle } from '@deepseek-ai/dsh-util-file-drag'
+ import { DESKTOP_IPC } from './ipc.ts'
+ import { DragFiles } from './file-drag-files.ts'
+ 
+-interface LocalResource { readonly path: string; readonly size: number; readonly sha256: string }
++interface LocalResource { readonly path: string; readonly size: number; readonly sha256: string; readonly directory?: string }
+ 
+ function requestOf(value: unknown): DesktopFileSource {
+   if (typeof value !== 'object' || value === null || !('kind' in value)
+@@ -61,13 +61,13 @@ async function cancellable<T>(operation: Promise<T>, signal: AbortSignal): Promi
+ 
+ /**
+  * Register file preparation and native dragging.
+- * @param owner - shared product sender authorization, returning its window.
+- * @param resolveResource - cancellable private Host authorization; renderer paths are never used directly.
++ * @param owner - desktop-window sender authorization, returning that window.
++ * @param resolveResource - cancellable private Host authorization for the requesting window; renderer paths are never used directly.
+  * @returns cleanup aborting resource reads and awaiting tracked writes/removals without waiting for the system icon service.
+  */
+ export function installDesktopFileDrag(
+   owner: (event: IpcMainInvokeEvent) => BrowserWindow,
+-  resolveResource: (address: string, signal: AbortSignal) => Promise<LocalResource | null>,
++  resolveResource: (window: BrowserWindow, source: { readonly address: string } & DragFileName, signal: AbortSignal) => Promise<LocalResource | null>,
+ ): () => Promise<void> {
+   let disposed = false
+   const preparations = new Map<string, AbortController>()
+@@ -85,14 +85,14 @@ export function installDesktopFileDrag(
+     let handle: FileDragHandle
+     if (source.kind === 'bytes') handle = await files.prepare(source.bytes, source)
+     else {
+-      const resource = await cancellable(resolveResource(source.address, signal), signal)
++      const resource = await cancellable(resolveResource(owner(event), source, signal), signal)
+       authorize(event)
+       if (resource === null || basename(resource.path) !== resolveDragFileName(source)
+         || (source.sha256 !== undefined && source.sha256 !== resource.sha256)
+         || (source.size !== undefined && source.size !== resource.size)) return undefined
+       const version = await verifiedVersion(resource, signal)
+       if (version === undefined) return undefined
+-      handle = files.borrow(resource.path)
++      handle = files.borrow(resource.path, resource.directory)
+       borrowed.set(handle, { resource, version })
+     }
+     try {
 diff --git a/upstream/apps/desktop/src/host-process.ts b/upstream/apps/desktop/src/host-process.ts
-index 8e26fb8d..9517a2d6 100644
+index b571b0d4..70caa615 100644
 --- a/upstream/apps/desktop/src/host-process.ts
 +++ b/upstream/apps/desktop/src/host-process.ts
-@@ -45,9 +45,57 @@ type DesktopHostEvent = ReadyEvent | FatalEvent | PlatformSessionEvent | {
+@@ -46,9 +46,57 @@ type DesktopHostEvent = ReadyEvent | FatalEvent | PlatformSessionEvent | {
    readonly scheduledTasks: boolean
    readonly error?: string
  }
@@ -544,20 +1038,20 @@ index 8e26fb8d..9517a2d6 100644
  
  /** What quitting now would affect, as reported by the Host. */
  export interface DesktopQuitInspection {
-@@ -69,8 +117,12 @@ function isDesktopHostEvent(message: unknown): message is DesktopHostEvent {
+@@ -82,8 +130,12 @@ function isDesktopHostEvent(message: unknown): message is DesktopHostEvent {
        return runIdSchema.safeParse(candidate.runId).success
      case 'shutdown-complete':
        return true
 +    case 'plus-shell-rpc':
 +      return Number.isSafeInteger(candidate.requestId) && typeof candidate.method === 'string'
      case 'ready':
-       return typeof candidate.url === 'string'
+       return isOwnedHostUrl(candidate.url)
 +    case 'plus-reload-result':
 +      return typeof candidate.error === 'string' || typeof candidate.url === 'string'
      case 'platform-session': {
        const session = candidate.session
        if (session === null) return true
-@@ -105,6 +157,16 @@ function isDesktopHostEvent(message: unknown): message is DesktopHostEvent {
+@@ -118,6 +170,16 @@ function isDesktopHostEvent(message: unknown): message is DesktopHostEvent {
      case 'quit-inspection':
        return Number.isSafeInteger(candidate.requestId) && typeof candidate.activeTasks === 'boolean'
          && typeof candidate.scheduledTasks === 'boolean' && (candidate.error === undefined || typeof candidate.error === 'string')
@@ -574,7 +1068,7 @@ index 8e26fb8d..9517a2d6 100644
      default:
        return false
    }
-@@ -169,6 +231,8 @@ export class DesktopHostProcess {
+@@ -185,6 +247,8 @@ export class DesktopHostProcess {
    private failureReported = false
    private stopping = false
    private shutdownCompleted = false
@@ -583,7 +1077,7 @@ index 8e26fb8d..9517a2d6 100644
    private nextControlId = 1
    private readonly controlRequests = new Map<number, {
      resolve: (response: DesktopHostControlResponse) => void
-@@ -199,8 +263,40 @@ export class DesktopHostProcess {
+@@ -215,8 +279,40 @@ export class DesktopHostProcess {
  
      private readonly onPlatformSession?: (session: PlatformSession | null) => void,
      private readonly onPluginOperation?: (record: PluginOperationRecord) => void,
@@ -624,7 +1118,7 @@ index 8e26fb8d..9517a2d6 100644
    /**
     * Start this child once and await its Web application URL.
     * @returns Ready facts supplied by the child after application startup.
-@@ -226,6 +322,17 @@ export class DesktopHostProcess {
+@@ -242,6 +338,17 @@ export class DesktopHostProcess {
      child.stderr?.setEncoding('utf8')
      child.stderr?.on('data', (chunk: string) => { this.stderr = (this.stderr + chunk).slice(-MAX_HOST_DIAGNOSTIC_CHARS) })
      child.stdout?.pipe(process.stdout)
@@ -642,7 +1136,7 @@ index 8e26fb8d..9517a2d6 100644
      child.on('message', (message: unknown) => {
        if (typeof message === 'object' && message !== null && 'type' in message && message.type === 'plugin-operation') {
          const record = 'record' in message ? parsePluginOperationRecord(message.record) : undefined
-@@ -251,6 +358,27 @@ export class DesktopHostProcess {
+@@ -283,6 +390,32 @@ export class DesktopHostProcess {
          else this.fail(new Error('dsh desktop host acknowledged an unrequested shutdown'))
        }
        else if (message.type === 'fatal') this.fail(new DesktopHostFatalError(message.message, message.diagnostic))
@@ -664,17 +1158,154 @@ index 8e26fb8d..9517a2d6 100644
 +        const pending = this.plusReloadWaiters.pop()
 +        if (pending === undefined) return
 +        if (message.error !== undefined) pending.reject(new Error(message.error))
-+        else if (message.url !== undefined) pending.resolve({ url: message.url, injections: message.injections })
++        else if (message.url !== undefined) {
++          // rc.5 起 ready 事实带认证 cookie；重载回执走同一条路径，壳刷新页面时也要用它。
++          void this.#authentication.readyCookie().then((authenticationCookie) => {
++            pending.resolve({ url: message.url as string, injections: message.injections, authenticationCookie })
++          }, (error: unknown) => { pending.reject(error instanceof Error ? error : new Error(String(error))) })
++        }
 +        else pending.reject(new Error('plus reload: Host returned no boot facts'))
 +      }
        else {
          const request = this.controlRequests.get(message.requestId)
          if (message.error === undefined) request?.resolve(message)
+diff --git a/upstream/apps/desktop/src/keyboard.ts b/upstream/apps/desktop/src/keyboard.ts
+index d41f6b47..0a63e988 100644
+--- a/upstream/apps/desktop/src/keyboard.ts
++++ b/upstream/apps/desktop/src/keyboard.ts
+@@ -1,14 +1,14 @@
+-/** Product-window preference IPC and native menu interception during physical-key dispatch/recording. */
++/** Desktop-window preference IPC and native menu interception during physical-key dispatch/recording. */
+ import { ipcMain, type BrowserWindow, type IpcMainInvokeEvent, type Input, type MenuItemConstructorOptions, type WebContents } from 'electron'
+ import { bindingKey, effectiveShortcuts, presentBinding, parseShortcutDefinitions, parseShortcutEdit } from '@deepseek-ai/dsh-client-shortcuts/protocol'
+ import type { NormalizedBinding, ShortcutConfigSnapshot, ShortcutDefinition, ShortcutPlatform, ShortcutRevision } from '@deepseek-ai/dsh-client-shortcuts/protocol'
+ import type { DesktopBrowserLeaseId } from '@deepseek-ai/dsh-client-ui-sidebar-browser/types'
+ import { desktopKeybindings } from './keybindings.ts'
+-import { DESKTOP_IPC, assertDesktopSender } from './ipc.ts'
++import { DESKTOP_IPC } from './ipc.ts'
+ 
+ /**
+- * Install application-owned configuration handlers and attach each product window's input lifecycle.
+- * @param getWindow - current product window.
++ * Install application-owned configuration handlers and attach each desktop window's input lifecycle.
++ * @param getWindow - the focused desktop window.
+  * @param userData - Electron-resolved device preference directory.
+  * @param platform - local device platform.
+  * @param updateMenu - rebuild the application menu when the close accelerator or availability changes.
+@@ -18,6 +18,8 @@ import { DESKTOP_IPC, assertDesktopSender } from './ipc.ts'
+ export function installDesktopShortcuts(
+   getWindow: () => BrowserWindow | undefined, userData: string, platform: ShortcutPlatform, updateMenu: () => void,
+   overlayInput: (window: BrowserWindow) => { readonly revision: number; readonly blocked: boolean },
++  windows?: () => readonly BrowserWindow[],
++  owner?: (event: IpcMainInvokeEvent) => BrowserWindow,
+ ): {
+   fileMenu(labels: { fileMenu: string; closePage: string }): MenuItemConstructorOptions
+   /**
+@@ -45,10 +47,26 @@ export function installDesktopShortcuts(
+   const scopedDesktop = platform === 'windows' || platform === 'macos'
+   const disposers = new Set<() => void>()
+   const guestInputs = new Map<WebContents, { window: BrowserWindow; reset(): void }>()
++  /** Every window that hosts the shared shortcut configuration. */
++  const windowList = (): readonly BrowserWindow[] => {
++    const declared = windows?.()
++    if (declared !== undefined) return declared
++    const window = getWindow()
++    return window === undefined || window.isDestroyed() ? [] : [window]
++  }
++  /** The focused window among them; native window actions act on it. */
++  const focusedWindow = (): BrowserWindow | undefined =>
++    windowList().find(window => !window.isDestroyed() && window.isFocused()) ?? getWindow()
++  /**
++   * Windows whose renderer published the current catalog. The catalog is application
++   * wide and survives while any of them still holds it: one window navigating or
++   * closing must not retire the bindings another desktop window is using.
++   */
++  const definitionsOwners = new Set<BrowserWindow>()
+   const closeAccelerator = (): string | undefined => presentBinding(closeBinding, platform).aria
+     ?.replace('Meta+', 'Command+').replace(/Arrow(Up|Down|Left|Right)$/u, '$1')
+   const sendMenuClose = (): void => {
+-    const window = getWindow()
++    const window = focusedWindow()
+     if (window === undefined || window.isDestroyed() || !window.isFocused() || !window.isEnabled()
+       || revision === undefined || recording || overlayInput(window).blocked) return
+     window.webContents.send(DESKTOP_IPC.shortcutsInput, { kind: 'menu', commandId: 'page.close', revision })
+@@ -64,21 +82,24 @@ export function installDesktopShortcuts(
+     const close = rows.find(row => row.id === 'page.close')
+     closeBinding = close?.issue === null && close.conflicts.length === 0 ? close.binding : null
+     if (wasEnabled !== (revision !== undefined) || previousAccelerator !== closeAccelerator()) updateMenu()
+-    const window = getWindow()
+-    if (window !== undefined && !window.isDestroyed() && window.webContents.mainFrame.url.startsWith('dsh-app://app/')) {
++    for (const window of windowList()) {
++      if (window.isDestroyed()) continue
+       window.webContents.send(DESKTOP_IPC.shortcutsChanged, snapshot)
+     }
+   }
+   const persistence = desktopKeybindings(userData, platform, publish)
+   const assertSender = (event: IpcMainInvokeEvent): BrowserWindow => {
+-    const window = getWindow()
+-    if (window === undefined || window.isDestroyed() || event.sender !== window.webContents
+-      || event.senderFrame !== window.webContents.mainFrame) throw new Error('desktop shortcuts: rejected sender')
+-    assertDesktopSender(event, ['app'])
++    // The shell authorizes which desktop window owns a request; the window list is the
++    // fallback for a standalone installer that only ever sees one window.
++    const window = owner?.(event)
++      ?? windowList().find(candidate => !candidate.isDestroyed() && event.sender === candidate.webContents)
++    if (window === undefined || window.isDestroyed() || event.senderFrame !== window.webContents.mainFrame) {
++      throw new Error('desktop shortcuts: rejected sender')
++    }
+     return window
+   }
+   ipcMain.handle(DESKTOP_IPC.shortcutsGet, async (event, input: unknown) => {
+-    assertSender(event)
++    definitionsOwners.add(assertSender(event))
+     definitions = parseShortcutDefinitions(input)
+     persistence.setDefinitions(definitions)
+     return persistence.readCurrent()
+@@ -119,6 +140,8 @@ export function installDesktopShortcuts(
+     const clear = (): void => {
+       resetInput()
+       if (guestName !== undefined) return
++      definitionsOwners.delete(window)
++      if (definitionsOwners.size > 0) return
+       definitions = []; keys.clear(); recording = false
+       persistence.setDefinitions(null)
+     }
+@@ -136,7 +159,7 @@ export function installDesktopShortcuts(
+         contents.setIgnoreMenuShortcuts(true)
+         return
+       }
+-      if (window !== getWindow() || !window.isFocused() || !window.isEnabled() || revision === undefined
++      if (!windowList().includes(window) || !window.isFocused() || !window.isEnabled() || revision === undefined
+         || (guestName !== undefined && !contents.isFocused())) {
+         contents.setIgnoreMenuShortcuts(false)
+         held.clear()
+@@ -223,7 +246,7 @@ export function installDesktopShortcuts(
+ 
+   return {
+     sendEditingKey(keyCode, modifiers) {
+-      const window = getWindow()
++      const window = focusedWindow()
+       if (window === undefined || window.isDestroyed() || overlayInput(window).blocked) return
+       const contents = [...guestInputs].find(([guest, owner]) => owner.window === window && !guest.isDestroyed() && guest.isFocused())?.[0]
+         ?? window.webContents
 diff --git a/upstream/apps/desktop/src/main.ts b/upstream/apps/desktop/src/main.ts
-index 8f9cd823..5142b23b 100644
+index 92327109..63a550d2 100644
 --- a/upstream/apps/desktop/src/main.ts
 +++ b/upstream/apps/desktop/src/main.ts
-@@ -18,6 +18,7 @@ import {
+@@ -6,9 +6,10 @@ import type { DesktopChannelState, DesktopChannelChangeResult } from '@deepseek-
+ import { DesktopUpdateSettings } from './update-settings.ts'
+ import { isDesktopUpdateChannel } from './settings-file.ts'
+ import type { ProductEventMap, ProductEvent } from '@deepseek-ai/dsh-client-product-analytics/types'
+-import { WINDOWS_TITLEBAR_HEIGHT } from './windows-layout.ts'
++import { desktopChromeFill, desktopWindowOptions, type DesktopWindowRole } from './desktop-window.ts'
++import { documentOriginOf, DesktopWindows, isLoopbackOrigin, type DesktopWindowEntry } from './desktop-windows.ts'
+ import { access, readFile, writeFile } from 'node:fs/promises'
+-import { join } from 'node:path'
++import { delimiter, join } from 'node:path'
+ import { fileURLToPath } from 'node:url'
+ import {
+   app,
+@@ -18,19 +19,36 @@ import {
    ipcMain,
    Menu,
    powerMonitor,
@@ -682,15 +1313,16 @@ index 8f9cd823..5142b23b 100644
    nativeImage,
    nativeTheme,
    protocol,
-@@ -25,10 +26,24 @@ import {
+   session,
    shell,
++  type IpcMainEvent,
    type IpcMainInvokeEvent,
    type MenuItemConstructorOptions,
 +  type Session,
  } from 'electron'
-+import { existsSync, rmSync, writeFileSync } from 'node:fs'
++import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 +import { spawn } from 'node:child_process'
-+import { applyLoginItemFromEnv, isLoginItemEnabled, setLoginItemEnabled, remoteProfileName, loadRemoteAddressList, partitionFor, remoteOrigin, listProfileDirs, createProfilesRpcHandlers, createUpdatesRpcHandlers, createSettingsRpcHandlers, createNotificationsRpcHandlers, applyWindowsAppUserModelId, attachDownloads, attachPackagedDevTools, toggleDevTools, windowDevToolsAction, attachPageConsole, collectDiagnostics, clearSelectedRuntime, createDownloadRpcHandlers, createElectronProfileRuntime, createLoggingKernel, createLoggingRpcHandlers, createProfileTray, observeWindowVisibility, createRpcRegistry, createShellKernel, ensurePlusProfileBundles, PLUS_BUNDLE_NAMES, DEFAULT_PROFILE, resolveStartupRuntimeSelection, restartApplicationInPlace, runPlusStartup, loadDesktopSettings, saveDesktopSettings, soundCapabilityReport, playSoundFile, createLifecycleRpcHandlers, resolveProxyEnv, proxyEnvRecord, detectSystemProxy, plusApplicationVersion, type RpcRegistry, type ProfileTray } from '@deepseek-ai/dsh-desktop-plus-shell'
++import { applyLoginItemFromEnv, isLoginItemEnabled, setLoginItemEnabled, remoteProfileName, loadRemoteAddressList, partitionFor, remoteOrigin, listProfileDirs, createProfilesRpcHandlers, createUpdatesRpcHandlers, createSettingsRpcHandlers, createNotificationsRpcHandlers, applyWindowsAppUserModelId, attachDownloads, attachPackagedDevTools, toggleDevTools, windowDevToolsAction, attachPageConsole, collectDiagnostics, clearSelectedRuntime, createDownloadRpcHandlers, createElectronProfileRuntime, createLoggingKernel, createLoggingRpcHandlers, createProfileTray, observeWindowVisibility, createRpcRegistry, createShellKernel, ensurePlusProfileBundles, PLUS_BUNDLE_NAMES, DEFAULT_PROFILE, resolveStartupRuntimeSelection, restartApplicationInPlace, runPlusStartup, loadDesktopSettings, saveDesktopSettings, soundCapabilityReport, playSoundFile, createLifecycleRpcHandlers, resolveProxyEnv, proxyEnvRecord, detectSystemProxy, createConfiguredFetch, plusApplicationVersion, type ProxyEnv, type RpcRegistry, type ProfileTray } from '@deepseek-ai/dsh-desktop-plus-shell'
 +import { createBusyLease, createSleepGate, createSplashWindow, systemDefaultSoundCommand, type RestartAllOutcome } from '@deepseek-ai/dsh-desktop-plus-shell'
 +import { plusShellCopy } from '@deepseek-ai/dsh-desktop-plus-shell'
 +import { installShellConsoleTee } from '@deepseek-ai/dsh-desktop-plus-shell'
@@ -707,8 +1339,11 @@ index 8f9cd823..5142b23b 100644
 +import { DesktopHostFatalError, DesktopHostProcess, DesktopHostUncleanExitError, setPlusShellNotifyHandler, setPlusShellRpcHandler } from './host-process.ts'
  import { DesktopPlatformView, PLATFORM_IPC, platformBounds } from './platform-view.ts'
  import { installDesktopFileDrag } from './file-drag.ts'
++import { fetchRemoteDragResource } from './remote-drag.ts'
  import { installDesktopDirectoryPicker } from './directory-picker.ts'
-@@ -64,7 +79,7 @@ import { DesktopPolicyTestAuth } from './policy-test-auth.ts'
+ import { installMicrophonePermissions } from './microphone-permissions.ts'
+ import { DesktopBackendController } from './backend-controller.ts'
+@@ -64,7 +82,7 @@ import { DesktopPolicyTestAuth } from './policy-test-auth.ts'
  import { readDesktopSettings } from './settings.ts'
  import { readDesktopLocaleCache, writeDesktopLocaleCache } from './locale-cache.ts'
  import { DesktopUpdateDialog, type UpdateDialogOptions } from './update-dialog.ts'
@@ -717,7 +1352,7 @@ index 8f9cd823..5142b23b 100644
  import { DesktopBrowserGuests } from './browser-guests.ts'
  import { installDesktopShortcuts } from './keyboard.ts'
  import { DesktopUpdateOverlays } from './update-overlay.ts'
-@@ -81,6 +96,155 @@ let shuttingDown = false
+@@ -81,6 +99,166 @@ let shuttingDown = false
   */
  let skipQuitConfirmation = false
  let windowsLanguage: string | undefined = readDesktopLocaleCache(app.getPath('userData'))
@@ -731,6 +1366,17 @@ index 8f9cd823..5142b23b 100644
 +let plusRestartBackend: (() => Promise<void>) | undefined
 +/** #8：profile 窗口的官方 createWindow 工厂；main() 启动后注入（依赖 appPreload/quitting 等主进程态）。 */
 +let plusProfileWindowFactory: ((name: string) => BrowserWindow) | undefined
++
++/** One desktop window the shell constructed: its declared role and, for a profile, its name. */
++interface ShellWindow extends DesktopWindowEntry {
++  /** The native window; shell callers act on it directly, not on the registry's narrow view. */
++  readonly window: BrowserWindow
++  /** Profile name this window hosts; undefined for the product window. */
++  readonly profile?: string
++}
++
++/** Every desktop window the shell created; a request is authorized by the sender's own entry. */
++const desktopWindows = new DesktopWindows<ShellWindow>()
 +/** 只停官方后端（托盘的「退出 profile」对默认 profile 用它：停实例、关窗、托盘留驻）。 */
 +let plusStopBackend: (() => Promise<void>) | undefined
 +/** The plus profile tray, so profile and window changes can refresh its menu. */
@@ -873,7 +1519,7 @@ index 8f9cd823..5142b23b 100644
  /**
   * Whether the backend has reached ready: false until the first ready, back to
   * false when a restart returns it to starting, frozen during shutdown so a
-@@ -92,10 +256,60 @@ const rendererConsole = new RendererConsoleTail()
+@@ -92,10 +270,60 @@ const rendererConsole = new RendererConsoleTail()
  
  // Platform-conventional logs directory (macOS ~/Library/Logs/<name>, otherwise under userData);
  // set before ready so the first fatal report already resolves under it.
@@ -935,7 +1581,7 @@ index 8f9cd823..5142b23b 100644
  }
  /** Quit without the task confirmation; the caller has already decided the application must stop. */
  function quitWithoutConfirmation(): void {
-@@ -153,7 +367,7 @@ function persistCrashReport(error: unknown, source: CrashReportSource): Promise<
+@@ -153,7 +381,7 @@ function persistCrashReport(error: unknown, source: CrashReportSource): Promise<
      ...(error instanceof DesktopHostFatalError && error.diagnostic !== undefined ? { hostDiagnostic: error.diagnostic } : {}),
      rendererConsole: rendererConsole.snapshot(),
      app: {
@@ -944,7 +1590,7 @@ index 8f9cd823..5142b23b 100644
        electron: process.versions.electron, node: process.versions.node, locale: currentDesktopLocale().id,
      },
      time: new Date(),
-@@ -213,7 +427,7 @@ function runtimeResources(): RuntimeResources {
+@@ -213,7 +441,7 @@ function runtimeResources(): RuntimeResources {
      ?? (development ? join(app.getAppPath(), 'node_modules', 'pnpm', 'bin', 'pnpm.mjs')
        : join(process.resourcesPath, 'runtime', 'primary-runtime', 'dependencies', 'pnpm', 'bin', 'pnpm.mjs'))
    const dsh = (development ? process.env.DSH_DESKTOP_DSH_DIR : undefined)
@@ -953,39 +1599,84 @@ index 8f9cd823..5142b23b 100644
    return { node, nodeBin, pnpm, dsh }
  }
  
-@@ -261,7 +475,15 @@ function platformLoginUrl(authorizeUrl: string): string {
+@@ -244,7 +472,7 @@ function developmentHostInspectPort(enabled: boolean): number | undefined {
+  * @returns the sidebar fill hex for the effective application color scheme.
+  */
+ function chromeFallbackFill(): string {
+-  return nativeTheme.shouldUseDarkColors ? '#1b1b1c' : '#f9fafb'
++  return desktopChromeFill(nativeTheme.shouldUseDarkColors)
+ }
+ 
+ /**
+@@ -261,40 +489,25 @@ function platformLoginUrl(authorizeUrl: string): string {
    return url.href
  }
  
 -function createWindow(preload: string, show = false, primary = false): BrowserWindow {
-+  /**
-+   * 创建应用窗口。
-+   * @param preload - 窗口 preload 脚本路径。
-+   * @param show - 创建即显示。
-+   * @param primary - 主窗口（决定退出/单实例等主窗口语义）。
-+   * @param partition - 可选 session partition（profile 窗口隔离 cookie/存储）。
-+   * @param chrome - 是否用桌面 chrome（Win 隐藏标题栏 + webview）。#1：与 primary 解耦，profile 窗口也要。
-+   */
-+  function createWindow(preload: string, show = false, primary = false, partition?: string, chrome = primary): BrowserWindow {
-   const window = new BrowserWindow({
-     width: 1280,
-     height: 820,
-@@ -287,11 +509,13 @@ function createWindow(preload: string, show = false, primary = false): BrowserWi
-     } : {}),
-     webPreferences: {
-       preload,
-+      // #8：profile 窗口带自己的 session partition（隔离 cookie/存储），其余与主窗口同构。
-+      ...(partition === undefined ? {} : { partition }),
-       nodeIntegration: false,
-       contextIsolation: true,
-       sandbox: true,
-       webSecurity: true,
+-  const window = new BrowserWindow({
+-    width: 1280,
+-    height: 820,
+-    minWidth: 520,
+-    minHeight: 600,
++/**
++ * 创建桌面窗口：主窗口与每个 profile 窗口走同一条构造路径。窗口样式、web 偏好与桌面
++ * 能力角色全部由 desktopWindowOptions 决定，角色随窗口参数（additionalArguments）下发给
++ * preload——渲染进程按窗口属性知道自己是不是桌面窗口，不再按文档来源猜。
++ * @param role - 声明给渲染进程的窗口角色。
++ * @param preload - 窗口 preload 脚本路径。
++ * @param show - 创建即显示。
++ * @param partition - 可选 session partition（profile 窗口隔离 cookie/存储）。
++ * @returns 构造好的桌面窗口。
++ */
++function createWindow(role: DesktopWindowRole, preload: string, show = false, partition?: string): BrowserWindow {
++  const window = new BrowserWindow(desktopWindowOptions({
++    role,
++    preload,
+     show,
+-    ...(process.platform === 'win32' && primary ? {
+-      backgroundColor: chromeFallbackFill(),
+-      titleBarStyle: 'hidden' as const,
+-      titleBarOverlay: { height: WINDOWS_TITLEBAR_HEIGHT, color: chromeFallbackFill(),
+-        symbolColor: nativeTheme.shouldUseDarkColors ? '#f9fafb' : '#0f1115' },
+-    } : {}),
+-    // hiddenInset places traffic lights inside the sidebar; sidebar vibrancy
+-    // needs a transparent window background to show through the page.
+-    ...(process.platform === 'darwin' ? {
+-      titleBarStyle: 'hiddenInset' as const,
+-      trafficLightPosition: { x: 16, y: 18 },
+-      vibrancy: 'sidebar' as const,
+-      // 'active' keeps the vibrancy material stable when the window blurs;
+-      // 'followWindow' washes the sidebar out behind an unfocused window.
+-      visualEffectState: 'active' as const,
+-      backgroundColor: '#00000000',
+-    } : {}),
+-    webPreferences: {
+-      preload,
+-      nodeIntegration: false,
+-      contextIsolation: true,
+-      sandbox: true,
+-      webSecurity: true,
 -      webviewTag: primary,
-+      webviewTag: chrome,
-       devTools: true,
-     },
-   })
-@@ -339,8 +563,20 @@ function createWindow(preload: string, show = false, primary = false): BrowserWi
+-      devTools: true,
+-    },
+-  })
++    ...(partition === undefined ? {} : { partition }),
++    platform: process.platform,
++    dark: nativeTheme.shouldUseDarkColors,
++  }))
+   window.webContents.setWindowOpenHandler(({ url }) => {
+     if (['http:', 'https:'].includes(new URL(url).protocol)) void shell.openExternal(url)
+     return { action: 'deny' }
+@@ -310,7 +523,7 @@ function createWindow(preload: string, show = false, primary = false): BrowserWi
+     // current state so a fullscreen reload does not fall back to windowed CSS.
+     window.webContents.on('did-finish-load', sendFullscreen)
+   }
+-  if (process.platform === 'win32' && primary) {
++  if (process.platform === 'win32') {
+     const updateBackground = (): void => {
+       if (!window.isDestroyed()) window.setBackgroundColor(chromeFallbackFill())
+     }
+@@ -339,8 +552,20 @@ function createWindow(preload: string, show = false, primary = false): BrowserWi
      window.on('restore', applyBackdrop)
      window.on('show', applyBackdrop)
    }
@@ -1007,7 +1698,7 @@ index 8f9cd823..5142b23b 100644
      if (isEditable) {
        items.push(
          { role: 'undo', enabled: editFlags.canUndo },
-@@ -355,6 +591,17 @@ function createWindow(preload: string, show = false, primary = false): BrowserWi
+@@ -355,6 +580,17 @@ function createWindow(preload: string, show = false, primary = false): BrowserWi
      } else if (selectionText.length > 0) {
        items.push({ role: 'copy', enabled: editFlags.canCopy })
      }
@@ -1025,7 +1716,7 @@ index 8f9cd823..5142b23b 100644
      // Empty accelerators suppress Electron's default shortcut labels for native roles.
      if (items.length > 0) {
        const messages = currentDesktopLocale().messages
-@@ -378,17 +625,46 @@ function createWindow(preload: string, show = false, primary = false): BrowserWi
+@@ -378,17 +614,46 @@ function createWindow(preload: string, show = false, primary = false): BrowserWi
    return window
  }
  
@@ -1073,7 +1764,7 @@ index 8f9cd823..5142b23b 100644
    const activeProject = paths.profile
    const manager = new DesktopProjectManager(paths, resources)
    // Dock and Finder launches inherit only launchd's environment; every Host shares one login-shell read.
-@@ -403,10 +679,14 @@ async function main(): Promise<void> {
+@@ -403,17 +668,35 @@ async function main(): Promise<void> {
    })
    let hostEnvironment: NodeJS.ProcessEnv = process.env
    const prepareHostEnvironment = async (): Promise<void> => { hostEnvironment = await loginShell }
@@ -1087,8 +1778,32 @@ index 8f9cd823..5142b23b 100644
 +  plusDesktopWindow = () => mainWindow
    let welcomeWindow: BrowserWindow | undefined
    const installFileDrag = (): (() => Promise<void>) => installDesktopFileDrag(
-     event => assertProductSender(event),
-@@ -469,11 +749,57 @@ async function main(): Promise<void> {
+-    event => assertProductSender(event),
+-    (address, signal) => {
++    event => desktopWindows.owner(event).window,
++    (window, source, signal) => {
++      // A profile window answers with its own Host. A remote profile's files live on the far
++      // machine, so the drag downloads them through that window's authenticated session and
++      // carries the local copy — "drag out" means "download to this machine".
++      const role = desktopWindows.entryOf(window)?.role
++      if (role === 'profile') {
++        const profile = plusProfileHostOfWindow(window)
++        return Promise.resolve(profile?.host.resolveDragResource(source.address, signal) ?? null)
++      }
++      if (role === 'remote') {
++        const remoteUrl = loadRemoteAddressList(resolveDshHome())
++          .find((url) => remoteProfileName(url) === desktopWindows.entryOf(window)?.profile)
++        if (remoteUrl === undefined) return Promise.resolve(null)
++        return fetchRemoteDragResource(plusFetch, window.webContents.session, remoteOrigin(remoteUrl), source, signal)
++      }
+       const host = backend.host
+       if (host === undefined) return Promise.reject(new Error('File drag Host unavailable'))
+-      return host.resolveDragResource(address, signal)
++      return host.resolveDragResource(source.address, signal)
+     },
+   )
+   const fileDragCleanups = new Set([installFileDrag()])
+@@ -469,11 +752,57 @@ async function main(): Promise<void> {
      }
      finally { ordinaryDialogs.delete(controller) }
    }
@@ -1148,7 +1863,56 @@ index 8f9cd823..5142b23b 100644
        buttons: [locale.messages.updateAcknowledge], cancelId: 0 })
    }
    const commandManager = new DesktopCommandManager({
-@@ -533,15 +859,18 @@ async function main(): Promise<void> {
+@@ -489,7 +818,21 @@ async function main(): Promise<void> {
+   const applicationUrl = `${SCHEME}://app/`
+   let hostUrl: string | undefined
+   let hostCookie: string | undefined
+-  const browserGuests = new DesktopBrowserGuests(() => hostUrl)
++  /**
++   * Whether a URL addresses one of this application's DSH Hosts: the primary Host or a
++   * running profile Host. Desktop features never fetch from, and sidebar guests never
++   * reach, a Host whose session the shell authenticated.
++   * @param url - candidate URL.
++   * @returns true for any application Host.
++   */
++  const isApplicationHost = (url: URL): boolean => {
++    const ports = new Set<number>()
++    if (hostUrl !== undefined) ports.add(Number(new URL(hostUrl).port))
++    for (const port of plusProfilePorts.values()) ports.add(port)
++    const loopback = url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '[::1]'
++    return loopback && ports.has(Number(url.port))
++  }
++  const browserGuests = new DesktopBrowserGuests(isApplicationHost)
+   let injections: readonly unknown[] = []
+   let welcomeBackend: DesktopWelcomeBackend | undefined
+   let reportedLaunch = false
+@@ -505,13 +848,20 @@ async function main(): Promise<void> {
+   let returnedAttempt: string | undefined
+   let pendingWelcomeNotice: WelcomeNotice | undefined
+   let previousAccountStatus: string | undefined
++  /** The desktop window that owns an IPC sender; the product and every profile window qualify. */
++  const assertDesktopWindow = (event: IpcMainInvokeEvent | IpcMainEvent): BrowserWindow => desktopWindows.owner(event).window
++  /** The product window only: application-level commands (boot, onboarding, platform, locale). */
+   const assertProductSender = (event: IpcMainInvokeEvent): BrowserWindow => {
+-    assertDesktopSender(event, ['app'])
+-    if (mainWindow === undefined || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents
+-      || event.senderFrame === null || event.senderFrame !== mainWindow.webContents.mainFrame) {
+-      throw new Error('dsh desktop: rejected IPC from an unowned renderer')
++    const owner = desktopWindows.owner(event)
++    if (owner.role !== 'product') throw new Error('dsh desktop: rejected an application command from a profile window')
++    return owner.window
++  }
++  /** The desktop window holding the keyboard focus; native window actions act on it. */
++  const focusedDesktopWindow = (): BrowserWindow | undefined => {
++    for (const entry of desktopWindows.list()) {
++      if (!entry.window.isDestroyed() && entry.window.isFocused()) return entry.window
+     }
+-    return mainWindow
++    return undefined
+   }
+   let navigation: { window: BrowserWindow; url: string; promise: Promise<void> } | undefined
+   const navigateMain = (url: string): Promise<void> => {
+@@ -533,15 +883,18 @@ async function main(): Promise<void> {
      owner => isMandatory() || updateOverlays.input(owner).blocked)
    const backend = new DesktopBackendController((onFailure) => {
      const hostInspectPort = developmentHostInspectPort(development)
@@ -1156,7 +1920,7 @@ index 8f9cd823..5142b23b 100644
 +    const trackedFailure = (error: Error): void => { plusShell.noteHostPhase('failed', error); onFailure(error) }
      const host = new DesktopHostProcess(resources.node, resources.dsh, activeProject,
 -      hostInspectPort, { ...hostEnvironment, DSH_CLIENT_VERSION: desktopClientVersion() }, onFailure,
-+      hostInspectPort, { ...hostEnvironment, ...resolvedProxyEnvRecord(), DSH_CLIENT_VERSION: desktopClientVersion(), DSH_REMOTE_LANE_PORT: String(lanePortFor(DEFAULT_PROFILE)), DSH_DESKTOP_PORT_FILE: join(app.getPath('userData'), 'dsh-desktop-port'), ...plusTelemetryOptOutEnv() }, trackedFailure,
++      hostInspectPort, plusDesktopPatchEnv({ ...hostEnvironment, ...resolvedProxyEnvRecord(), DSH_CLIENT_VERSION: desktopClientVersion(), DSH_REMOTE_LANE_PORT: String(lanePortFor(DEFAULT_PROFILE)), DSH_DESKTOP_PORT_FILE: join(app.getPath('userData'), 'dsh-desktop-port'), ...plusTelemetryOptOutEnv() }), trackedFailure,
        primaryRuntime,
        resources, (next) => { platformView.setSession(next) }, (record) => {
          operationJournal ??= new OperationJournal(join(app.getPath('userData'), 'plugin-operations'), {
@@ -1169,7 +1933,7 @@ index 8f9cd823..5142b23b 100644
      return {
        start: async () => {
          const ready = await host.start()
-@@ -550,6 +879,13 @@ async function main(): Promise<void> {
+@@ -550,6 +903,13 @@ async function main(): Promise<void> {
          hostUrl = ready.url
          void removeLegacyHostCookies(session.defaultSession.cookies, ready.url)
            .catch((error: unknown) => { console.error('desktop: legacy Host cookie cleanup failed', error) })
@@ -1183,7 +1947,7 @@ index 8f9cd823..5142b23b 100644
          if (ready.injections === undefined) throw new Error('Desktop Host did not provide boot injections')
          injections = ready.injections
          welcomeBackend = connectDesktopWelcome(ready.url, cookie)
-@@ -581,7 +917,7 @@ async function main(): Promise<void> {
+@@ -581,7 +941,7 @@ async function main(): Promise<void> {
              }).catch(() => undefined)
            }
            previousAccountStatus = state.status
@@ -1192,7 +1956,7 @@ index 8f9cd823..5142b23b 100644
            // The stream reconnects; a transport failure does not change account state.
          }, () => {
            void readWelcomeState().then(async (value) => {
-@@ -676,6 +1012,11 @@ async function main(): Promise<void> {
+@@ -676,6 +1036,11 @@ async function main(): Promise<void> {
      try { await backend.close() }
      finally { await Promise.all([operationJournal?.drain(500), reports]) }
    }
@@ -1204,7 +1968,7 @@ index 8f9cd823..5142b23b 100644
  
    const reconcileBackend = (): Promise<void> => {
      startup ??= (async () => {
-@@ -702,9 +1043,10 @@ async function main(): Promise<void> {
+@@ -702,9 +1067,10 @@ async function main(): Promise<void> {
      packagedChannel, changing: false,
      ...(initialChannel.kind === 'error' ? { error: configurationFailure(initialChannel.error) } : {}) }
    const updateChannel = initialChannel.kind === 'ready' ? initialChannel.channel : packagedChannel
@@ -1216,7 +1980,7 @@ index 8f9cd823..5142b23b 100644
        await commandManager.idle()
        await workspaceRecovery
        await startup?.catch(() => undefined)
-@@ -756,7 +1098,7 @@ async function main(): Promise<void> {
+@@ -756,7 +1122,7 @@ async function main(): Promise<void> {
          requireCleanStop = false
        }
        return true
@@ -1225,7 +1989,7 @@ index 8f9cd823..5142b23b 100644
      undefined, undefined, undefined,
      (success, reason) => { void track('desktop_upgrade_download_result', { is_success: success, ...reason === undefined ? {} : { error_reason: reason } }) },
      updateChannel,
-@@ -774,6 +1116,7 @@ async function main(): Promise<void> {
+@@ -774,6 +1140,7 @@ async function main(): Promise<void> {
  
    const updateSchedule = new DesktopUpdateSchedule(updates, resolveDesktopUpdateScheduleConfig(process.env))
  
@@ -1233,7 +1997,22 @@ index 8f9cd823..5142b23b 100644
    const downloadUpdate = async (version: string, revision = updates.revision): Promise<DesktopUpdateState> => {
      void track('desktop_upgrade_click', {})
      updateJournal?.action('download-requested')
-@@ -822,6 +1165,9 @@ async function main(): Promise<void> {
+@@ -812,16 +1179,21 @@ async function main(): Promise<void> {
+     return Promise.resolve(new Response(null, { status: 404 }))
+   })
+ 
+-  installDesktopDirectoryPicker(() => mainWindow)
++  installDesktopDirectoryPicker(event => desktopWindows.owner(event).window)
+   installMicrophonePermissions(session.defaultSession, () => mainWindow?.webContents)
+-  const shortcuts = installDesktopShortcuts(() => mainWindow, app.getPath('userData'),
+-    process.platform === 'darwin' ? 'macos' : process.platform === 'win32' ? 'windows' : 'linux', () => { refreshApplicationMenu() }, window => updateOverlays.input(window))
++  const shortcuts = installDesktopShortcuts(() => focusedDesktopWindow() ?? mainWindow, app.getPath('userData'),
++    process.platform === 'darwin' ? 'macos' : process.platform === 'win32' ? 'windows' : 'linux', () => { refreshApplicationMenu() }, window => updateOverlays.input(window),
++    () => desktopWindows.list().map(entry => entry.window),
++    event => desktopWindows.owner(event).window)
+   app.on('will-quit', () => { shortcuts.dispose() })
+ 
+   ipcMain.handle(DESKTOP_IPC.boot, async (event) => {
      assertDesktopSender(event, ['app'])
      await startup
      if (backend.host === undefined || hostUrl === undefined) throw new Error('Desktop Host is unavailable')
@@ -1243,7 +2022,21 @@ index 8f9cd823..5142b23b 100644
      return { injections, streamBaseUrl: new URL(hostUrl).origin }
    })
  
-@@ -852,10 +1198,13 @@ async function main(): Promise<void> {
+@@ -835,11 +1207,11 @@ async function main(): Promise<void> {
+   })
+ 
+   ipcMain.handle(DESKTOP_IPC.browserAcquire, (event, workspace: unknown) => {
+-    assertProductSender(event)
++    desktopWindows.owner(event)
+     return browserGuests.acquire(event.sender, workspace)
+   })
+   ipcMain.handle(DESKTOP_IPC.browserRelease, (event, lease: unknown) => {
+-    assertProductSender(event)
++    desktopWindows.owner(event)
+     return browserGuests.release(event.sender, lease)
+   })
+ 
+@@ -852,17 +1224,20 @@ async function main(): Promise<void> {
      const requested = new URL(details.url)
      if (requested.host !== target.host || requested.protocol !== (target.protocol === 'https:' ? 'wss:' : 'ws:')) { callback({}); return }
      const headers = Object.fromEntries(Object.entries(details.requestHeaders).map(([name, value]) => [name.toLowerCase(), value]))
@@ -1258,7 +2051,53 @@ index 8f9cd823..5142b23b 100644
    const assertMainApplication = (event: IpcMainInvokeEvent): BrowserWindow => {
      const owner = mainWindow
      if (owner === undefined || event.sender !== owner.webContents || event.senderFrame !== owner.webContents.mainFrame
-@@ -1158,8 +1507,8 @@ async function main(): Promise<void> {
+       || !event.senderFrame.url.startsWith('dsh-app://app/')) throw new Error('Rejected Platform command')
+     return owner
+   }
+-  installFileActions(assertMainApplication, () => hostUrl)
++  installFileActions(assertDesktopWindow, isApplicationHost)
+   ipcMain.on(PLATFORM_IPC.bootstrap, (event) => {
+     try { event.returnValue = platformView.bootstrap(event) }
+     catch { event.returnValue = null }
+@@ -906,12 +1281,12 @@ async function main(): Promise<void> {
+     refreshApplicationMenu()
+   })
+   ipcMain.handle(DESKTOP_IPC.updatesChannelGet, (event) => {
+-    assertProductSender(event)
++    desktopWindows.owner(event)
+     return channelState
+   })
+   let channelRequests = 0
+   ipcMain.handle(DESKTOP_IPC.updatesChannelSet, async (event, channel: unknown): Promise<DesktopChannelChangeResult> => {
+-    assertProductSender(event)
++    desktopWindows.owner(event)
+     if (!isDesktopUpdateChannel(channel)) throw new Error('desktop update: unsupported channel')
+     if (channelState === undefined) throw new Error('desktop update: settings are not initialized')
+     channelRequests++
+@@ -936,11 +1311,11 @@ async function main(): Promise<void> {
+     }
+   })
+   ipcMain.handle(DESKTOP_IPC.updatesStatus, (event) => {
+-    assertProductSender(event)
++    desktopWindows.owner(event)
+     return updatePresentation(updates.state)
+   })
+   ipcMain.handle(DESKTOP_IPC.deviceInfo, (event) => {
+-    assertProductSender(event)
++    desktopWindows.owner(event)
+     return readDeviceInfo()
+   })
+   ipcMain.handle(DESKTOP_IPC.onboardingApiKey, async (event) => {
+@@ -959,7 +1334,7 @@ async function main(): Promise<void> {
+     }
+   })
+   ipcMain.handle(DESKTOP_IPC.updatesOpen, async (event) => {
+-    assertProductSender(event)
++    desktopWindows.owner(event)
+     await openUpdatePrompt()
+   })
+ 
+@@ -1158,8 +1533,8 @@ async function main(): Promise<void> {
    const applicationIconPath = development ? join(app.getAppPath(), 'resources', 'icon-windows.png')
      : join(process.resourcesPath, 'icon.png')
    app.setAboutPanelOptions({
@@ -1269,7 +2108,7 @@ index 8f9cd823..5142b23b 100644
      // The release has no separate build number; omit Electron's bundle version.
      version: '',
      copyright: '',
-@@ -1196,7 +1545,7 @@ async function main(): Promise<void> {
+@@ -1196,7 +1571,7 @@ async function main(): Promise<void> {
      ? [shortcuts.fileMenu(currentDesktopLocale().messages), macEditMenu(currentDesktopLocale().messages), { role: 'windowMenu' }]
      : [{ role: 'editMenu' }]
    const hideCommands: MenuItemConstructorOptions[] = darwin
@@ -1278,7 +2117,7 @@ index 8f9cd823..5142b23b 100644
        { role: 'hideOthers', label: currentDesktopLocale().messages.hideOtherApplications },
        { role: 'unhide', label: currentDesktopLocale().messages.showAllApplications }, { type: 'separator' }]
      : []
-@@ -1204,9 +1553,9 @@ async function main(): Promise<void> {
+@@ -1204,9 +1579,9 @@ async function main(): Promise<void> {
      // Windows has no system About panel; Electron's fallback is a plain
      // message box, so the shell shows its own dimmed dialog instead.
      process.platform === 'win32'
@@ -1290,7 +2129,7 @@ index 8f9cd823..5142b23b 100644
      { type: 'separator' },
      { label: currentDesktopLocale().messages.checkUpdatesMenu, click: () => { void openUpdatePrompt(true) } },
      ...process.platform === 'darwin' || process.platform === 'win32'
-@@ -1219,6 +1568,8 @@ async function main(): Promise<void> {
+@@ -1219,6 +1594,8 @@ async function main(): Promise<void> {
          app.relaunch()
          quitWithoutConfirmation()
        } },
@@ -1299,7 +2138,7 @@ index 8f9cd823..5142b23b 100644
      ] : [],
      { role: 'toggleDevTools', label: currentDesktopLocale().messages.toggleDevToolsMenu },
      { type: 'separator' },
-@@ -1240,8 +1591,13 @@ async function main(): Promise<void> {
+@@ -1240,8 +1617,13 @@ async function main(): Promise<void> {
      tray?.relabel()
    }
    refreshApplicationMenu()
@@ -1315,17 +2154,33 @@ index 8f9cd823..5142b23b 100644
      // The tray is the way back to a hidden window; without it, relaunching the application still focuses it.
      try {
        tray = new DesktopTray({ iconPath: trayIconPath, locale: currentDesktopLocale,
-@@ -1292,6 +1648,9 @@ async function main(): Promise<void> {
+@@ -1267,13 +1649,10 @@ async function main(): Promise<void> {
+ 
+   if (process.platform === 'win32') {
+     ipcMain.handle(DESKTOP_IPC.windowsMenu, (event, name: unknown, x: unknown, y: unknown) => {
+-      assertDesktopSender(event, ['app'])
+-      if (mainWindow === undefined || event.sender !== mainWindow.webContents
+-        || event.senderFrame !== mainWindow.webContents.mainFrame) throw new Error('desktop menu: rejected sender')
++      const window = desktopWindows.owner(event).window
+       if ((name !== 'application' && name !== 'edit')
+         || typeof x !== 'number' || typeof y !== 'number' || !Number.isFinite(x) || !Number.isFinite(y)
+         || x < 0 || y < 0 || x > 100_000 || y > 100_000) throw new Error('desktop menu: invalid popup request')
+-      const window = mainWindow
+       // Editor-owned history listens to key events rather than Chromium's native undo stack.
+       const editItem = (label: string, keyCode: string, modifiers: Array<'control'>, accelerator?: string): MenuItemConstructorOptions => ({
+         label,
+@@ -1292,21 +1671,31 @@ async function main(): Promise<void> {
          editItem(currentDesktopLocale().messages.delete, 'Delete', []),
          { type: 'separator' },
          editItem(currentDesktopLocale().messages.selectAll, 'A', ['control'], 'Ctrl+A'),
 +        { type: 'separator' },
 +        // #12：强制刷新＝绕过缓存重拉全部插件 bundle——插件更新后点它，新代码立即生效。
-+        { label: `${currentDesktopLocale().messages.reloadPageMenu}（重载插件）`, click: () => { if (mainWindow !== undefined) void reloadPluginsInWindow(mainWindow) } },
++        { label: `${currentDesktopLocale().messages.reloadPageMenu}（重载插件）`, click: () => { void reloadPluginsInWindow(window) } },
        ]
-       const zoom = mainWindow.webContents.getZoomFactor()
+-      const zoom = mainWindow.webContents.getZoomFactor()
++      const zoom = window.webContents.getZoomFactor()
        return new Promise<void>((resolve) => {
-@@ -1299,14 +1658,23 @@ async function main(): Promise<void> {
+         Menu.buildFromTemplate(items).popup({ window, x: Math.round(x * zoom), y: Math.round(y * zoom), callback: resolve })
        })
      })
      ipcMain.on(DESKTOP_IPC.windowsAppearance, (event, _language: unknown, color: unknown, symbolColor: unknown) => {
@@ -1334,18 +2189,16 @@ index 8f9cd823..5142b23b 100644
 -      if (!event.senderFrame.url.startsWith(`${SCHEME}://app/`)) return
 +      // 每个桌面窗口（主窗 + profile 窗）都跑同一 dsh 页面并上报自己的主题色；
 +      // overlay 必须落在上报来源的窗口上，否则 profile 窗的控制按钮底色停在初始值。
-+      if (event.senderFrame === null || event.senderFrame !== event.sender.mainFrame) return
-+      // #74：官方文档（dsh-app://app/）与本地 profile host（回环 http）都跑同一 dsh 页面并上报。
-+      const appearanceUrl = event.senderFrame.url
-+      if (!appearanceUrl.startsWith(`${SCHEME}://app/`) && !/^https?:\/\/(?:127\.0\.0\.1|localhost)(?::\d+)?\//.test(appearanceUrl)) return
++      // 窗口身份只由注册表给出：页面由 dsh-app:// 还是回环 Host 提供，不改变它是桌面窗口。
++      let senderWindow: BrowserWindow
++      try { senderWindow = desktopWindows.owner(event).window } catch { return }
++      if (senderWindow.isDestroyed()) return
        // Document lang starts as English before Host locale bootstrap; only localeChanged owns shell language.
        // Empty colors precede client stylesheet installation; only CSS color values cross IPC.
        const validColor = (value: unknown): value is string => typeof value === 'string'
          && /^(?:#[\da-f]{3,8}|rgba?\([\d.,%\s]+\))$/iu.test(value)
 -      if (validColor(color) && validColor(symbolColor)) mainWindow.setTitleBarOverlay({ color, symbolColor })
 +      if (!validColor(color) || !validColor(symbolColor)) return
-+      const senderWindow = BrowserWindow.fromWebContents(event.sender)
-+      if (senderWindow === null || senderWindow.isDestroyed()) return
 +      try { senderWindow.setTitleBarOverlay({ color, symbolColor }) } catch (error) {
 +        // 无 overlay 的窗口（mac hiddenInset/Linux）不支持 setTitleBarOverlay，忽略即可。
 +        plusLogger.append(`[desktop] setTitleBarOverlay skipped: ${error instanceof Error ? error.message : String(error)}`)
@@ -1353,9 +2206,13 @@ index 8f9cd823..5142b23b 100644
      })
    }
  
-@@ -1322,6 +1690,10 @@ async function main(): Promise<void> {
+@@ -1320,8 +1709,13 @@ async function main(): Promise<void> {
+     }
+   }
    const createMainWindow = (): BrowserWindow => {
-     const window = createWindow(appPreload, false, true)
+-    const window = createWindow(appPreload, false, true)
++    const window = createWindow('product', appPreload)
++    desktopWindows.register({ role: 'product', window }, documentOriginOf(applicationUrl))
      mainWindow = window
 +    refreshPlusTray()
 +    // #81：窗口可见性（hide/show/minimize/restore）统一喂给托盘刷新，文案永远跟随窗口真实状态；
@@ -1364,7 +2221,7 @@ index 8f9cd823..5142b23b 100644
      browserGuests.bind(window, (guest, name) => shortcuts.attachGuest(window, guest, name))
      shortcuts.attach(window)
      window.on('focus', automaticCheck)
-@@ -1331,7 +1703,7 @@ async function main(): Promise<void> {
+@@ -1331,7 +1725,7 @@ async function main(): Promise<void> {
        event.preventDefault()
        if (updateDialog.isOpen) { updateDialog.focus(); return }
        const hide = (): void => {
@@ -1373,16 +2230,16 @@ index 8f9cd823..5142b23b 100644
        }
        if (backgroundNotice === undefined) hide()
        else backgroundNotice.close(hide)
-@@ -1346,7 +1718,7 @@ async function main(): Promise<void> {
+@@ -1346,7 +1740,7 @@ async function main(): Promise<void> {
        window.on('focus', () => { sessionEnding = false })
        window.on('show', () => { sessionEnding = false })
      }
 -    window.on('closed', () => { if (mainWindow === window) mainWindow = undefined })
-+    window.on('closed', () => { if (mainWindow === window) mainWindow = undefined; refreshPlusTray() })
++    window.on('closed', () => { desktopWindows.forget(window); if (mainWindow === window) mainWindow = undefined; refreshPlusTray() })
      window.webContents.on('console-message', (details) => {
        if (details.level !== 'error') return
        rendererConsole.push(`${details.sourceId}:${String(details.lineNumber)} ${details.message}`)
-@@ -1475,7 +1847,7 @@ async function main(): Promise<void> {
+@@ -1475,7 +1869,7 @@ async function main(): Promise<void> {
      const window = welcomeWindow ?? mainWindow
      if (window === undefined || window.isDestroyed()) {
        try { createMainWindow() } catch (error) { reportFatal(error, 'main'); return }
@@ -1391,7 +2248,7 @@ index 8f9cd823..5142b23b 100644
        return
      }
      // Startup and sign-out select the visible window before activation may reveal the workspace.
-@@ -1488,6 +1860,8 @@ async function main(): Promise<void> {
+@@ -1488,6 +1882,8 @@ async function main(): Promise<void> {
    if (app.isPackaged || process.env.DSH_DESKTOP_DEV_APP === '1') app.setAsDefaultProtocolClient('dsh')
    app.on('open-url', (event, url) => {
      event.preventDefault()
@@ -1400,7 +2257,7 @@ index 8f9cd823..5142b23b 100644
      if (url === 'dsh://open' || url === 'dsh://open/') focusPrimaryWindow()
    })
  
-@@ -1495,6 +1869,8 @@ async function main(): Promise<void> {
+@@ -1495,6 +1891,8 @@ async function main(): Promise<void> {
      if (!hasVisibleWindows) focusPrimaryWindow()
    })
    app.on('window-all-closed', () => {
@@ -1409,7 +2266,7 @@ index 8f9cd823..5142b23b 100644
      if (process.platform !== 'darwin') app.quit()
    })
    if (process.platform !== 'win32') powerMonitor.on('shutdown', () => { sessionEnding = true })
-@@ -1516,6 +1892,8 @@ async function main(): Promise<void> {
+@@ -1516,6 +1914,8 @@ async function main(): Promise<void> {
          await operationJournal?.drain(500)
          throw error
        }),
@@ -1418,17 +2275,38 @@ index 8f9cd823..5142b23b 100644
        platformView.dispose(),
        disposeFileDrag(),
      ].map(cleanup => cleanup.catch((error: unknown) => { console.error(error) })))
-@@ -1546,6 +1924,41 @@ async function main(): Promise<void> {
+@@ -1546,6 +1946,62 @@ async function main(): Promise<void> {
    })
  
    mainWindow = createMainWindow()
 +  attachPageConsole(mainWindow.webContents, (line) => { if (!quitting) plusLogger.append(`[${DEFAULT_PROFILE}] ${line}`) })
 +  // #8：profile 窗口工厂在此注入——createWindow/appPreload/quitting 都是 main() 作用域内的名字。
 +  plusProfileWindowFactory = (name) => {
-+    const window = createWindow(appPreload, false, false, partitionFor(name), true)
++    // A profile whose backend lives on another machine still runs this install's front end:
++    // it is a real desktop window with the full capability carrier, and only the two
++    // machine-local globals are withheld (the remote Host answers those instead).
++    const remoteUrl = loadRemoteAddressList(resolveDshHome()).find((url) => remoteProfileName(url) === name)
++    const remote = remoteUrl !== undefined
++    const window = createWindow(remote ? 'remote' : 'profile', appPreload, false, partitionFor(name))
++    desktopWindows.register({ role: remote ? 'remote' : 'profile', window, profile: name })
++    // 被授权的源由提交后的主框架文档决定。本地 profile 的 Host 换端口要能重钉（loopback 豁免），
++    // 远端 profile 只认它自己配置的远端源——被导航到本机 loopback 页面不该重新获得能力。
++    const ownRemoteOrigin = remoteUrl === undefined ? undefined : documentOriginOf(remoteOrigin(remoteUrl))
++    window.webContents.on('did-navigate', (_event, url) => {
++      const origin = documentOriginOf(url)
++      if (origin === '') return
++      const pinned = desktopWindows.documentOrigin(window)
++      if (pinned === origin) return
++      const allowed = remote ? origin === ownRemoteOrigin : isLoopbackOrigin(origin)
++      if (pinned !== undefined && !allowed) return
++      desktopWindows.pinDocumentOrigin(window, origin)
++    })
++    window.once('closed', () => { desktopWindows.forget(window) })
++    browserGuests.bind(window, (guest, lease) => shortcuts.attachGuest(window, guest, lease))
++    shortcuts.attach(window)
 +    // 远程窗口：页面侧「退出本窗口」就地销毁窗口、断开连接（与托盘退出同语义），退出类请求不触达远端。
 +    // 用 <all_urls> 兜底 + 处理器内精确判定：窄 filter 曾漏匹配导致退出直接透传到远端。
-+    if (loadRemoteAddressList(resolveDshHome()).some((url) => remoteProfileName(url) === name)) {
++    if (remote) {
 +      plusLogger.append(`[remote] exit guard armed for ${name}`)
 +      window.webContents.session.webRequest.onBeforeRequest(
 +        { urls: ['<all_urls>'] },
@@ -1460,7 +2338,7 @@ index 8f9cd823..5142b23b 100644
    if (typeof manifest !== 'object' || manifest === null) throw new Error('desktop policy: invalid application manifest')
    const developmentPolicy = app.isPackaged ? undefined : process.env.DSH_DESKTOP_MANDATORY_UPDATE_CONFIG
    const policyInput: unknown = app.isPackaged
-@@ -1601,15 +2014,692 @@ async function main(): Promise<void> {
+@@ -1601,15 +2057,740 @@ async function main(): Promise<void> {
    publishUpdate(updateState)
  }
  
@@ -1531,9 +2409,8 @@ index 8f9cd823..5142b23b 100644
 +          : (process.platform === 'win32'
 +            ? join(process.resourcesPath, 'tray.ico')
 +            : join(process.resourcesPath, 'tray.png')),
-+        // 左键行为读设置（默认 show-hide）：设置里改了就持久化，重启壳后仍生效。
-+        // 托盘左键固定弹菜单（不再提供 show-hide 设置）；右键同款。
-+        clickBehavior: () => 'menu',
++        // 左键：有可见桌面窗口就全部隐藏，否则全部还原并聚焦主窗口；右键仍是菜单。
++        clickBehavior: () => 'show-hide',
 +        clickTargetProfile: () => DEFAULT_PROFILE,
 +        // 菜单动作（隐藏/显示）完成后重建菜单：文案跟着窗口实际状态翻转。
 +        // 新建走官方弹窗（renderer html + 专用 preload）；名字与护栏由 plusCreateProfile 判定。
@@ -1890,13 +2767,24 @@ index 8f9cd823..5142b23b 100644
 +  saveDesktopSettings(resolveDshHome(), { profile_lane_ports: { ...overrides, [profile]: port } })
 +  return port
 +}
- 
--if (ownsDesktopInstance) void app.whenReady().then(main).catch(async (error: unknown) => {
++
 +/** 代理注入记录：桌面设置显式代理优先，否则检测系统代理；关 = 空记录（不动用户 env）。 */
 +const resolvedProxyEnvRecord = (): Record<string, string> => {
-+  const proxy = resolveProxyEnv(loadDesktopSettings(resolveDshHome()), detectSystemProxy({ platform: process.platform, env: process.env }))
++  const proxy = plusProxyAnswer()
 +  return proxy === null ? {} : proxyEnvRecord(proxy)
 +}
++
++/** 壳侧唯一的代理答案：桌面设置显式代理优先，否则系统代理（含系统绕过表）。 */
++const plusProxyAnswer = (): ProxyEnv | null => resolveProxyEnv(loadDesktopSettings(resolveDshHome()), detectSystemProxy({ platform: process.platform, env: process.env }))
++
++/**
++ * 壳侧唯一的 HTTP 入口。与宿主子进程同一份代理答案；命中系统绕过表（Windows
++ * `ProxyOverride` 的 `10.*`、`<local>` 等）的目标直连，不再被进程环境里的代理劫走。
++ */
++const plusFetch = createConfiguredFetch({ proxy: plusProxyAnswer })
++
++/** 就绪探测只读状态页开头：整页读进内存没有意义，64 KiB 足够判断门禁文案。 */
++const plusProbeFetch = createConfiguredFetch({ proxy: plusProxyAnswer, maxBodyBytes: 64 * 1024 })
 +
 +
 +
@@ -1907,7 +2795,8 @@ index 8f9cd823..5142b23b 100644
 +        if (port > 0) writeFileSync(join(app.getPath('userData'), 'dsh-desktop-port'), String(port))
 +    } catch { /* url without port — lane falls back to 3080 */ }
 +}
-+
+ 
+-if (ownsDesktopInstance) void app.whenReady().then(main).catch(async (error: unknown) => {
 +
 +/**
 + * The official Host seams one plus profile runs on. main() publishes them once the
@@ -1979,8 +2868,44 @@ index 8f9cd823..5142b23b 100644
 +  plusLogger.append('[desktop] telemetry opt-out: DSH_PLUS_DISABLE_TELEMETRY=1')
 +  return { DSH_PLUS_DISABLE_TELEMETRY: '1' }
 +}
++
++/**
++ * 桌面窗口专属的 loader overlay：官方 web-app bundle 只在 `desktop` profile 启用
++ * 侧边栏浏览器（`disabled: profileContext.name !== 'desktop'`），而 plus 的每个 profile
++ * 窗口都是真实桌面窗口、都带 webviewTag 与官方 browser carrier，所以这里给所有桌面
++ * 宿主补一行 `disabled: false`。纯浏览器访问没有壳、拿不到这份 overlay，保持禁用。
++ * @returns overlay 文件路径；写盘失败返回 undefined（宿主按官方默认行为启动）。
++ */
++function plusDesktopOverlayFile(): string | undefined {
++  const file = join(app.getPath('userData'), 'plus-desktop-overlay.yml')
++  const source = [
++    '# Generated by DSH Desktop Plus: desktop windows host the sidebar browser.',
++    '- id: ui-sidebar-browser',
++    '  disabled: false',
++    '',
++  ].join('\n')
++  try {
++    if (!existsSync(file) || readFileSync(file, 'utf8') !== source) writeFileSync(file, source, 'utf8')
++    return file
++  } catch (error) {
++    plusLogger.append(`[desktop] overlay write failed: ${error instanceof Error ? error.message : String(error)}`)
++    return undefined
++  }
++}
++
++/**
++ * 宿主环境里的 overlay 列表：桌面窗口专属 overlay 排在调用方已有列表之后。
++ * @param base - 已构造好的宿主环境。
++ * @returns 带 `DSH_DESKTOP_PATCH_FILES` 的环境。
++ */
++function plusDesktopPatchEnv(base: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
++  const overlay = plusDesktopOverlayFile()
++  if (overlay === undefined) return base
++  const existing = base.DSH_DESKTOP_PATCH_FILES
++  return { ...base, DSH_DESKTOP_PATCH_FILES: existing === undefined || existing === '' ? overlay : `${existing}${delimiter}${overlay}` }
++}
 +function plusProfileHostEnv(base: NodeJS.ProcessEnv, name: string): NodeJS.ProcessEnv {
-+  return { ...base, ...resolvedProxyEnvRecord(), DSH_CLIENT_VERSION: desktopClientVersion(), DSH_REMOTE_LANE_PORT: String(lanePortFor(name)), ...plusTelemetryOptOutEnv() }
++  return plusDesktopPatchEnv({ ...base, ...resolvedProxyEnvRecord(), DSH_CLIENT_VERSION: desktopClientVersion(), DSH_REMOTE_LANE_PORT: String(lanePortFor(name)), ...plusTelemetryOptOutEnv() })
 +}
 +
 +/** 远程重启 API：带配对 cookie 调远端 restart_desktop_app（lane 反代与 dsh 直连都靠 cookie 鉴权）。 */
@@ -1997,7 +2922,7 @@ index 8f9cd823..5142b23b 100644
 +      : {}
 +    const known = ids[remoteUrl] ?? null
 +    if (known !== null) {
-+      const renewed = await fetch(`${origin}/__dsh-mobile/api/pair/renew`, {
++      const renewed = await plusFetch(`${origin}/__dsh-mobile/api/pair/renew`, {
 +        method: 'POST', headers: { 'content-type': 'application/json' },
 +        body: JSON.stringify({ deviceId: known }),
 +      }).catch(() => null)
@@ -2006,11 +2931,11 @@ index 8f9cd823..5142b23b 100644
 +    }
 +  }
 +  if (cookieHeader === '') {
-+    const authed = await fetch(remoteUrl, { redirect: 'manual' }).catch(() => null)
++    const authed = await plusFetch(remoteUrl, { redirect: 'manual' }).catch(() => null)
 +    cookieHeader = (authed?.headers.getSetCookie?.() ?? []).map((c) => c.split(';')[0]).join('; ')
 +  }
 +  plusLogger.append(`[remote] restart_desktop_app auth=${cookieHeader === '' ? 'none' : 'cookie'} ${origin}`)
-+  const response = await fetch(`${origin}/api/shell.invoke`, {
++  const response = await plusFetch(`${origin}/api/shell.invoke`, {
 +    method: 'POST',
 +    headers: { 'content-type': 'application/json', ...(cookieHeader !== '' ? { cookie: cookieHeader } : {}) },
 +    body: JSON.stringify({ rpcId: `plus-remote-restart-${Date.now().toString(36)}`, payload: { method: 'restart_desktop_app', params: {} } }),
@@ -2028,7 +2953,7 @@ index 8f9cd823..5142b23b 100644
 +async function waitRemoteReady(origin: string, cookieHeader: string, timeoutMs: number): Promise<void> {
 +  const deadline = Date.now() + timeoutMs
 +  while (Date.now() < deadline) {
-+    const probe = await fetch(origin, {
++    const probe = await plusProbeFetch(origin, {
 +      redirect: 'manual',
 +      ...(cookieHeader === '' ? {} : { headers: { cookie: cookieHeader } }),
 +    }).catch(() => null)
@@ -2096,6 +3021,7 @@ index 8f9cd823..5142b23b 100644
 +  onChanged: () => { refreshPlusTray() },
 +  onWindowVisibilityChanged: () => { refreshPlusTray() },
 +  log: (line) => { plusLogger.append(line) },
++  configuredFetch: plusFetch,
 +})
 +
 +async function reportStartupDiagnostic(error: unknown): Promise<void> {
@@ -2156,52 +3082,103 @@ index 8f9cd823..5142b23b 100644
  }).catch(async (error: unknown) => {
    console.error(error)
 diff --git a/upstream/apps/desktop/src/preload-app.ts b/upstream/apps/desktop/src/preload-app.ts
-index 6b4e9896..7da4999c 100644
+index 6b4e9896..ec567216 100644
 --- a/upstream/apps/desktop/src/preload-app.ts
 +++ b/upstream/apps/desktop/src/preload-app.ts
-@@ -86,6 +86,9 @@ function createProductApi(): DshDesktopProductApi {
+@@ -1,10 +1,11 @@
+ import type { FileSaveResult } from '@deepseek-ai/dsh-client-ui-file-actions/types'
+-/** Origin-scoped boot, native directory selection, host paths of picked files, and update presentation with native confirmation actions. */
++/** Window-scoped boot, desktop capability, native directory selection, host paths, and update presentation. */
+ 
+ import type { DesktopChannelState, DesktopChannelChangeResult } from '@deepseek-ai/dsh-client-ui-settings-general/types'
+ import type { DesktopShortcutInput, ShortcutConfigSnapshot, ShortcutSaveResult } from '@deepseek-ai/dsh-client-shortcuts/protocol'
+ import { contextBridge, ipcRenderer, webUtils } from 'electron'
+-import { DESKTOP_IPC, SCHEME, type DshDesktopProductApi, type DesktopUpdatePresentation } from './ipc.ts'
++import { DESKTOP_IPC, type DshDesktopProductApi, type DesktopUpdatePresentation } from './ipc.ts'
++import { desktopWindowRole, isLocalDesktopRole } from './desktop-window.ts'
+ import { PLATFORM_IPC } from './platform-ipc.ts'
+ import { markDocumentPlatform, syncWindowFullscreen } from './preload-platform.ts'
+ import { syncNativeTheme } from './preload-theme.ts'
+@@ -86,7 +87,39 @@ function createProductApi(): DshDesktopProductApi {
    }
  }
  
-+// #74：Windows 桌面 chrome（标题栏带 + caption 配色 + 原生菜单）属于壳，不属于文档来源。
-+// profile 窗口加载本地 host 的回环 http 文档，同样需要预留条与配色上报；非 win32 早退。
-+syncWindowsAppearance()
- if (location.protocol === `${SCHEME}:` && location.hostname === 'app') {
+-if (location.protocol === `${SCHEME}:` && location.hostname === 'app') {
++// 窗口身份来自主进程构造窗口时写下的角色参数：产品窗口、本地 profile 窗口与远端 profile
++// 窗口都是真实桌面窗口，拿同一份能力载体；只有「本机语义」的两个全局按文档来源收口。
++const windowRole = desktopWindowRole(process.argv)
++const desktopWindow = windowRole !== undefined && process.isMainFrame === true
++const localDocument = windowRole !== undefined && isLocalDesktopRole(windowRole) && process.isMainFrame === true
++
++if (desktopWindow) {
++  // Windows 桌面 chrome（标题栏条 + caption 配色 + 原生菜单）属于壳，不属于文档来源：
++  // 桌面窗口一律预留条并上报配色，窗口的 BrowserWindow 选项保证 overlay 同时在场。
++  syncWindowsAppearance()
++  markDocumentPlatform()
++}
++
++if (localDocument) {
++  // 本机原生目录对话框：远端 profile 要选的是远端目录，交给远端 Host 的
++  // directory-picker-auto 解析，页面因此回落到 uiWorkspace.pickDirectory()。
++  contextBridge.exposeInMainWorld('__DSH_DIRECTORY_PICKER__', {
++    pick: () => ipcRenderer.invoke(DESKTOP_IPC.directoryPick) as Promise<string | null>,
++  })
++  // The composer cites dropped, picked, and pasted files and folders that
++  // have a real path as `@path` references instead of uploading them; a
++  // File without one (pasted bytes) answers '' and uploads as before.
++  // 远端 profile 上传的是本机文件字节，贴本机路径远端 agent 打不开，因此不给。
++  contextBridge.exposeInMainWorld('__DSH_HOST_PATHS__', {
++    pathFor: (file: File) => webUtils.getPathForFile(file),
++  })
++}
++
++syncWindowFullscreen()
++// 主题源是应用级状态，只有产品窗口拥有它；profile 窗口只跟随原生主题。
++if (desktopWindow && windowRole === 'product') syncNativeTheme()
++
++if (desktopWindow && windowRole === 'product') {
    contextBridge.exposeInMainWorld('dshOnboarding', {
      hasApiKey: () => ipcRenderer.invoke(DESKTOP_IPC.onboardingApiKey) as Promise<boolean>,
-@@ -99,7 +102,6 @@ if (location.protocol === `${SCHEME}:` && location.hostname === 'app') {
+     setActive: (active: boolean) => { ipcRenderer.send(DESKTOP_IPC.onboardingActive, active) },
+@@ -99,17 +132,7 @@ if (location.protocol === `${SCHEME}:` && location.hostname === 'app') {
      if (previous === null) body.removeAttribute('tabindex')
      else body.setAttribute('tabindex', previous)
    })
 -  syncWindowsAppearance()
    if (process.platform === 'win32') installMandatoryUpdateOverlay()
-   contextBridge.exposeInMainWorld('__DSH_DIRECTORY_PICKER__', {
-     pick: () => ipcRenderer.invoke(DESKTOP_IPC.directoryPick) as Promise<string | null>,
-@@ -121,11 +123,22 @@ if (location.protocol === `${SCHEME}:` && location.hostname === 'app') {
+-  contextBridge.exposeInMainWorld('__DSH_DIRECTORY_PICKER__', {
+-    pick: () => ipcRenderer.invoke(DESKTOP_IPC.directoryPick) as Promise<string | null>,
+-  })
+-  // The composer cites dropped, picked, and pasted files and folders that
+-  // have a real path as `@path` references instead of uploading them; a
+-  // File without one (pasted bytes) answers '' and uploads as before.
+-  contextBridge.exposeInMainWorld('__DSH_HOST_PATHS__', {
+-    pathFor: (file: File) => webUtils.getPathForFile(file),
+-  })
+   contextBridge.exposeInMainWorld('dshDesktopBoot', {
+     ready: () => ipcRenderer.invoke(DESKTOP_IPC.boot) as Promise<unknown>,
+     failed: (message: string) => ipcRenderer.invoke(DESKTOP_IPC.bootFailed, message) as Promise<void>,
+@@ -119,17 +142,11 @@ if (location.protocol === `${SCHEME}:` && location.hostname === 'app') {
+     setBounds: (bounds: { x: number; y: number; width: number; height: number }) => ipcRenderer.invoke(PLATFORM_IPC.bounds, bounds),
+     close: () => ipcRenderer.invoke(PLATFORM_IPC.close),
+   })
+-}
+-
+-markDocumentPlatform()
+-syncWindowFullscreen()
+-syncNativeTheme()
+-// Main-process IPC also verifies the owning window and top frame.
+-contextBridge.exposeInMainWorld('dshDesktop', location.protocol === `${SCHEME}:` && location.hostname === 'app' && process.isMainFrame ? createProductApi() : { protocolVersion: 1 })
+-
+-if (location.protocol === `${SCHEME}:` && location.hostname === 'app') {
+   contextBridge.exposeInMainWorld('__DSH_LOCALE__', {
+     read: () => ipcRenderer.invoke(DESKTOP_IPC.localeBootstrap),
+     onChange: (locale: string) => { ipcRenderer.send(DESKTOP_IPC.localeChanged, locale) },
    })
  }
- 
--markDocumentPlatform()
-+// 只有产品窗口（dsh-app://app）才是桌面 runtime：profile 窗口加载各 profile 自己的 http 页面，
-+// 那里没有原生键盘桥；无条件标 desktop 会让 dsh-client-shortcuts 构造时直接抛错（#④ 连锁 pending 根因）。
-+if (location.protocol === `${SCHEME}:` && location.hostname === 'app' && process.isMainFrame) markDocumentPlatform()
- syncWindowFullscreen()
- syncNativeTheme()
- // Main-process IPC also verifies the owning window and top frame.
--contextBridge.exposeInMainWorld('dshDesktop', location.protocol === `${SCHEME}:` && location.hostname === 'app' && process.isMainFrame ? createProductApi() : { protocolVersion: 1 })
-+// #74：profile 窗口（本地 host 回环 http）也是真实桌面窗口——platform 已标，dsh-client-shortcuts
-+// 构造要求原生键盘桥（#④），因此给它们补 keyboard；browser/fileDrag 仍只给产品窗口，
-+// 避免覆盖 plus 插件在 profile 窗口里的浏览器桥实现。
-+const plusDesktopApi = createProductApi()
-+const plusProductWindow = process.isMainFrame === true && location.protocol === `${SCHEME}:` && location.hostname === 'app'
-+const plusProfileWindow = process.isMainFrame === true && location.protocol === 'http:'
-+  && (location.hostname === '127.0.0.1' || location.hostname === 'localhost')
-+contextBridge.exposeInMainWorld('dshDesktop', plusProductWindow
-+  ? plusDesktopApi
-+  : plusProfileWindow ? { protocolVersion: 1, keyboard: plusDesktopApi.keyboard } : { protocolVersion: 1 })
- 
- if (location.protocol === `${SCHEME}:` && location.hostname === 'app') {
-   contextBridge.exposeInMainWorld('__DSH_LOCALE__', {
++
++// Main-process IPC also verifies the owning window and top frame.
++contextBridge.exposeInMainWorld('dshDesktop', desktopWindow ? createProductApi() : { protocolVersion: 1 })
 diff --git a/upstream/apps/desktop/src/preload-profile-delete.ts b/upstream/apps/desktop/src/preload-profile-delete.ts
 new file mode 100644
 index 00000000..187850d0
@@ -2382,6 +3359,151 @@ index 00000000..6f1dfe4c
 +      })
 +  })
 +}
+diff --git a/upstream/apps/desktop/src/remote-drag.ts b/upstream/apps/desktop/src/remote-drag.ts
+new file mode 100644
+index 00000000..3eb8fb87
+--- /dev/null
++++ b/upstream/apps/desktop/src/remote-drag.ts
+@@ -0,0 +1,139 @@
++/** Fetch a remote profile's drag resource into a local temporary file. */
++
++import { createHash } from 'node:crypto'
++import { mkdtemp, rm, writeFile } from 'node:fs/promises'
++import { tmpdir } from 'node:os'
++import { join } from 'node:path'
++import type { Session } from 'electron'
++import { parseFileAddress } from '@deepseek-ai/dsh-util-workspace-path'
++import { resolveDragFileName, type DragFileName } from '@deepseek-ai/dsh-util-file-drag'
++import type { ConfiguredFetch } from '@deepseek-ai/dsh-desktop-plus-shell'
++
++/** One resource materialized on this machine, ready for a native drag. */
++export interface RemoteDragResource {
++  /** Absolute path of the downloaded copy. */
++  readonly path: string
++  /** Private directory holding the copy; the caller removes it once the drag ends. */
++  readonly directory: string
++  /** Byte length of the downloaded copy. */
++  readonly size: number
++  /** SHA-256 of the downloaded copy, as the drag layer verifies. */
++  readonly sha256: string
++}
++
++
++/** One RPC envelope as the Host's `/api` channel expects it. */
++interface RpcEnvelope {
++  readonly type: 'client-request'
++  readonly rpcId: string
++  readonly method: string
++  readonly payload: unknown
++}
++
++/**
++ * Read one byte window of a remote workspace file through the Host's `/api` RPC channel.
++ *
++ * The window's own session carries the pairing cookie, so the request is authorized
++ * exactly like the page's own calls; nothing here handles credentials.
++ * @param session - the profile window's session, which holds the remote cookie.
++ * @param origin - remote Host origin.
++ * @param address - `dsh-resource://file/session/<id>/<path>` reference.
++ * @param signal - caller cancellation.
++ * @returns the file's bytes, or null when the address is not a session resource.
++ */
++async function readRemoteBytes(
++  doFetch: ConfiguredFetch, session: Session, origin: string, address: string, signal: AbortSignal,
++): Promise<Uint8Array | null> {
++  const resource = parseFileAddress(address)
++  if (resource?.scope !== 'session') return null
++  const rpcId = `plus-drag-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
++  const envelope: RpcEnvelope = {
++    type: 'client-request',
++    rpcId,
++    method: 'workspaceFiles/readBytes',
++    payload: [
++      { sessionId: resource.sessionId, workspaceRoot: '' },
++      resource.path,
++      {},
++      null,
++    ],
++  }
++  // The window's own session carries the pairing cookie, so the request is authorized
++  // exactly like the page's own calls; the shell fetch keeps the proxy answer consistent.
++  const response = await doFetch(`${origin}/api/workspaceFiles/readBytes`, {
++    method: 'POST',
++    headers: { 'content-type': 'application/json', cookie: await sessionCookie(session, origin) },
++    body: JSON.stringify(envelope),
++    signal,
++  })
++  if (!response.ok) return null
++  const mediaType = response.headers.get('content-type')?.split(';', 1)[0]?.trim().toLowerCase()
++  if (mediaType !== 'multipart/form-data') return null
++  const form = await response.formData()
++  const metadata = form.get('metadata')
++  if (typeof metadata !== 'string') return null
++  const parsed: unknown = JSON.parse(metadata)
++  const answer = parsed as { result?: { ok?: unknown; value?: unknown }, attachments?: unknown }
++  const result = answer.result
++  if (result?.ok !== true || typeof result.value !== 'object' || result.value === null) return null
++  // The Host sends the bytes as a multipart part and leaves a null placeholder in the
++  // answer; the Client normally splices them in, so this reader does the same.
++  const attachments = Array.isArray(answer.attachments) ? answer.attachments : []
++  const value = result.value as { data?: unknown }
++  for (const attachment of attachments) {
++    if (typeof attachment !== 'object' || attachment === null) continue
++    const { codec, part, path } = attachment as { codec?: unknown; part?: unknown; path?: unknown }
++    if (codec !== 'bytes' || typeof part !== 'string' || !Array.isArray(path)) continue
++    if (path.length !== 1 || path[0] !== 'data') continue
++    const blob = form.get(part)
++    if (!(blob instanceof Blob)) continue
++    value.data = new Uint8Array(await blob.arrayBuffer())
++  }
++  if (!(value.data instanceof Uint8Array)) return null
++  return value.data
++}
++
++
++/**
++ * The pairing cookie the window's session holds for this origin.
++ * @param session - the profile window's session.
++ * @param origin - remote Host origin.
++ * @returns a `cookie` header value, or '' when the window is not paired yet.
++ */
++async function sessionCookie(session: Session, origin: string): Promise<string> {
++  const stored = await session.cookies.get({ name: 'dsh_mobile_session', url: origin }).catch(() => [])
++  return stored.map((cookie) => `${cookie.name}=${cookie.value}`).join('; ')
++}
++/**
++ * Materialize a remote profile's drag resource as a local temporary file.
++ *
++ * A drag out of a remote profile means "download to this machine": the bytes come from
++ * the remote Host through the window's own authenticated session, land in a private
++ * temporary directory under the name the drag layer verifies, and the native drag then
++ * carries that local copy. The directory is owned by the caller so it can be removed
++ * once the drag ends.
++ * @param doFetch - the shell's configured fetch.
++ * @param session - the profile window's session.
++ * @param origin - remote Host origin.
++ * @param source - the page's drag source, whose name the drag layer verifies.
++ * @param signal - caller cancellation.
++ * @returns the local copy, or null when the resource cannot be read.
++ */
++export async function fetchRemoteDragResource(
++  doFetch: ConfiguredFetch, session: Session, origin: string, source: { readonly address: string } & DragFileName,
++  signal: AbortSignal,
++): Promise<RemoteDragResource | null> {
++  const bytes = await readRemoteBytes(doFetch, session, origin, source.address, signal)
++  if (bytes === null || bytes.byteLength === 0) return null
++  signal.throwIfAborted()
++  const directory = await mkdtemp(join(tmpdir(), 'dsh-plus-drag-'))
++  // The drag layer compares this basename against the name the page declared.
++  const path = join(directory, resolveDragFileName(source))
++  try {
++    await writeFile(path, bytes)
++  } catch (error) {
++    await rm(directory, { recursive: true, force: true }).catch(() => undefined)
++    throw error
++  }
++  return { path, directory, size: bytes.byteLength, sha256: createHash('sha256').update(bytes).digest('hex') }
++}
 diff --git a/upstream/apps/desktop/src/single-instance.ts b/upstream/apps/desktop/src/single-instance.ts
 index 7911b46c..5963d795 100644
 --- a/upstream/apps/desktop/src/single-instance.ts
@@ -2415,8 +3537,744 @@ index 7911b46c..5963d795 100644
 +  application.on('second-instance', (_event, argv) => { focusOwner(argv ?? []) })
    return true
  }
+diff --git a/upstream/apps/desktop/tests/desktop-window.spec.ts b/upstream/apps/desktop/tests/desktop-window.spec.ts
+new file mode 100644
+index 00000000..05caff30
+--- /dev/null
++++ b/upstream/apps/desktop/tests/desktop-window.spec.ts
+@@ -0,0 +1,98 @@
++import { describe, expect, it } from 'vitest'
++import {
++  desktopChromeFill, desktopWindowOptions, desktopWindowRole, desktopWindowRoleArgument, isLocalDesktopRole,
++  type DesktopWindowRole
++} from '../src/desktop-window.ts'
++import { WINDOWS_TITLEBAR_HEIGHT } from '../src/windows-layout.ts'
++
++/** Options one window is constructed from, with the per-window identity fields kept apart. */
++function options(role: DesktopWindowRole, platform: NodeJS.Platform, dark = false, partition?: string) {
++  return desktopWindowOptions({
++    role, preload: `/app/preload-${role}.cjs`, show: false, platform, dark,
++    ...(partition === undefined ? {} : { partition })
++  })
++}
++
++/** Every option except the identity a caller legitimately owns (preload, partition, role argument). */
++function chromeOf(values: ReturnType<typeof options>) {
++  const { preload: _preload, additionalArguments: _arguments, ...webPreferences } = values.webPreferences ?? {}
++  return { ...values, webPreferences }
++}
++
++describe('desktop window construction', () => {
++  it.each(['darwin', 'win32', 'linux'] as const)('builds every window role from identical chrome on %s', (platform) => {
++    const product = chromeOf(options('product', platform))
++    expect(chromeOf(options('profile', platform))).toEqual(product)
++    expect(chromeOf(options('remote', platform))).toEqual(product)
++  })
++
++  it.each(['darwin', 'win32'] as const)('hides native window controls in every window on %s', (platform) => {
++    for (const role of ['product', 'profile', 'remote'] as const) {
++      const values = options(role, platform)
++      expect(values.titleBarStyle).toBe(platform === 'win32' ? 'hidden' : 'hiddenInset')
++    }
++  })
++
++  it('gives a Windows window the caption overlay that its page reports into', () => {
++    for (const role of ['product', 'profile', 'remote'] as const) {
++      const values = options(role, 'win32')
++      expect(values.titleBarOverlay).toEqual({
++        height: WINDOWS_TITLEBAR_HEIGHT,
++        color: desktopChromeFill(false), symbolColor: '#0f1115'
++      })
++    }
++  })
++
++  it('uses the opaque sidebar fill for the Windows base and a transparent one for macOS vibrancy', () => {
++    expect(options('profile', 'win32', true).backgroundColor).toBe(desktopChromeFill(true))
++    expect(options('profile', 'win32').titleBarOverlay).toMatchObject({ color: desktopChromeFill(false) })
++    const darwin = options('profile', 'darwin')
++    expect(darwin.backgroundColor).toBe('#00000000')
++    expect(darwin.vibrancy).toBe('sidebar')
++    expect(darwin.visualEffectState).toBe('active')
++  })
++
++  it('lets every desktop window host the sidebar webview', () => {
++    for (const role of ['product', 'profile', 'remote'] as const) {
++      expect(options(role, 'darwin').webPreferences?.webviewTag).toBe(true)
++    }
++  })
++
++  it('isolates only the session of a partitioned profile window', () => {
++    expect(options('profile', 'darwin', false, 'persist:dsh-profile-work').webPreferences?.partition)
++      .toBe('persist:dsh-profile-work')
++    expect(options('product', 'darwin').webPreferences?.partition).toBeUndefined()
++  })
++
++  it('declares the role to the renderer instead of letting it infer one from the document', () => {
++    const values = options('profile', 'darwin')
++    expect(values.webPreferences?.additionalArguments).toEqual([desktopWindowRoleArgument('profile')])
++    expect(desktopWindowRole(values.webPreferences?.additionalArguments ?? [])).toBe('profile')
++  })
++})
++
++describe('window role arguments', () => {
++  it('accepts the three declared roles', () => {
++    expect(desktopWindowRole(['electron', desktopWindowRoleArgument('product')])).toBe('product')
++    expect(desktopWindowRole(['electron', desktopWindowRoleArgument('profile')])).toBe('profile')
++    expect(desktopWindowRole(['electron', desktopWindowRoleArgument('remote')])).toBe('remote')
++  })
++
++  it('accepts a repeated declaration and refuses conflicting ones', () => {
++    expect(desktopWindowRole(['electron', desktopWindowRoleArgument('product'), desktopWindowRoleArgument('product')])).toBe('product')
++    expect(desktopWindowRole(['electron', desktopWindowRoleArgument('remote'), desktopWindowRoleArgument('product')])).toBeUndefined()
++    expect(desktopWindowRole(['electron', desktopWindowRoleArgument('product'), desktopWindowRoleArgument('profile')])).toBeUndefined()
++  })
++
++  it('treats only a locally served document as machine-local', () => {
++    expect(isLocalDesktopRole('product')).toBe(true)
++    expect(isLocalDesktopRole('profile')).toBe(true)
++    expect(isLocalDesktopRole('remote')).toBe(false)
++  })
++
++  it('reports no role for a renderer the shell did not construct', () => {
++    expect(desktopWindowRole(['electron'])).toBeUndefined()
++    expect(desktopWindowRole(['electron', '--dsh-desktop-window=other'])).toBeUndefined()
++    expect(desktopWindowRole(['electron', '--dsh-desktop-window='])).toBeUndefined()
++})
++})
+diff --git a/upstream/apps/desktop/tests/desktop-windows.spec.ts b/upstream/apps/desktop/tests/desktop-windows.spec.ts
+new file mode 100644
+index 00000000..1f00c43a
+--- /dev/null
++++ b/upstream/apps/desktop/tests/desktop-windows.spec.ts
+@@ -0,0 +1,159 @@
++import { describe, expect, it } from 'vitest'
++import { DesktopWindows, documentOriginOf, isLoopbackOrigin, type DesktopIpcEvent } from '../src/desktop-windows.ts'
++
++/** Window fixture: the registry addresses a window by its contents id and main frame only. */
++function window(id: number) {
++  const mainFrame = { url: '' }
++  return { webContents: { id, mainFrame }, mainFrame }
++}
++
++/**
++ * A window that can be destroyed in place: after `destroy()` every `webContents`
++ * access throws the error Electron raises, exactly like a real closed window.
++ */
++function destroyableWindow(id: number) {
++  const mainFrame = { url: '' }
++  const contents = { id, mainFrame }
++  let destroyed = false
++  const window = {
++    mainFrame,
++    get webContents(): typeof contents {
++      if (destroyed) throw new TypeError('Object has been destroyed')
++      return contents
++    },
++    /** Mark the renderer gone, as `destroy()` does before `'closed'` fires. */
++    destroy(): void { destroyed = true },
++  }
++  return window
++}
++
++/** IPC event fixture from one window's top frame. */
++function eventOf(owner: ReturnType<typeof window>, frame = owner.webContents.mainFrame, url = 'dsh-app://app/'): DesktopIpcEvent {
++  frame.url = url
++  return { sender: owner.webContents, senderFrame: frame }
++}
++
++/** Registry over a role-labelled entry, which is what the shell registers. */
++function registry() {
++  return new DesktopWindows<{ readonly role: 'product' | 'profile'; readonly window: ReturnType<typeof window>; readonly profile?: string }>()
++}
++
++describe('desktop window ownership', () => {
++  it('authorizes the main frame of a pinned window and reports its entry', () => {
++    const windows = registry()
++    const product = window(1)
++    windows.register({ role: 'product', window: product }, 'dsh-app://app')
++    expect(windows.owner(eventOf(product))).toMatchObject({ role: 'product' })
++    expect(windows.list()).toHaveLength(1)
++    expect(windows.documentOrigin(product)).toBe('dsh-app://app')
++  })
++
++  it('authorizes a profile window after its document commits', () => {
++    const windows = registry()
++    const profile = window(2)
++    windows.register({ role: 'profile', window: profile, profile: 'work' })
++    expect(() => windows.owner(eventOf(profile))).toThrow('document moved')
++    windows.pinDocumentOrigin(profile, 'http://127.0.0.1:43110')
++    expect(windows.owner(eventOf(profile, profile.webContents.mainFrame, 'http://127.0.0.1:43110/dashboard')))
++      .toMatchObject({ role: 'profile', profile: 'work' })
++  })
++
++  it('rejects a renderer that belongs to no desktop window', () => {
++    const windows = registry()
++    const stranger = window(9)
++    expect(() => windows.owner(eventOf(stranger))).toThrow('unowned renderer')
++  })
++
++  it('rejects a subframe even when the window is pinned', () => {
++    const windows = registry()
++    const product = window(3)
++    windows.register({ role: 'product', window: product }, 'dsh-app://app')
++    const subframe = { url: 'dsh-app://app/' }
++    expect(() => windows.owner(eventOf(product, subframe))).toThrow('subframe')
++  })
++
++  it('rejects a pinned window whose document moved to another origin', () => {
++    const windows = registry()
++    const product = window(4)
++    windows.register({ role: 'product', window: product }, 'dsh-app://app')
++    expect(() => windows.owner(eventOf(product, product.webContents.mainFrame, 'https://elsewhere.example/')))
++      .toThrow('document moved')
++  })
++
++  it('rejects a destroyed sender frame', () => {
++    const windows = registry()
++    const product = window(5)
++    windows.register({ role: 'product', window: product }, 'dsh-app://app')
++    expect(() => windows.owner({ sender: product.webContents, senderFrame: null })).toThrow('subframe')
++  })
++
++  it('drops a window it forgets', () => {
++    const windows = registry()
++    const product = window(6)
++    windows.register({ role: 'product', window: product }, 'dsh-app://app')
++    windows.forget(product)
++    expect(windows.entryOf(product)).toBeUndefined()
++    expect(windows.list()).toEqual([])
++    expect(() => windows.owner(eventOf(product))).toThrow('unowned renderer')
++  })
++
++  it('forgets a window whose renderer is already destroyed', () => {
++    const windows = registry()
++    const gone = destroyableWindow(12)
++    windows.register({ role: 'profile', window: gone, profile: 'work' })
++    gone.destroy()
++    // 'closed' fires after the renderer is gone: cleanup must not dereference it.
++    expect(() => windows.forget(gone)).not.toThrow()
++    expect(windows.list()).toEqual([])
++    expect(windows.entryOf(gone)).toBeUndefined()
++  })
++
++  it('reads and pins a window without touching a destroyed renderer', () => {
++    const windows = registry()
++    const gone = destroyableWindow(13)
++    windows.register({ role: 'profile', window: gone, profile: 'work' })
++    gone.destroy()
++    expect(() => windows.pinDocumentOrigin(gone, 'http://127.0.0.1:43110')).not.toThrow()
++    expect(windows.documentOrigin(gone)).toBe('http://127.0.0.1:43110')
++  })
++
++  it('keeps entries apart by renderer, not by role', () => {
++    const windows = registry()
++    const product = window(7)
++    const profile = window(8)
++    windows.register({ role: 'product', window: product }, 'dsh-app://app')
++    windows.register({ role: 'profile', window: profile, profile: 'work' })
++    windows.pinDocumentOrigin(profile, 'http://127.0.0.1:43110')
++    expect(windows.owner(eventOf(product)).role).toBe('product')
++    expect(windows.owner(eventOf(profile, profile.webContents.mainFrame, 'http://127.0.0.1:43110/'))).toMatchObject({ role: 'profile', profile: 'work' })
++  })
++})
++
++describe('document origins', () => {
++  it('normalizes loopback spellings of the same Host', () => {
++    expect(documentOriginOf('http://localhost:43110/dashboard')).toBe('http://127.0.0.1:43110')
++    expect(documentOriginOf('http://127.0.0.1:43110/')).toBe('http://127.0.0.1:43110')
++    expect(documentOriginOf('http://127.0.0.1:43110/')).toBe(documentOriginOf('http://localhost:43110/other'))
++  })
++
++  it('keeps custom schemes and portless origins distinct', () => {
++    expect(documentOriginOf('dsh-app://app/index.html')).toBe('dsh-app://app')
++    expect(documentOriginOf('https://lane.example/')).toBe('https://lane.example')
++    expect(documentOriginOf('not a url')).toBe('')
++  })
++
++  it('authorizes a loopback profile window across a Host port restart', () => {
++    const windows = registry()
++    const profile = window(11)
++    windows.register({ role: 'profile', window: profile, profile: 'work' })
++    windows.pinDocumentOrigin(profile, 'http://localhost:43110')
++    expect(windows.owner(eventOf(profile, profile.webContents.mainFrame, 'http://127.0.0.1:43110/'))).toMatchObject({ role: 'profile' })
++  })
++
++  it('recognizes only loopback HTTP origins', () => {
++    expect(isLoopbackOrigin('http://127.0.0.1:43110')).toBe(true)
++    expect(isLoopbackOrigin('https://127.0.0.1:43110')).toBe(false)
++    expect(isLoopbackOrigin('http://lane.example')).toBe(false)
++    expect(isLoopbackOrigin('dsh-app://app')).toBe(false)
++  })
++})
+diff --git a/upstream/apps/desktop/tests/directory-picker.spec.ts b/upstream/apps/desktop/tests/directory-picker.spec.ts
+index 2f4a9b4b..4b1ddbe4 100644
+--- a/upstream/apps/desktop/tests/directory-picker.spec.ts
++++ b/upstream/apps/desktop/tests/directory-picker.spec.ts
+@@ -22,7 +22,12 @@ function fixture() {
+     focus: vi.fn(),
+   }
+   let current: BrowserWindow | undefined = window as unknown as BrowserWindow
+-  installDesktopDirectoryPicker(() => current)
++  installDesktopDirectoryPicker((event) => {
++    if (current === undefined || event.sender !== window.webContents || event.senderFrame !== frame) {
++      throw new Error('dsh desktop: rejected directory picker from an unowned renderer')
++    }
++    return current
++  })
+   expect(electron.handle.mock.calls[0]?.[0]).toBe(DESKTOP_IPC.directoryPick)
+   const handler = electron.handle.mock.calls[0]![1]
+   const event = { sender: window.webContents, senderFrame: frame } as unknown as IpcMainInvokeEvent
+@@ -65,14 +70,19 @@ describe('Desktop directory picker', () => {
+     await expect(f.handler(f.event)).resolves.toBeNull()
+   })
+ 
+-  it('rejects other windows, subframes, shell pages, remote pages, and missing windows', async () => {
++  it('accepts a desktop window whatever Host serves its document', async () => {
+     const f = fixture()
+-    await expect(f.handler({ ...f.event, sender: {} } as IpcMainInvokeEvent)).rejects.toThrow('unowned renderer')
+-    await expect(f.handler({ ...f.event, senderFrame: {} } as IpcMainInvokeEvent)).rejects.toThrow('unowned renderer')
+-    for (const url of ['dsh-app://shell/startup.html', 'https://example.com/', 'http://127.0.0.1/']) {
++    electron.showOpenDialog.mockResolvedValue({ canceled: true, filePaths: [] })
++    for (const url of ['dsh-app://app/', 'http://127.0.0.1:43110/', 'https://remote.example/']) {
+       f.frame.url = url
+-      await expect(f.handler(f.event)).rejects.toThrow('unowned renderer')
++      await expect(f.handler(f.event)).resolves.toBeNull()
+     }
++  })
++
++  it('rejects other windows, subframes, and missing windows', async () => {
++    const f = fixture()
++    await expect(f.handler({ ...f.event, sender: {} } as IpcMainInvokeEvent)).rejects.toThrow('unowned renderer')
++    await expect(f.handler({ ...f.event, senderFrame: {} } as IpcMainInvokeEvent)).rejects.toThrow('unowned renderer')
+     f.window.isDestroyed.mockReturnValue(true)
+     await expect(f.handler(f.event)).rejects.toThrow('unowned renderer')
+     f.detach()
+diff --git a/upstream/apps/desktop/tests/file-actions.spec.ts b/upstream/apps/desktop/tests/file-actions.spec.ts
+index 972f64e7..57095f04 100644
+--- a/upstream/apps/desktop/tests/file-actions.spec.ts
++++ b/upstream/apps/desktop/tests/file-actions.spec.ts
+@@ -201,7 +201,7 @@ it('rejects redirects to the application Host', async () => {
+   const owner = Object.assign(new EventEmitter(), {
+     webContents: Object.assign(new EventEmitter(), { downloadURL: vi.fn<(url: string) => void>() }), isDestroyed: () => false,
+   })
+-  installFileActions(() => owner as never, () => 'http://127.0.0.1:19321')
++  installFileActions(() => owner as never, url => url.port === '19321' && (url.hostname === '127.0.0.1' || url.hostname === 'localhost'))
+   const handler = (name: string) => electron.ipcMain.handle.mock.calls.find(([channel]) => channel === name)![1] as
+     (event: IpcMainInvokeEvent, value: unknown) => Promise<unknown>
+   const fetchImage = vi.fn(async () => new Response(null, { status: 302, headers: { location: 'http://localhost:19321/api/private' } }))
+diff --git a/upstream/apps/desktop/tests/file-drag-files.spec.ts b/upstream/apps/desktop/tests/file-drag-files.spec.ts
+index 996de85d..1a2ae7f4 100644
+--- a/upstream/apps/desktop/tests/file-drag-files.spec.ts
++++ b/upstream/apps/desktop/tests/file-drag-files.spec.ts
+@@ -1,4 +1,4 @@
+-import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises'
++import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+ import { tmpdir } from 'node:os'
+ import { basename, join } from 'node:path'
+ import { expect, it, onTestFinished } from 'vitest'
+@@ -65,3 +65,27 @@ it('bounds all retained bytes, including pending writes, and frees unused capaci
+   await store.release(handle)
+   await expect(store.prepare(new Uint8Array([1]), { name: 'extra.png', mediaType: 'image/png' })).resolves.toEqual(expect.any(String))
+ })
++
++it('removes the directory a borrowed file owns when it is released', async () => {
++  const { store } = await files()
++  const owned = await mkdtemp(join(tmpdir(), 'dsh-drag-owned-'))
++  const path = join(owned, 'report.pdf')
++  await writeFile(path, 'downloaded')
++  const handle = store.borrow(path, owned)
++  expect(store.take(handle, false)).toBe(path)
++  await store.release(handle)
++  // The download directory belongs to the borrowed handle, so releasing it cleans up.
++  await expect(readdir(owned)).rejects.toThrow()
++})
++
++it('leaves a borrowed file without an owned directory in place', async () => {
++  const { store } = await files()
++  const source = await mkdtemp(join(tmpdir(), 'dsh-drag-source-'))
++  onTestFinished(async () => { await rm(source, { recursive: true, force: true }) })
++  const path = join(source, 'kept.pdf')
++  await writeFile(path, 'host file')
++  const handle = store.borrow(path)
++  await store.release(handle)
++  // A Host-owned file is not this store's to delete.
++  expect(await readFile(path, 'utf8')).toBe('host file')
++})
+diff --git a/upstream/apps/desktop/tests/file-drag.spec.ts b/upstream/apps/desktop/tests/file-drag.spec.ts
+index f7cbe896..6ab4466d 100644
+--- a/upstream/apps/desktop/tests/file-drag.spec.ts
++++ b/upstream/apps/desktop/tests/file-drag.spec.ts
+@@ -115,7 +115,7 @@ it('aborts pending Host authorization when the bridge closes', async () => {
+     { kind: 'resource', address: 'dsh-resource://file/session/s/file.pdf', name: 'file.pdf', mediaType: 'application/pdf' })
+   const rejected = expect(preparing).rejects.toThrow('File transfer closed')
+   await vi.waitFor(() => { expect(f.resolve).toHaveBeenCalledOnce() })
+-  const signal = f.resolve.mock.calls[0]![1]
++  const signal = f.resolve.mock.calls[0]![2]
+   await f.dispose()
+   await rejected
+   expect(signal.aborted).toBe(true)
+@@ -133,7 +133,7 @@ it('borrows only authorized unchanged files with the requested export name, neve
+   f.resolve.mockResolvedValue({ path, size: bytes.length, sha256 })
+   const request = { kind: 'resource', address: 'dsh-resource://file/session/s/report.pdf', name: 'report.pdf', mediaType: 'application/pdf', sha256, size: bytes.length }
+   const handle = await f.call(DESKTOP_IPC.fileDragPrepare, request)
+-  expect(f.resolve).toHaveBeenCalledWith(request.address, expect.any(AbortSignal))
++  expect(f.resolve).toHaveBeenCalledWith(f.window, request, expect.any(AbortSignal))
+   expect(await readdir(f.root)).toEqual(['report.pdf'])
+   expect(await f.call(DESKTOP_IPC.fileDragStart, handle)).toBe(true)
+   expect(f.window.webContents.startDrag).toHaveBeenCalledWith({ file: path, icon: f.icon })
+diff --git a/upstream/apps/desktop/tests/keyboard.spec.ts b/upstream/apps/desktop/tests/keyboard.spec.ts
+index 9b8d2cf3..d2963399 100644
+--- a/upstream/apps/desktop/tests/keyboard.spec.ts
++++ b/upstream/apps/desktop/tests/keyboard.spec.ts
+@@ -61,6 +61,13 @@ const installFixture = installDesktopShortcuts as (
+   platform: Parameters<typeof installDesktopShortcuts>[2], updateMenu: () => void,
+   overlayInput: (window: WindowFixture) => { readonly revision: number; readonly blocked: boolean },
+ ) => KeyboardFixture
++/** The multi-window wiring: a shell-owned sender resolver in front of the window list. */
++const installMultiWindowFixture = installDesktopShortcuts as unknown as (
++  getWindow: () => WindowFixture | undefined, userData: string,
++  platform: Parameters<typeof installDesktopShortcuts>[2], updateMenu: () => void,
++  overlayInput: (window: WindowFixture) => { readonly revision: number; readonly blocked: boolean },
++  windows: () => WindowFixture[], owner: (event: InvokeFixture) => WindowFixture,
++) => KeyboardFixture
+ type GuestsFixture = {
+   acquire(owner: ContentsFixture, workspace: unknown): DesktopBrowserReservation
+   release(owner: ContentsFixture, id: unknown): Promise<void>
+@@ -202,7 +209,7 @@ it.each([false, true])('blocks approved browser guest input across update overla
+     { id: 'page.close', defaults: { 'desktop:macos': { code: 'KeyA', secondCode: 'KeyB', modifiers: [] } } },
+     { id: 'sidebar.left.toggle', defaults: desktopDefaults({ code: 'KeyK', modifiers: ['primary'] }) },
+   ])
+-  const guests = new DesktopBrowserGuests(() => undefined) as GuestsFixture
++  const guests = new DesktopBrowserGuests(() => false) as GuestsFixture
+   guests.bind(f.window, (guest, name) => f.keyboard.attachGuest(f.window, guest, name))
+   const reservation = guests.acquire(f.contents, 'session:test')
+   const { frame, guest } = browserGuest(reservation)
+@@ -259,9 +266,10 @@ it('rejects other windows, subframes, remote/shell pages, and malformed edits',
+   for (const event of [{ ...f.event, sender: {} }, { ...f.event, senderFrame: null }, { ...f.event, senderFrame: {} }]) {
+     await expect(get(event, f.definitions)).rejects.toThrow('rejected sender')
+   }
+-  for (const url of ['dsh-app://shell/', 'https://example.com/', 'http://localhost/']) {
++  // 桌面窗口的文档来源不再决定它是不是桌面窗口：回环 Host 页面同样拥有快捷键通道。
++  for (const url of ['dsh-app://app/', 'http://localhost:43110/']) {
+     f.frame.url = url
+-    await expect(get(f.event, f.definitions)).rejects.toThrow('unowned renderer')
++    await expect(get(f.event, f.definitions)).resolves.toBeDefined()
+   }
+   f.frame.url = 'dsh-app://app/'
+   const ready = await f.call<ShortcutConfigSnapshot>(DESKTOP_IPC.shortcutsGet, f.definitions)
+@@ -715,7 +723,7 @@ it.each(['macos', 'windows', 'linux'] as const)('routes approved %s browser gues
+   const f = await fixture(platform)
+   const snapshot = await f.call<ShortcutConfigSnapshot>(DESKTOP_IPC.shortcutsGet,
+     [{ id: 'browser.new', defaults: desktopDefaults({ code: 'KeyT', modifiers: ['primary'] }) }])
+-  const guests = new DesktopBrowserGuests(() => undefined) as GuestsFixture
++  const guests = new DesktopBrowserGuests(() => false) as GuestsFixture
+   const attach = vi.fn((guest: ContentsFixture, name: DesktopBrowserLeaseId) => f.keyboard.attachGuest(f.window, guest, name))
+   guests.bind(f.window, attach)
+   const reservation = guests.acquire(f.contents, 'session:test')
+@@ -828,3 +836,34 @@ it('delivers Windows Edit actions to the focused browser guest without invoking
+   f.keyboard.sendEditingKey('C', ['control'])
+   expect(f.contents.sendInputEvent).toHaveBeenCalledTimes(2)
+ })
++
++it('keeps the shared catalog when a second desktop window navigates', async () => {
++  const f = await fixture()
++  const root = await mkdtemp(join(tmpdir(), 'dsh-keyboard-multi-'))
++  onTestFinished(async () => { await rm(root, { recursive: true, force: true }) })
++  const otherFrame: FrameFixture = { url: 'http://127.0.0.1:43110/', name: '', parent: null }
++  const otherContents = Object.assign(new EventEmitter(), { mainFrame: otherFrame, focusedFrame: otherFrame,
++    isDestroyed: () => false, isFocused: () => false, send: vi.fn(),
++    setIgnoreMenuShortcuts: vi.fn(), focus: vi.fn(), sendInputEvent: vi.fn() })
++  const otherWindow = Object.assign(new EventEmitter(), { webContents: otherContents, isDestroyed: vi.fn(() => false),
++    isFocused: vi.fn(() => false), isEnabled: vi.fn(() => true), close: vi.fn() })
++  const keyboard = installMultiWindowFixture(() => f.window, root, 'macos', vi.fn(),
++    window => f.updateOverlays.input(window),
++    () => [f.window, otherWindow],
++    event => (event.sender === otherContents ? otherWindow : f.window))
++  onTestFinished(() => { keyboard.dispose() })
++  keyboard.attach(f.window)
++  keyboard.attach(otherWindow)
++  const handlers = new Map<string, (event: InvokeFixture, ...args: unknown[]) => unknown>(
++    ipc.handle.mock.calls.map(([channel, handler]) => [channel, handler]))
++  const otherEvent: InvokeFixture = { sender: otherContents, senderFrame: otherFrame }
++  const published = await handlers.get(DESKTOP_IPC.shortcutsGet)!(f.event, f.definitions) as ShortcutConfigSnapshot
++  expect(published.revision).toBeTypeOf('string')
++  // The second window's client publishes the same catalog, then its document navigates away.
++  const current = await handlers.get(DESKTOP_IPC.shortcutsGet)!(otherEvent, f.definitions) as ShortcutConfigSnapshot
++  otherContents.emit('did-start-navigation', { isMainFrame: true, isSameDocument: false })
++  // The catalog survives: the first window can still close itself by its revision.
++  f.window.isFocused.mockReturnValue(true)
++  await handlers.get(DESKTOP_IPC.shortcutsCloseWindow)!(f.event, current.revision)
++  expect(f.window.close).toHaveBeenCalledOnce()
++})
+diff --git a/upstream/apps/desktop/tests/preload-app.spec.ts b/upstream/apps/desktop/tests/preload-app.spec.ts
+index fa3d2386..7f664dda 100644
+--- a/upstream/apps/desktop/tests/preload-app.spec.ts
++++ b/upstream/apps/desktop/tests/preload-app.spec.ts
+@@ -4,6 +4,7 @@ import { JSDOM } from 'jsdom'
+ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+ import { installMandatoryUpdateOverlay } from '../src/preload-mandatory-overlay.ts'
+ import { syncWindowsAppearance } from '../src/preload-windows.ts'
++import { markDocumentPlatform } from '../src/preload-platform.ts'
+ import { DESKTOP_IPC, type DshDesktopProductApi } from '../src/ipc.ts'
+ 
+ const electron = vi.hoisted(() => ({
+@@ -17,7 +18,11 @@ vi.mock('../src/preload-theme.ts', () => ({ syncNativeTheme: vi.fn() }))
+ vi.mock('../src/preload-windows.ts', () => ({ syncWindowsAppearance: vi.fn() }))
+ vi.mock('../src/preload-mandatory-overlay.ts', () => ({ installMandatoryUpdateOverlay: vi.fn() }))
+ 
+-beforeEach(() => { vi.stubGlobal('process', { ...process, isMainFrame: true }) })
++/** The main process declares a window role through the renderer arguments; tests default to the product window. */
++function stubWindow(argv: readonly string[], overrides: Record<string, unknown> = {}): void {
++  vi.stubGlobal('process', { ...process, isMainFrame: true, argv, ...overrides })
++}
++beforeEach(() => { stubWindow(['electron', '--dsh-desktop-window=product']) })
+ afterEach(() => { document.body.replaceChildren(); vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.clearAllMocks(); vi.resetModules() })
+ 
+ it('reads only native login API-key presence through the onboarding bridge', async () => {
+@@ -71,13 +76,48 @@ it('limits product documents to update status and a native confirmation action',
+   expect(electron.ipcRenderer.off).toHaveBeenCalledWith(DESKTOP_IPC.updatesPresentation, handler)
+ })
+ 
+-it.each(['dsh-app://shell/plugin-manager.html', 'dsh-app://other/index.html', 'https://shell/startup.html', 'http://example.com/'])('exposes only the carrier marker to %s', async (url) => {
+-  vi.stubGlobal('location', new URL(url))
++it('gives a renderer without a declared window role only the carrier marker', async () => {
++  stubWindow(['electron'])
+   await import('../src/preload-app.ts')
+   expect(electron.contextBridge.exposeInMainWorld).toHaveBeenCalledWith('dshDesktop', { protocolVersion: 1 })
+   expect(electron.ipcRenderer.on.mock.calls.some(([channel]) => channel === DESKTOP_IPC.browserOpenRequested)).toBe(false)
+ })
+ 
++it.each(['product', 'profile'] as const)('exposes the full desktop capability to a declared %s window', async (role) => {
++  stubWindow(['electron', `--dsh-desktop-window=${role}`])
++  await import('../src/preload-app.ts')
++  const api = electron.contextBridge.exposeInMainWorld.mock.calls.find(([name]) => name === 'dshDesktop')?.[1] as DshDesktopProductApi
++  expect(api.protocolVersion).toBe(1)
++  expect(api.browser).toBeDefined()
++  expect(api.keyboard).toBeDefined()
++  expect(api.fileDrag).toBeDefined()
++  expect(api.updates).toBeDefined()
++  expect(markDocumentPlatform).toHaveBeenCalledOnce()
++})
++
++it('gives a remote profile window the full carrier but no machine-local globals', async () => {
++  stubWindow(['electron', '--dsh-desktop-window=remote'])
++  await import('../src/preload-app.ts')
++  // 远端 profile 跑的是本机前端 + 远端后端：能力载体与本地窗口一致。
++  const api = electron.contextBridge.exposeInMainWorld.mock.calls.find(([name]) => name === 'dshDesktop')?.[1] as DshDesktopProductApi
++  expect(api.protocolVersion).toBe(1)
++  expect(api.browser).toBeDefined()
++  expect(api.keyboard).toBeDefined()
++  expect(api.fileDrag).toBeDefined()
++  expect(api.updates).toBeDefined()
++  expect(syncWindowsAppearance).toHaveBeenCalledOnce()
++  expect(markDocumentPlatform).toHaveBeenCalledOnce()
++  // 两个「本机语义」的全局不给：远端目录由远端 Host 解析，远端上传走字节。
++  const exposed = electron.contextBridge.exposeInMainWorld.mock.calls.map(([name]) => name)
++  expect(exposed).not.toContain('__DSH_DIRECTORY_PICKER__')
++  expect(exposed).not.toContain('__DSH_HOST_PATHS__')
++  // 应用级入口仍只属于产品窗口。
++  expect(exposed).not.toContain('dshDesktopBoot')
++  expect(exposed).not.toContain('dshOnboarding')
++  expect(exposed).not.toContain('dshPlatform')
++  expect(exposed).not.toContain('__DSH_LOCALE__')
++})
++
+ it('reads the local machine description only from the application main frame', async () => {
+   const description = 'platform=darwin; os=15.6; app_arch=arm64; cpu=Apple M4; memory_gib=32.0'
+   vi.stubGlobal('location', new URL('dsh-app://app/index.html'))
+@@ -103,51 +143,56 @@ it('exposes asynchronous boot only to the local application document', async ()
+   expect(electron.ipcRenderer.invoke).toHaveBeenCalledWith(DESKTOP_IPC.boot)
+   vi.resetModules()
+   electron.contextBridge.exposeInMainWorld.mockClear()
+-  vi.stubGlobal('location', new URL('https://other.example/'))
++  stubWindow(['electron', '--dsh-desktop-window=profile'])
+   await import('../src/preload-app.ts')
+   expect(electron.contextBridge.exposeInMainWorld.mock.calls.some(([name]) => name === 'dshDesktopBoot')).toBe(false)
+ })
+ 
+-it('exposes a directory picker only to the local application document', async () => {
+-  vi.stubGlobal('location', new URL('dsh-app://app/'))
++it('exposes a directory picker to every desktop window', async () => {
+   await import('../src/preload-app.ts')
+   const api = electron.contextBridge.exposeInMainWorld.mock.calls.find(([name]) => name === '__DSH_DIRECTORY_PICKER__')?.[1] as { pick(): Promise<string | null> }
+   electron.ipcRenderer.invoke.mockResolvedValue('/workspace')
+   await expect(api.pick()).resolves.toBe('/workspace')
+   expect(electron.ipcRenderer.invoke).toHaveBeenCalledExactlyOnceWith(DESKTOP_IPC.directoryPick)
+-  for (const url of ['dsh-app://shell/startup.html', 'https://example.com/']) {
++  for (const argv of [['electron'], ['electron', '--dsh-desktop-window=other']]) {
+     vi.resetModules()
+     electron.contextBridge.exposeInMainWorld.mockClear()
+-    vi.stubGlobal('location', new URL(url))
++    stubWindow(argv)
+     await import('../src/preload-app.ts')
+     expect(electron.contextBridge.exposeInMainWorld.mock.calls.some(([name]) => name === '__DSH_DIRECTORY_PICKER__')).toBe(false)
+   }
+ })
+ 
+-it('reports host paths of picked files only to the local application document', async () => {
+-  vi.stubGlobal('location', new URL('dsh-app://app/'))
++it('reports host paths of picked files to every desktop window', async () => {
+   await import('../src/preload-app.ts')
+   const api = electron.contextBridge.exposeInMainWorld.mock.calls.find(([name]) => name === '__DSH_HOST_PATHS__')?.[1] as { pathFor(file: File): string }
+   const picked = new File(['x'], 'notes.md')
+   electron.webUtils.getPathForFile.mockReturnValue('/Users/me/notes.md')
+   expect(api.pathFor(picked)).toBe('/Users/me/notes.md')
+   expect(electron.webUtils.getPathForFile).toHaveBeenCalledExactlyOnceWith(picked)
+-  for (const url of ['dsh-app://shell/startup.html', 'https://example.com/']) {
++  for (const argv of [['electron'], ['electron', '--dsh-desktop-window=other']]) {
+     vi.resetModules()
+     electron.contextBridge.exposeInMainWorld.mockClear()
+-    vi.stubGlobal('location', new URL(url))
++    stubWindow(argv)
+     await import('../src/preload-app.ts')
+     expect(electron.contextBridge.exposeInMainWorld.mock.calls.some(([name]) => name === '__DSH_HOST_PATHS__')).toBe(false)
+   }
+ })
+ 
+-it.each(['dsh-app://app/', 'dsh-app://shell/plugin-manager.html', 'https://example.com/'])(
+-  'installs Windows appearance only for the application document (%s)', async (url) => {
+-    vi.stubGlobal('location', new URL(url))
++it('installs Windows appearance for every desktop window', async () => {
++  for (const role of ['product', 'profile']) {
++    vi.resetModules()
++    vi.mocked(syncWindowsAppearance).mockClear()
++    stubWindow(['electron', `--dsh-desktop-window=${role}`])
+     await import('../src/preload-app.ts')
+-    expect(syncWindowsAppearance).toHaveBeenCalledTimes(url === 'dsh-app://app/' ? 1 : 0)
+-  },
+-)
++    expect(syncWindowsAppearance).toHaveBeenCalledOnce()
++  }
++  vi.resetModules()
++  vi.mocked(syncWindowsAppearance).mockClear()
++  stubWindow(['electron'])
++  await import('../src/preload-app.ts')
++  expect(syncWindowsAppearance).not.toHaveBeenCalled()
++})
+ 
+ it('moves welcome-entry focus to the document without changing keyboard tab order', async () => {
+   const dom = new JSDOM('<body><button>Sidebar</button><input></body>')
+@@ -169,16 +214,13 @@ it('moves welcome-entry focus to the document without changing keyboard tab orde
+   } finally { dom.window.close() }
+ })
+ 
+-it.each(['win32', 'darwin'] as const)('installs the embedded mandatory UI only in the Windows app document (%s)', async (platform) => {
+-  vi.stubGlobal('process', { ...process, platform })
+-  for (const url of ['dsh-app://app/', 'dsh-app://shell/mandatory-update.html', 'https://example.com/']) {
+-    vi.resetModules()
+-    vi.mocked(installMandatoryUpdateOverlay).mockClear()
+-    vi.stubGlobal('location', new URL(url))
++it.each([['win32', 'product'], ['win32', 'profile'], ['darwin', 'product'], ['darwin', 'profile']] as const)(
++  'installs the embedded mandatory UI only in the Windows product window (%s, %s)', async (platform, role) => {
++    stubWindow(['electron', `--dsh-desktop-window=${role}`], { platform })
+     await import('../src/preload-app.ts')
+-    expect(installMandatoryUpdateOverlay).toHaveBeenCalledTimes(platform === 'win32' && url === 'dsh-app://app/' ? 1 : 0)
+-  }
+-})
++    expect(installMandatoryUpdateOverlay).toHaveBeenCalledTimes(platform === 'win32' && role === 'product' ? 1 : 0)
++  },
++)
+ 
+ it('exposes constrained shortcut operations and releases configuration subscriptions', async () => {
+   vi.stubGlobal('location', new URL('dsh-app://app/'))
+diff --git a/upstream/apps/desktop/tests/remote-drag.spec.ts b/upstream/apps/desktop/tests/remote-drag.spec.ts
+new file mode 100644
+index 00000000..3eb88ffb
+--- /dev/null
++++ b/upstream/apps/desktop/tests/remote-drag.spec.ts
+@@ -0,0 +1,90 @@
++import { createHash } from 'node:crypto'
++import { readFile, rm } from 'node:fs/promises'
++import { basename } from 'node:path'
++import { afterEach, expect, it, vi } from 'vitest'
++
++const electron = vi.hoisted(() => ({ net: { fetch: vi.fn() } }))
++vi.mock('electron', () => electron)
++const { fetchRemoteDragResource } = await import('../src/remote-drag.ts')
++/** A window session already holding the pairing cookie for the remote origin. */
++const PAIRED = { cookies: { get: async () => [{ name: 'dsh_mobile_session', value: 'paired-cookie' }] } }
++const doFetch = vi.fn()
++
++const ADDRESS = 'dsh-resource://file/session/session-1/report.pdf'
++/** The page's drag source: the name here is what the drag layer verifies. */
++const SOURCE = { address: ADDRESS, name: 'report.pdf', mediaType: 'application/pdf' }
++const ORIGIN = 'https://lane.example'
++
++/** One multipart answer shaped like the Host's binary RPC response. */
++function binaryResponse(bytes: Uint8Array, rpcId: string): Response {
++  const metadata = JSON.stringify({
++    type: 'server-response',
++    rpcId,
++    result: { ok: true, value: { data: null, offset: 0, eof: true } },
++    attachments: [{ codec: 'bytes', part: 'data', path: ['data'] }],
++  })
++  const form = new FormData()
++  form.set('metadata', metadata)
++  form.set('data', new Blob([new Uint8Array(bytes)]))
++  // A real Response derives the multipart boundary the parser needs.
++  return new Response(form)
++}
++
++afterEach(() => { vi.clearAllMocks() })
++
++it('downloads a remote resource through the window session and reports its identity', async () => {
++  const bytes = Buffer.from('remote artifact bytes')
++  doFetch.mockImplementation(async (_url: string, init: { body: string }) => {
++    const envelope = JSON.parse(init.body) as { rpcId: string }
++    return binaryResponse(bytes, envelope.rpcId)
++  })
++  const resource = await fetchRemoteDragResource(doFetch as never, PAIRED as never, ORIGIN, SOURCE, new AbortController().signal)
++  expect(resource).not.toBeNull()
++  expect(resource!.size).toBe(bytes.byteLength)
++  expect(resource!.sha256).toBe(createHash('sha256').update(bytes).digest('hex'))
++  expect(await readFile(resource!.path)).toEqual(bytes)
++  // The drag layer compares this basename against the name the page declared.
++  expect(basename(resource!.path)).toBe('report.pdf')
++  // The request carries the window's pairing cookie, so the remote Host authorizes it.
++  expect(doFetch).toHaveBeenCalledWith(
++    `${ORIGIN}/api/workspaceFiles/readBytes`,
++    expect.objectContaining({ method: 'POST', headers: expect.objectContaining({ cookie: 'dsh_mobile_session=paired-cookie' }) }),
++  )
++  await rm(resource!.path, { force: true })
++})
++
++it('asks for the session-scoped file the address names', async () => {
++  doFetch.mockImplementation(async (_url: string, init: { body: string }) => {
++    const envelope = JSON.parse(init.body) as { rpcId: string; method: string; payload: unknown[] }
++    expect(envelope.method).toBe('workspaceFiles/readBytes')
++    expect(envelope.payload[0]).toEqual({ sessionId: 'session-1', workspaceRoot: '' })
++    expect(envelope.payload[1]).toBe('report.pdf')
++    return binaryResponse(Buffer.from('x'), envelope.rpcId)
++  })
++  const resource = await fetchRemoteDragResource(doFetch as never, PAIRED as never, ORIGIN, SOURCE, new AbortController().signal)
++  expect(resource).not.toBeNull()
++  await rm(resource!.path, { force: true })
++})
++
++it.each([
++  ['a non-session address', 'dsh-resource://file/absolute/etc/passwd'],
++  ['a malformed address', 'not-an-address'],
++])('refuses %s without a request', async (_name, address) => {
++  await expect(fetchRemoteDragResource(doFetch as never, PAIRED as never, ORIGIN, { ...SOURCE, address }, new AbortController().signal)).resolves.toBeNull()
++  expect(doFetch).not.toHaveBeenCalled()
++})
++
++it('reports no resource when the Host refuses or answers something else', async () => {
++  doFetch.mockResolvedValueOnce(new Response(null, { status: 403 }))
++  await expect(fetchRemoteDragResource(doFetch as never, PAIRED as never, ORIGIN, SOURCE, new AbortController().signal)).resolves.toBeNull()
++  doFetch.mockResolvedValueOnce(new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } }))
++  await expect(fetchRemoteDragResource(doFetch as never, PAIRED as never, ORIGIN, SOURCE, new AbortController().signal)).resolves.toBeNull()
++})
++
++it('reports no resource when the answer carries no bytes', async () => {
++  doFetch.mockImplementation(async (_url: string, init: { body: string }) => {
++    const envelope = JSON.parse(init.body) as { rpcId: string }
++    return binaryResponse(new Uint8Array(), envelope.rpcId)
++  })
++  await expect(fetchRemoteDragResource(doFetch as never, PAIRED as never, ORIGIN, SOURCE, new AbortController().signal)).resolves.toBeNull()
++})
 diff --git a/upstream/apps/desktop/tsconfig.host.json b/upstream/apps/desktop/tsconfig.host.json
-index 2701caf5..01bb003a 100644
+index 92ec6931..42160e67 100644
 --- a/upstream/apps/desktop/tsconfig.host.json
 +++ b/upstream/apps/desktop/tsconfig.host.json
 @@ -2,7 +2,12 @@
@@ -2435,7 +4293,7 @@ index 2701caf5..01bb003a 100644
      "src"
 @@ -20,6 +25,9 @@
      {
-       "path": "../../packages/credentials/deepseek-account"
+       "path": "../../packages/account/deepseek-account"
      },
 +    {
 +      "path": "../../../packages/plus/desktop-shell"
@@ -2444,7 +4302,7 @@ index 2701caf5..01bb003a 100644
        "path": "../../packages/api/gateway/tsconfig.host.json"
      },
 diff --git a/upstream/apps/desktop/tsdown.config.ts b/upstream/apps/desktop/tsdown.config.ts
-index 40ed1a03..b3184f6a 100644
+index ddf9c2d6..115c8bdd 100644
 --- a/upstream/apps/desktop/tsdown.config.ts
 +++ b/upstream/apps/desktop/tsdown.config.ts
 @@ -14,6 +14,14 @@ const manifest = JSON.parse(readFileSync(new URL('./package.json', import.meta.u
@@ -2462,7 +4320,7 @@ index 40ed1a03..b3184f6a 100644
  /**
   * The `require` polyfill of a sandboxed preload resolves only these modules
   * (Electron: Process Sandboxing, "Preload scripts").
-@@ -55,6 +63,7 @@ export default defineConfig([
+@@ -56,6 +64,7 @@ export default defineConfig([
    {
      entry: ['lib/types/main.js'],
      plugins: [packagedImportsPlugin(mainProcessImports)],
@@ -2470,7 +4328,7 @@ index 40ed1a03..b3184f6a 100644
      define: clientVersionDefine,
      onSuccess: async () => {
        await build({
-@@ -96,7 +105,7 @@ export default defineConfig([
+@@ -97,7 +106,7 @@ export default defineConfig([
      clean: false,
      deps: { neverBundle: ['electron'] },
    },
@@ -2480,7 +4338,7 @@ index 40ed1a03..b3184f6a 100644
      entry: { [name]: `lib/types/${name}.js` },
      plugins: [packagedImportsPlugin(preloadImports)],
 diff --git a/upstream/pnpm-lock.yaml b/upstream/pnpm-lock.yaml
-index 9a84d64b..064beb09 100644
+index 27654927..788482c4 100644
 --- a/upstream/pnpm-lock.yaml
 +++ b/upstream/pnpm-lock.yaml
 @@ -8,6 +8,9 @@ overrides:
@@ -2493,10 +4351,10 @@ index 9a84d64b..064beb09 100644
  
  patchedDependencies:
    '@botiverse/oar@0.67.0': 65de2ca1966421e30893d8d4fed6a3d88e4247e131e7575fe791246e594538d6
-@@ -339,6 +342,15 @@ importers:
-       '@deepseek-ai/dsh-cordis-client-runner':
+@@ -369,6 +372,15 @@ importers:
+       '@deepseek-ai/dsh-deepseek-chat-import':
          specifier: workspace:*
-         version: link:../../packages/extensions/cordis-client-runner
+         version: link:../../packages/experimental/deepseek-chat-import
 +      '@deepseek-ai/dsh-desktop-plus-brand':
 +        specifier: link:../../../packages/plus/desktop-brand
 +        version: link:../../../packages/plus/desktop-brand
@@ -2506,10 +4364,20 @@ index 9a84d64b..064beb09 100644
 +      '@deepseek-ai/dsh-desktop-plus-remote-access':
 +        specifier: link:../../../packages/plus/desktop-remote-access
 +        version: link:../../../packages/plus/desktop-remote-access
-       '@deepseek-ai/dsh-cua-bundle':
+       '@deepseek-ai/dsh-experimental-auto-review':
          specifier: workspace:*
-         version: link:../../packages/experimental/cua-bundle
-@@ -3181,6 +3193,9 @@ importers:
+         version: link:../../packages/experimental/auto-review
+@@ -830,6 +842,9 @@ importers:
+       '@deepseek-ai/dsh-util-file-drag':
+         specifier: workspace:*
+         version: link:../../packages/util/file-drag
++      '@deepseek-ai/dsh-util-workspace-path':
++        specifier: workspace:*
++        version: link:../../packages/util/workspace-path
+       '@deepseek-ai/node-addon-system':
+         specifier: workspace:~
+         version: link:../../native/system/packages/entry
+@@ -3374,6 +3389,9 @@ importers:
        '@deepseek-ai/dsh-deliverable-file-references':
          specifier: workspace:*
          version: link:../../deliverables/deliverable-file-references

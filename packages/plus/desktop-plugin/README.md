@@ -1,6 +1,6 @@
 # dsh-desktop-plus
 
-DeepSeek Harness 桌面壳的**桌面半区插件**（DSH plugin）：随宿主挂载后给 dsh 页面注入桌面 chrome——桌面设置面板、通知设置、下载管理、浏览器 guest 桥、快捷键桥、控制台镜像等；并注册「DSH 桌面壳」技能与桌面设置的 settings 命名空间。
+DeepSeek Harness 桌面壳的**桌面半区插件**（DSH plugin）：随宿主挂载后给 dsh 页面注入桌面 chrome——桌面设置面板、通知设置、下载管理、控制台镜像等；并注册「DSH 桌面壳」技能与桌面设置的 settings 命名空间。窗口 chrome、桌面档快捷键与侧边栏浏览器载体由官方窗口 preload 提供（#125），插件不再补桥。
 
 - 移植自 [`dsh-desktop-bun`](https://github.com/hyperion2144/dsh-desktop-bun) 的 `desktop-plugin/`：原壳是 Electrobun/Tauri，本仓换成**官方 deepseek-ai/dsh Electron 桌面壳（`upstream/apps/desktop`）的 plus fork**（`packages/plus/desktop-shell/`）。
 - 壳半区（窗口、托盘、服务面、运行时管理、通知、下载、日志）在 `packages/plus/desktop-shell/`；本包只负责**页面半区 + 宿主侧技能/schema/事件桥**。
@@ -25,7 +25,7 @@ tsconfig.json      页面半区 strict typecheck 配置
 - 传输：**官方 `/api` 路由**——页面半区 `connection.rpc.call('/api', 'shell.invoke', payload)`（与业务插件同一官方通道），宿主半区 `connection.fetch.register` 注册 exact 路由 `/api/shell.invoke`，经宿主 IPC（plus-shell-rpc）转 Electron 壳 plusRpcRegistry。
 - 请求体：官方 wire `{ rpcId, payload: { "method": "<命令名>", "params": { … } } }`；回执：官方信封 `{ type: 'server-response', result: { ok: true, value } | { ok: false, error } }`。
 - 失败可见：通道未捕获（纯浏览器/复用外部实例）→ `shell rpc unavailable`；业务失败 → `Error(error)`。
-- **命令名与参数/回执形状不因换壳而变**：仍用 `contracts/` 里的 75 个命令名（`get_desktop_client_environment`、`get_desktop_settings_data`、`save_desktop_settings`、`browser_guest_*`、`list_downloads`、`list_log_files`、`get_update_state` …）。壳侧实现同名同形状即可，页面侧零改动。
+- **命令名与参数/回执形状不因换壳而变**：仍用 `contracts/` 里的命令名（`get_desktop_client_environment`、`get_desktop_settings_data`、`save_desktop_settings`、`list_downloads`、`list_log_files`、`get_update_state` …）。壳侧实现同名同形状即可，页面侧零改动。
 - 壳在场判定：`globalThis.dshDesktop`（官方 preload 契约，`protocolVersion === 1`）或任意一次 RPC 成功；两者皆无 = 普通浏览器，桌面 chrome 整体不激活。
 - 旧壳（dsh-desktop-bun / tauriapp）的 Electrobun Typed RPC 通道与 remote-access 中继通道**已删除**；远程/访客 profile 的转发由壳自己负责，命令名不变。
 
@@ -33,8 +33,8 @@ tsconfig.json      页面半区 strict typecheck 配置
 
 - **shell-rpc 统一传输层**：单通道同源 HTTP，请求级失败可见（无静默降级）。
 - **桌面设置面板**（`desktop-settings/`）：dsh 运行时管理、profile 与端口、代理、通知、防休眠、开发者工具、远程访问、更新提醒、日志与诊断等卡片。
-- **桌面 chrome**：标题栏三键与拖拽带（平台条件化）、右键菜单、下载拦截与管理 Tab、通知设置与音效导入、快捷键桥、console 镜像攒批上报。
-- **浏览器 guest 桥**（`bridge/desktop-browser-bridge.ts`）：侧边栏内嵌页的租约 / 导航 / 前进后退 / 尺寸同步 / 可见性；同源 HTTP 没有推送通道，guest 状态改为轮询 `browser_guest_state`。
+- **桌面 chrome**：右键菜单、下载拦截与管理 Tab、通知设置与音效导入、console 镜像攒批上报；窗口标题栏/拖拽带、桌面档快捷键与侧边栏浏览器载体由官方窗口 preload 驱动（#125）。
+- **宿主窗口能力（官方 preload，#125）**：`dshDesktop.browser` 驱动侧边栏 webview、`dshDesktop.keyboard` 驱动桌面档快捷键、`html[data-platform]` 与 Windows 标题栏标记由窗口角色派生——插件不再持有这些桥的实现。
 - **宿主事件桥**（`index.js`）：`session/event` → 宿主 IPC（`plus-shell-notify` 单向）→ Electron 壳（任务完成、审批请求、错误、忙状态心跳防休眠）；无宿主 IPC（复用外部实例）静默降级。
 
 ## 挂载方式
@@ -66,7 +66,7 @@ pnpm run typecheck:plus                         # 仓库级 plus 类型检查
 
 - 本仓当前**没有安装** esbuild（`require.resolve('esbuild')` 失败），`pnpm install` 之前无法打包；构建脚本会给出可执行的提示而不是裸堆栈。esbuild 的构建脚本已由根 `pnpm-workspace.yaml` 的 `allowBuilds: esbuild: true` 放行。
 - React 类型只存在于 `upstream/node_modules/@types/react`，本包 tsconfig 用 `paths` 指过去（装齐依赖后可改回本包自己的 devDependency）。
-- 普通浏览器里没有壳：桌面设置面板、下载/通知 tab、guest 桥都不激活。
+- 普通浏览器里没有壳：桌面设置面板、下载/通知 tab 都不激活；官方窗口能力（platform 标、dshDesktop 载体）同样不存在，页面按窄屏/纯浏览器语义渲染。
 
 ## 许可
 

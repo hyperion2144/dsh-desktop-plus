@@ -97,22 +97,40 @@ export function systemProxyFromEnv(env: Record<string, string | undefined>): Pro
 }
 
 /**
+ * 手动代理地址的校验：产品只支持 HTTP 代理。
+ *
+ * HTTPS 目标由这个 HTTP 代理经 `CONNECT` 隧道转发，所以代理自身的 scheme 必须是
+ * `http://`；`https://` 代理需要先与代理建立 TLS，壳与宿主子进程都不做这件事。
+ * SOCKS 两侧都不支持（Node 的环境代理不读 `ALL_PROXY` 的 socks 条目），放行只会
+ * 让配置静默失效。
+ * @param raw - 设置里填写的代理地址。
+ * @returns 规范化后的地址，或可直接展示给用户的拒绝原因。
+ */
+export function validateManualProxyUrl(raw: string): { ok: true; url: string } | { ok: false; error: string } {
+  const trimmed = raw.trim()
+  if (trimmed === '') return { ok: false, error: '代理地址为空' }
+  const scheme = trimmed.slice(0, trimmed.indexOf('://')).toLowerCase()
+  if (trimmed.includes('://') && scheme !== 'http') {
+    return { ok: false, error: `仅支持 HTTP 代理（HTTPS 目标会经该 HTTP 代理 CONNECT）：${raw}` }
+  }
+  const normalized = normalizeProxyUrl(trimmed)
+  return normalized.ok ? { ok: true, url: normalized.target.url } : { ok: false, error: normalized.error }
+}
+
+/**
  * 该配置文件对应的注入环境（旧壳 `resolved_proxy_env`）：
- * `off` → null；`manual` 走 URL 规范化（socks5 只写 ALL_PROXY，其余写 HTTP(S)_PROXY）；
- * `system` 用传进来的检测结果（没有就 null，不注入）。最后按需拼凭据。
+ * `off` → null；`manual` 只接受 HTTP 代理（见 {@link validateManualProxyUrl}），
+ * 同时写 HTTP(S)_PROXY；`system` 用传进来的检测结果（没有就 null，不注入）。
+ * 最后按需拼凭据。
  */
 export function resolveProxyEnv(settings: DesktopProxySettings, systemProxy: ProxyEnv | null = null): ProxyEnv | null {
   const mode = settings.proxy_mode ?? 'off'
   let env: ProxyEnv | null = null
   if (mode === 'manual') {
-    const normalized = normalizeProxyUrl(settings.proxy_url ?? '')
-    if (normalized.ok) {
-      const url = normalized.target.url
+    const validated = validateManualProxyUrl(settings.proxy_url ?? '')
+    if (validated.ok) {
       const entries = normalizeNoProxyEntries(settings.no_proxy ?? '')
-      env =
-        url.startsWith('socks5://')
-          ? { http: null, https: null, all: url, no_proxy: mergeNoProxyEntries(entries) }
-          : { http: url, https: url, all: null, no_proxy: mergeNoProxyEntries(entries) }
+      env = { http: validated.url, https: validated.url, all: null, no_proxy: mergeNoProxyEntries(entries) }
     }
   } else if (mode === 'system') {
     env = systemProxy

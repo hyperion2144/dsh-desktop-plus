@@ -1,0 +1,411 @@
+diff --git a/upstream/apps/desktop-host/src/index.ts b/upstream/apps/desktop-host/src/index.ts
+index 7664fb11..afef4e04 100644
+--- a/upstream/apps/desktop-host/src/index.ts
++++ b/upstream/apps/desktop-host/src/index.ts
+@@ -47,9 +47,14 @@ async function main(): Promise<void> {
+   reportSkippedBundles('dsh', profile)
+   const application = runProfile({
+     environment: loadLayeredEnv('dsh'),
+-    profile: 'desktop',
++    // #117 多 profile 路由：上报真实 profile 名（loadProfileDirectory 已算出 basename(dir)：
++    // 默认 profile 的目录名就是 desktop，smoke 为 smoke）。写死 'desktop' 会让 profile 宿主
++    // 自报错误身份——通知路由、忙状态标签、UA 后缀全挂错窗口。
++    profile: profile.name,
+     resolvedProfile: { profile, installAnchor },
+-    patchFiles: [],
++    // 壳自己的插件走 --patch 叠加层（bun 同款）：不写进 profile 的 package.json.bundles，
++    // 否则插件一旦有问题会把整个桌面应用带崩。路径列表由主进程注入。
++    patchFiles: (process.env.DSH_DESKTOP_PATCH_FILES ?? '').split(delimiter).filter((entry) => entry.length > 0),
+     args: ['--no-open', '--host', '127.0.0.1', '--port', '0'],
+     ...(process.argv[5] === undefined ? {} : {
+       packageManager: {
+@@ -85,6 +90,19 @@ async function main(): Promise<void> {
+   process.on('message', (message: unknown) => {
+     if (typeof message !== 'object' || message === null || !('type' in message)) return
+     if (message.type === 'shutdown') { void stop(); return }
++    if (message.type === 'plus-reload') {
++      // 重发当前注入；collect 失败回 error，由壳侧提示而不是盲目刷新。
++      void (async () => {
++        try {
++          if (stopping !== undefined) throw new Error('Host stopping')
++          const current = collectReady()
++          await send({ type: 'plus-reload-result', url: current.url, injections: current.injections })
++        } catch (error) {
++          await send({ type: 'plus-reload-result', error: error instanceof Error ? error.message : String(error) })
++        }
++      })().catch((error: unknown) => { console.error(error) })
++      return
++    }
+     if (message.type === 'file-drag-cancel') {
+       if ('requestId' in message && typeof message.requestId === 'number') dragReads.get(message.requestId)?.abort()
+       return
+@@ -151,6 +169,22 @@ async function main(): Promise<void> {
+     authentication.dispose()
+   }, 'desktop-host: authentication channel')
+   installOperationDiagnostics(ctx, record => send({ type: 'plugin-operation', record }), 32, runId)
++
++  // plus：右键「重载插件」的宿主侧编排（unlag 移植，入口在壳）。插件管理器启停或产物更新后，
++  // 运行中的宿主重扫产物；这里按当前状态重新收集 boot 注入/清单回给壳，壳再刷新页面，
++  // 页面不再拿启动时冻结的旧清单（旧 rev 会被宿主拒绝，表现为 web boot 批量 import 失败）。
++  // 每次收集都按启动凭据重新认证一次：rc.5 起注入清单挂在 admission.peer 上，
++  // 没有常驻的 browserPeer 可复用。
++  const collectReady = (): { url: string; injections: ReturnType<typeof ctx.webServer.collectIndexInjections> } => {
++    const admission = ctx.connection.authentication.authenticate({
++      headers: { cookie: `dsh-desktop-session=${secret}` },
++    })
++    if ('rejection' in admission) throw new Error('Desktop authentication provider did not accept its startup credential')
++    return {
++      url: `${ctx.webServer.protocol}//127.0.0.1:${String(ctx.webServer.port)}/`,
++      injections: ctx.webServer.collectIndexInjections(admission.peer),
++    }
++  }
+   control.updateTasks = installDesktopUpdateTaskControl(ctx)
+   control.quitInspection = installDesktopQuitInspection(ctx)
+   installPlatformSessionPublisher(ctx, (session) => {
+@@ -158,14 +192,9 @@ async function main(): Promise<void> {
+   })
+   await ctx.plugin(DesktopAuthentication, { readSecret: () => secret }).await()
+   if (!canPublish()) return
+-  const admission = ctx.connection.authentication.authenticate({
+-    headers: { cookie: `dsh-desktop-session=${secret}` },
+-  })
+-  if ('rejection' in admission) throw new Error('Desktop authentication provider did not accept its startup credential')
+-  const url = `${ctx.webServer.protocol}//127.0.0.1:${String(ctx.webServer.port)}/`
+-  const injections = ctx.webServer.collectIndexInjections(admission.peer)
++  const ready = collectReady()
+   if (!canPublish()) return
+-  process.send?.({ type: 'ready', url, injections }, (error) => { if (error !== null) console.error(error) })
++  process.send?.({ type: 'ready', url: ready.url, injections: ready.injections }, (error) => { if (error !== null) console.error(error) })
+ }
+ 
+ if (import.meta.main) {
+diff --git a/upstream/apps/desktop/cli/dsh b/upstream/apps/desktop/cli/dsh
+index ee657a3d..2d9d456d 100644
+--- a/upstream/apps/desktop/cli/dsh
++++ b/upstream/apps/desktop/cli/dsh
+@@ -11,4 +11,4 @@ while [ -L "$launcher" ]; do
+   esac
+ done
+ resources=$(CDPATH= cd -- "$(dirname -- "$launcher")/../../.." && pwd -P)
+-ELECTRON_RUN_AS_NODE=1 exec "$resources/../MacOS/DeepSeek Harness" --expose-internals "$resources/app.asar/dsh/node_modules/@deepseek-ai/dsh-desktop-host/lib/cli.js" "$@"
++ELECTRON_RUN_AS_NODE=1 exec "$resources/../MacOS/DSH Desktop Plus" --expose-internals "$resources/app.asar/dsh/node_modules/@deepseek-ai/dsh-desktop-host/lib/cli.js" "$@"
+diff --git a/upstream/apps/desktop/cli/dsh.cmd b/upstream/apps/desktop/cli/dsh.cmd
+index 73af3353..ef13bce8 100644
+--- a/upstream/apps/desktop/cli/dsh.cmd
++++ b/upstream/apps/desktop/cli/dsh.cmd
+@@ -1,5 +1,5 @@
+ @echo off
+ setlocal DisableDelayedExpansion
+ set "ELECTRON_RUN_AS_NODE=1"
+-"%~dp0..\..\..\..\DeepSeek Harness.exe" --expose-internals "%~dp0..\..\..\app.asar\dsh\node_modules\@deepseek-ai\dsh-desktop-host\lib\cli.js" %*
++"%~dp0..\..\..\..\DSH Desktop Plus.exe" --expose-internals "%~dp0..\..\..\app.asar\dsh\node_modules\@deepseek-ai\dsh-desktop-host\lib\cli.js" %*
+ exit /b %errorlevel%
+diff --git a/upstream/apps/desktop/scripts/desktop-package-environment.mjs b/upstream/apps/desktop/scripts/desktop-package-environment.mjs
+index d301ac4b..3282b83d 100644
+--- a/upstream/apps/desktop/scripts/desktop-package-environment.mjs
++++ b/upstream/apps/desktop/scripts/desktop-package-environment.mjs
+@@ -28,7 +28,8 @@ const AMBIENT_RELEASE_SETTING = /^(?:DSH_DESKTOP_(?:APP_ID|AUTO_UPDATE_ENV|MANDA
+ export function localMacOSPackageEnvironment(environment = process.env) {
+   return {
+     ...Object.fromEntries(Object.entries(environment).filter(([name]) => !AMBIENT_RELEASE_SETTING.test(name))),
+-    DSH_DESKTOP_APP_ID: 'com.deepseek.harness',
++    // plus 层自己的 bundle id：与官方 com.deepseek.harness 分开，userData/单实例锁/登录项都不串。
++    DSH_DESKTOP_APP_ID: 'io.github.hyperion2144.dsh.plus',
+     DSH_DESKTOP_UNSIGNED: '1',
+   }
+ }
+@@ -121,9 +122,10 @@ export function validateDesktopPackageEnvironment(environment, target, options =
+   resolveDesktopTargetBuildPaths(environment, target.platform, target.arch)
+   resolveDesktopAppId(environment)
+   resolveNpmRegistry(environment)
+-  if (target.platform !== 'darwin' || !options.unsigned) resolveDesktopPolicyEnvironment(environment)
++  // Unsigned builds carry no release policy and no platform signing settings.
++  if (!options.unsigned) resolveDesktopPolicyEnvironment(environment)
+   if (target.platform === 'darwin') resolveMacOSPackageSettings(environment)
+-  else resolveWindowsPackageSettings(environment)
++  else if (target.platform === 'win32') resolveWindowsPackageSettings(environment)
+   if (options.unsigned) return
+   if (!options.prepareOnly) resolveDesktopAutoUpdateConfig(environment, target.platform, target.arch)
+   if (target.platform === 'win32') {
+diff --git a/upstream/apps/desktop/scripts/electron-builder-config.mjs b/upstream/apps/desktop/scripts/electron-builder-config.mjs
+index a777a058..f49ac15a 100644
+--- a/upstream/apps/desktop/scripts/electron-builder-config.mjs
++++ b/upstream/apps/desktop/scripts/electron-builder-config.mjs
+@@ -20,7 +20,7 @@ import {
+   resolveWindowsUpdatePublisher,
+   scrubWindowsSigningEnvironment,
+ } from './windows-sign.mjs'
+-import { resolveDesktopAutoUpdateConfig } from '@deepseek-ai/dsh-desktop-publisher/desktop-auto-update-environment.mjs'
++import { resolveDesktopAutoUpdateConfig, resolveDesktopUpdateChannel } from '@deepseek-ai/dsh-desktop-publisher/desktop-auto-update-environment.mjs'
+ import { resolveDesktopBuildCommit } from './desktop-build-commit.mjs'
+ import { resolveDesktopBuildVersion } from './desktop-build-version.mjs'
+ import { resolveDesktopPolicyEnvironment } from './desktop-policy-environment.mjs'
+@@ -66,7 +66,7 @@ export function createElectronBuilderConfig(
+   if (skipNotarization && (unsigned || resolvedPlatform !== 'darwin')) throw new Error('Skipping notarization requires a signed macOS build')
+   const packagesMacOS = targetPlatform === 'darwin' || (targetPlatform === undefined && hostPlatform === 'darwin')
+   const packagesWindows = resolvedPlatform === 'win32'
+-  const policy = packagesMacOS && unsigned ? undefined : resolveDesktopPolicyEnvironment(env)
++  const policy = unsigned ? undefined : resolveDesktopPolicyEnvironment(env)
+   if (resolvedPlatform === 'win32') installWindowsDirectoryInstaller()
+   const macOSSigning = packagesMacOS && !unsigned ? resolveMacOSSigningEnvironment(env) : undefined
+   if (packagesMacOS && !unsigned && !skipNotarization) resolveMacOSNotarizationEnvironment(env)
+@@ -99,7 +99,18 @@ export function createElectronBuilderConfig(
+   if (windowsSigner !== undefined) {
+     installWindowsNsisBootstrapSigner({ sign: windowsSigner })
+   }
+-  const update = unsigned ? undefined : resolveDesktopAutoUpdateConfig(env, resolvedPlatform, resolvedArch)
++  // plus：官方逻辑里未签名构建不写更新源（app-update.yml 缺席 → 检查更新恒报「无源」）。
++  // 未签名也内置默认 feed：指向本仓库 GitHub Releases；plus 版本号必带 prerelease，
++  // 渠道只能用 nightly（latest 被 stable-only 校验拒绝）。显式设置 DSH_DESKTOP_UPDATE_PUBLIC_URL 时以它为准。
++  let update = unsigned ? undefined : resolveDesktopAutoUpdateConfig(env, resolvedPlatform, resolvedArch)
++  if (update === undefined) {
++    const explicitFeed = env.DSH_DESKTOP_UPDATE_PUBLIC_URL?.trim() ?? ''
++    const channel = resolveDesktopUpdateChannel({ DSH_DESKTOP_UPDATE_CHANNEL: env.DSH_DESKTOP_UPDATE_CHANNEL?.trim() || 'nightly' })
++    update = {
++      channel,
++      publicUrl: explicitFeed !== '' ? explicitFeed : 'https://github.com/hyperion2144/dsh-desktop-plus/releases/latest/download/',
++    }
++  }
+   if (preparedRuntime !== undefined) buildPaths.dsh = preparedRuntime
+   // electron-builder merges extraMetadata into the packaged manifest, so a build version here reaches
+   // the artifact names, the update feed, and the installed app.getVersion() the updater compares against.
+@@ -116,11 +127,12 @@ export function createElectronBuilderConfig(
+       ...buildVersion === productVersion ? {} : { version: buildVersion },
+       ...packaged === undefined ? {} : { dshBuildCommit: packaged.commit, dshBuildDirty: packaged.dirty },
+     },
+-    productName: 'DeepSeek Harness',
++    // plus 层自己的产品名：与官方 DeepSeek Harness 区分，装在同一台机器上互不覆盖。
++    productName: 'DSH Desktop Plus',
+     // The default copyright uses author.name; this line names the product instead.
+-    copyright: `Copyright © ${new Date().getFullYear()} \${productName}`,
++    copyright: `Copyright © ${new Date().getFullYear()} DSH Desktop Plus`,
+     // Unsigned builds carry their own suffix so a shared file can never pass for a release artifact.
+-    artifactName: `deepseek-harness-\${version}-\${os}-\${arch}${output.suffix}.\${ext}`,
++    artifactName: `dsh-desktop-plus-\${version}-\${os}-\${arch}${output.suffix}.\${ext}`,
+     directories: { output: output.directory },
+     asar: true,
+     electronDist: buildPaths.electron,
+@@ -145,6 +157,7 @@ export function createElectronBuilderConfig(
+       'lib/welcome/**/*',
+       'lib/preload-app.cjs',
+       'lib/preload-mandatory.cjs',
++      'lib/preload-profile-name.cjs',
+       'lib/preload-platform-account.cjs',
+       'lib/preload-update-dialog.cjs',
+       'lib/preload-welcome.cjs',
+@@ -152,6 +165,7 @@ export function createElectronBuilderConfig(
+       'package.json',
+       '!node_modules/**/*.{js,cjs,mjs,ts,cts,mts,css}.map',
+       '!node_modules/**/*.tsbuildinfo',
++      // dsh 树是显式 from/to 拷贝，files 里的 ! 规则管不到它 => 排除得写在 filter 里。
+       { from: buildPaths.dsh, to: 'dsh', filter: ['**/*'] },
+       // electron-builder excludes a source directory's root node_modules.
+       { from: join(buildPaths.dsh, 'node_modules'), to: 'dsh/node_modules', filter: ['**/*'] },
+@@ -162,14 +176,24 @@ export function createElectronBuilderConfig(
+       { from: fileURLToPath(new URL('../resources/icon-windows.png', import.meta.url)), to: 'icon.png' },
+       // Windows tray bitmaps; macOS keeps the Dock and ships no menu bar icon.
+       ...(packagesWindows ? [{ from: fileURLToPath(new URL('../resources/tray-windows.ico', import.meta.url)), to: 'tray.ico' }] : []),
++      // The plus profile tray ships on every platform: PNG for the macOS menu bar.
++      { from: fileURLToPath(new URL('../../../../scripts/plus/assets/tray-22.png', import.meta.url)), to: 'tray.png' },
++      { from: fileURLToPath(new URL('../../../../scripts/plus/assets/tray-22@2x.png', import.meta.url)), to: 'tray@2x.png' },
++      { from: fileURLToPath(new URL('../../../../scripts/plus/assets/trayTemplate.png', import.meta.url)), to: 'trayTemplate.png' },
++      { from: fileURLToPath(new URL('../../../../scripts/plus/assets/trayTemplate@2x.png', import.meta.url)), to: 'trayTemplate@2x.png' },
++      // The plus desktop plugin ships in resources for the startup `dsh plugin add` staging step.
+     ],
+     mac: {
+       icon: fileURLToPath(new URL('../resources/icon-macos.png', import.meta.url)),
+       category: 'public.app-category.developer-tools',
++      // macOS 的 app.getVersion() 读 Info.plist：bundleShortVersion 必须钉成构建版本（plus 版本）。
++      // extraMetadata 只改包内 package.json，碰不到 plist，否则托盘状态/关于窗口显示官方版本。
++      bundleShortVersion: buildVersion,
+       // macOS matches the application locale against this bundle, not Electron Framework resources.
++      // 麦克风用途说明：合并进同一个 extendInfo（此前写了两个 extendInfo 键，后者覆盖前者）。
+       extendInfo: {
+         CFBundleLocalizations: ['en', 'zh_CN', 'ja', 'es', 'fr', 'de', 'ru', 'pt'],
+-        NSMicrophoneUsageDescription: 'DeepSeek Harness uses your microphone to transcribe speech into message drafts.',
++        NSMicrophoneUsageDescription: 'DSH Desktop Plus uses your microphone to transcribe speech into message drafts.',
+       },
+       // Ad-hoc signing keeps the modified Electron executable runnable without a Developer ID.
+       identity: unsigned ? '-' : macOSSigning?.signingIdentity,
+@@ -180,7 +204,9 @@ export function createElectronBuilderConfig(
+       // Prepared runtime files retain their signatures; PAK resources are sealed by their enclosing bundle.
+       signIgnore: ['/Contents/Resources/app\\.asar\\.unpacked/dsh(?:/|$)', '/Contents/Resources/runtime/primary-runtime(?:/|$)', '\\.pak$'],
+       notarize: !unsigned && !skipNotarization,
+-      target: unsigned ? ['dmg'] : ['dmg', 'zip'],
++      // mac 自动更新的载体是 zip（dmg 仅手动安装）：unsigned 也必须产出 zip，
++      // 发布流水线据此生成 nightly-mac.yml，旧版本才能从当前版本更新。
++      target: ['dmg', 'zip'],
+     },
+     dmg: {
+       format: 'ULMO',
+@@ -254,10 +280,6 @@ export function createElectronBuilderConfig(
+       },
+       target: ['nsis'],
+     },
+-    linux: {
+-      category: 'Development',
+-      target: ['AppImage'],
+-    },
+     nsis: {
+       uninstallDisplayName: '${productName}',
+       installerSidebar: join(buildPaths.root, 'installer-ui', 'uninstaller-sidebar.bmp'),
+diff --git a/upstream/apps/desktop/scripts/package-macos.ts b/upstream/apps/desktop/scripts/package-macos.ts
+index 23087c72..107f7aaf 100644
+--- a/upstream/apps/desktop/scripts/package-macos.ts
++++ b/upstream/apps/desktop/scripts/package-macos.ts
+@@ -78,7 +78,7 @@ export async function packageMacOSArtifacts(
+   const expected = resolveMacOSSigningEnvironment(environment)
+   const credentials = resolveMacOSNotarizationEnvironment(environment)
+   const update = resolveDesktopAutoUpdateConfig(environment, 'darwin', arch)
+-  const appPath = join(artifactsRoot, arch === 'arm64' ? 'mac-arm64' : 'mac', 'DeepSeek Harness.app')
++  const appPath = join(artifactsRoot, arch === 'arm64' ? 'mac-arm64' : 'mac', 'DSH Desktop Plus.app')
+   const root = await mkdtemp(join(dirname(artifactsRoot), 'notarization-'))
+   const zipApp = join(root, 'zip', basename(appPath))
+   const dmgApp = join(root, 'dmg', basename(appPath))
+diff --git a/upstream/apps/desktop/scripts/package-target.ts b/upstream/apps/desktop/scripts/package-target.ts
+index ea244526..f55bea65 100644
+--- a/upstream/apps/desktop/scripts/package-target.ts
++++ b/upstream/apps/desktop/scripts/package-target.ts
+@@ -344,7 +344,8 @@ async function main(): Promise<void> {
+   if (invocation.skipNotarization) {
+     process.stdout.write('desktop package: skipping notarization and stapling; internal debugging only, not qualified for distribution or update publishing\n')
+   }
+-  const environment = target.platform === 'darwin' && invocation.unsigned
++  // Unsigned builds use the local preset instead of a release dotenv; it is platform-agnostic.
++  const environment = invocation.unsigned
+     ? localMacOSPackageEnvironment()
+     : loadDesktopPackageEnvironment(target.platform, process.env, APP_ROOT, {
+       unsigned: invocation.unsigned, prepareOnly: invocation.prepareOnly,
+@@ -545,7 +546,7 @@ export async function packageTarget(
+   } else if (target.platform === 'darwin' && !invocation.unsigned && !invocation.skipNotarization) {
+     await execute([...desktopElectronBuilderArguments(target, true), '--config.mac.notarize=false'], electronBuilderEnv)
+     await execute(['exec', 'tsx', 'scripts/smoke-packaged-runtime.ts'], targetEnv)
+-    const appPath = join(buildPaths.artifacts, target.arch === 'arm64' ? 'mac-arm64' : 'mac', 'DeepSeek Harness.app')
++    const appPath = join(buildPaths.artifacts, target.arch === 'arm64' ? 'mac-arm64' : 'mac', 'DSH Desktop Plus.app')
+     await withMacOSNotarizationProxy(mac?.notarizationProxy,
+       () => notarizeMacOS({ appPath, ...resolveMacOSNotarizationEnvironment(environment) }), undefined, undefined, proxyEvent)
+   } else {
+diff --git a/upstream/apps/desktop/scripts/prepare-dsh.ts b/upstream/apps/desktop/scripts/prepare-dsh.ts
+index a0698880..2febf25e 100644
+--- a/upstream/apps/desktop/scripts/prepare-dsh.ts
++++ b/upstream/apps/desktop/scripts/prepare-dsh.ts
+@@ -44,7 +44,7 @@ const STORE_ROOT = BUILD_PATHS.pnpmStore
+ const RUNTIME_ROOT = BUILD_PATHS.runtime
+ const PNPM_BUILD_STATE = BUILD_PATHS.dshPnpm
+ const PACKAGE_SET_ROOT = BUILD_PATHS.packageSet
+-const NODE = join(BUILD_PATHS.electron, process.platform === 'win32' ? 'electron.exe' : 'Electron.app/Contents/MacOS/Electron')
++const NODE = join(BUILD_PATHS.electron, process.platform === 'darwin' ? 'Electron.app/Contents/MacOS/Electron' : process.platform === 'win32' ? 'electron.exe' : 'electron')
+ const PNPM = join(RUNTIME_ROOT, 'primary-runtime', 'dependencies', 'pnpm', 'bin', 'pnpm.mjs')
+ 
+ function manifestVersion(path: string, subject: string): string {
+diff --git a/upstream/apps/desktop/scripts/prepare-package-set.ts b/upstream/apps/desktop/scripts/prepare-package-set.ts
+index 4cffa701..8714ac13 100644
+--- a/upstream/apps/desktop/scripts/prepare-package-set.ts
++++ b/upstream/apps/desktop/scripts/prepare-package-set.ts
+@@ -103,7 +103,9 @@ export function selectDesktopPackageClosure(
+ }
+ 
+ function packedManifest(tarball: string): Record<string, unknown> {
+-  const value: unknown = JSON.parse(capture('tar', ['-xOzf', tarball, 'package/package.json']))
++  // GNU tar reads a leading D: as a remote host; bsdtar rejects --force-local outright.
++  const tarFlags = process.platform === 'win32' ? ['--force-local', '-xOzf'] : ['-xOzf']
++  const value: unknown = JSON.parse(capture('tar', [...tarFlags, tarball, 'package/package.json']))
+   if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+     throw new Error(`desktop package set: ${tarball} has no package manifest`)
+   }
+diff --git a/upstream/apps/desktop/scripts/prepare-runtime.ts b/upstream/apps/desktop/scripts/prepare-runtime.ts
+index 4e338532..4f91fc9d 100644
+--- a/upstream/apps/desktop/scripts/prepare-runtime.ts
++++ b/upstream/apps/desktop/scripts/prepare-runtime.ts
+@@ -27,7 +27,7 @@ async function prepareElectron({ platform, arch }: DesktopTarget): Promise<strin
+     () => downloadArtifact({ version, platform, arch, artifactName: 'electron', cacheRoot: BUILD_PATHS.downloads }))
+   rmSync(BUILD_PATHS.electron, { recursive: true, force: true })
+   await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'extract:electron', () => extractZip(archive, { dir: BUILD_PATHS.electron }))
+-  const executable = join(BUILD_PATHS.electron, platform === 'win32' ? 'electron.exe' : 'Electron.app/Contents/MacOS/Electron')
++  const executable = join(BUILD_PATHS.electron, platform === 'darwin' ? 'Electron.app/Contents/MacOS/Electron' : platform === 'win32' ? 'electron.exe' : 'electron')
+   return execFileSync(executable, ['-p', 'process.versions.node'], {
+     encoding: 'utf8', env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+   }).trim()
+diff --git a/upstream/apps/desktop/scripts/smoke-packaged-runtime.ts b/upstream/apps/desktop/scripts/smoke-packaged-runtime.ts
+index 6c3c12c8..c539c7ff 100644
+--- a/upstream/apps/desktop/scripts/smoke-packaged-runtime.ts
++++ b/upstream/apps/desktop/scripts/smoke-packaged-runtime.ts
+@@ -1,4 +1,5 @@
+ /** Validate the assembled application, including native Office conversion outside ASAR. */
++import { readdirSync } from 'node:fs'
+ import { join } from 'node:path'
+ import { parseArgs } from 'node:util'
+ import { desktopArtifactOutput, resolveDesktopBuildTarget, resolveDesktopTargetBuildPaths } from './desktop-build-paths.mjs'
+@@ -12,10 +13,24 @@ const { values } = parseArgs({ options: { unsigned: { type: 'boolean', default:
+ const target = resolveDesktopBuildTarget()
+ const windows = target === 'win-x64'
+ const artifacts = desktopArtifactOutput(paths, { unsigned: values.unsigned, skipNotarization: values['skip-notarization'] }).directory
+-const application = windows ? join(artifacts, 'win-unpacked')
+-  : join(artifacts, target === 'mac-arm64' ? 'mac-arm64' : 'mac', 'DeepSeek Harness.app', 'Contents')
++const macBundle = (): string => {
++  // electron-builder 的 .app 名跟着 productName / executableName 变，硬编码会在改名时断链。
++  const root = join(artifacts, target === 'mac-arm64' ? 'mac-arm64' : 'mac')
++  const found = readdirSync(root).find((entry) => entry.endsWith('.app'))
++  if (found === undefined) throw new Error(`smoke: no .app bundle under ${root}`)
++  return join(root, found, 'Contents')
++}
++const application = windows ? join(artifacts, 'win-unpacked') : macBundle()
+ const resources = join(application, windows ? 'resources' : 'Resources')
+-const executable = windows ? join(application, 'DeepSeek Harness.exe') : join(application, 'MacOS', 'DeepSeek Harness')
++// 可执行名随 productName/executableName 变：三个平台都按目录内容发现，改名不断链。
++const firstExecutable = (directory: string, accept: (entry: string) => boolean): string => {
++  const found = readdirSync(directory).find(accept)
++  if (found === undefined) throw new Error(`smoke: no executable in ${directory}`)
++  return join(directory, found)
++}
++const executable = windows
++  ? firstExecutable(application, (entry) => entry.endsWith('.exe') && !/helper|elevate|crashpad/i.test(entry))
++  : firstExecutable(join(application, 'MacOS'), (entry) => !entry.endsWith('.dylib'))
+ const descriptor = await verifyDesktopRuntime(paths.dsh, readDesktopRuntime(paths.dsh).release.version,
+   resolveDesktopPackageTarget(target))
+ if (windows && !values.unsigned) await verifyWindowsCode(application)
+diff --git a/upstream/apps/desktop/scripts/smoke-prepared-runtime.ts b/upstream/apps/desktop/scripts/smoke-prepared-runtime.ts
+index a67bc28c..aa4c4482 100644
+--- a/upstream/apps/desktop/scripts/smoke-prepared-runtime.ts
++++ b/upstream/apps/desktop/scripts/smoke-prepared-runtime.ts
+@@ -23,8 +23,13 @@ export async function smokePreparedRuntime(
+   root: string, node: string, resourcesRuntime: string, descriptor: DesktopRuntimeDescriptor,
+ ): Promise<void> {
+   const cache = await mkdtemp(join(tmpdir(), 'desktop-native-smoke-'))
+-  const environment = { ...scrubWindowsSigningEnvironment(process.env), NODE_OPTIONS: '',
+-    NARB_NATIVE_CACHE_DIR: cache, NARB_DISABLE_NATIVE_CACHE: '0' }
++  // 宿主组合里的 product-telemetry 用 DSH_CLIENT_VERSION 填 serviceVersion：真应用由壳注入，
++  // smoke 链路同样要给，否则必过不了配置校验（required 字段缺失 → 宿主起不来）。
++  const environment = {
++    ...scrubWindowsSigningEnvironment(process.env), NODE_OPTIONS: '',
++    DSH_CLIENT_VERSION: descriptor.release.version,
++    NARB_NATIVE_CACHE_DIR: cache, NARB_DISABLE_NATIVE_CACHE: '0'
++  }
+   try {
+     const archive = runtimeArchivePath(root)
+     if (archive !== undefined) await verifyRuntimeArchive(archive, descriptor)
+diff --git a/upstream/apps/desktop/scripts/verify-retained-desktop.ts b/upstream/apps/desktop/scripts/verify-retained-desktop.ts
+index fca85421..63a6c8d0 100644
+--- a/upstream/apps/desktop/scripts/verify-retained-desktop.ts
++++ b/upstream/apps/desktop/scripts/verify-retained-desktop.ts
+@@ -39,6 +39,6 @@ export async function verifyRetainedDesktopSignatures(
+   const extracted = await mkdtemp(join(tmpdir(), 'desktop-publish-verify-'))
+   try {
+     run('/usr/bin/ditto', ['-x', '-k', zipPath, extracted])
+-    verifyMacOSNotarizedApplication(join(extracted, 'DeepSeek Harness.app'), config.macOS)
++    verifyMacOSNotarizedApplication(join(extracted, 'DSH Desktop Plus.app'), config.macOS)
+   } finally { await rm(extracted, { recursive: true, force: true }) }
+ }
+diff --git a/upstream/apps/desktop/tests/cli-launcher.spec.ts b/upstream/apps/desktop/tests/cli-launcher.spec.ts
+index 67e38da2..fa53ed6a 100644
+--- a/upstream/apps/desktop/tests/cli-launcher.spec.ts
++++ b/upstream/apps/desktop/tests/cli-launcher.spec.ts
+@@ -24,7 +24,7 @@ function fixture() {
+   const resources = join(application, ...platform === 'darwin' ? ['Contents', 'Resources'] : ['resources'])
+   const cli = join(resources, 'runtime', 'cli')
+   prepareDesktopCli(cli, platform)
+-  const electron = join(application, ...platform === 'darwin' ? ['Contents', 'MacOS', 'DeepSeek Harness'] : ['DeepSeek Harness.exe'])
++  const electron = join(application, ...platform === 'darwin' ? ['Contents', 'MacOS', 'DSH Desktop Plus'] : ['DSH Desktop Plus.exe'])
+   mkdirSync(dirname(electron), { recursive: true })
+   if (platform === 'win32') copyFileSync(process.execPath, electron)
+   else symlinkSync(process.execPath, electron)

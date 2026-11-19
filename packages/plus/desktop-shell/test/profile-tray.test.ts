@@ -118,3 +118,65 @@ describe('profile tray menu', () => {
 		expect(electron.built.length).toBe(builds + 2)
 	})
 })
+
+describe('tray left click', () => {
+	/** The click handler the tray registered, as the OS would invoke it. */
+	function clickHandler(): () => void {
+		const calls = electron.tray.on.mock.calls.filter(([event]) => event === 'click')
+		expect(calls.length).toBeGreaterThan(0)
+		// The tray mock is shared across cases; the newest registration is this tray's.
+		return calls.at(-1)![1] as () => void
+	}
+
+	it('hides every visible window when the target is already focused', () => {
+		state.visible = true
+		state.focused = true
+		const { actions, trayDeps } = deps()
+		createProfileTray({
+			...trayDeps, clickBehavior: () => 'show-hide' as const,
+			getStates: () => [{ name: 'work', running: true }, { name: 'play', running: true }]
+		})
+		clickHandler()()
+		expect(actions.hide).toHaveBeenCalledWith('work')
+		expect(actions.hide).toHaveBeenCalledWith('play')
+		expect(actions.showOrFocus).not.toHaveBeenCalled()
+	})
+
+	it('focuses a visible window that lost focus instead of hiding it', () => {
+		// The user is in another app: the window is on screen but not focused.
+		state.visible = true
+		state.focused = false
+		const { actions, trayDeps } = deps()
+		createProfileTray({
+			...trayDeps, clickBehavior: () => 'show-hide' as const,
+			clickTargetProfile: () => 'work',
+			getStates: () => [{ name: 'work', running: true }]
+		})
+		clickHandler()()
+		expect(actions.showOrFocus).toHaveBeenCalledWith('work')
+		expect(actions.hide).not.toHaveBeenCalled()
+	})
+
+	it('restores every window and focuses the target when none is visible', () => {
+		state.visible = false
+		const { actions, trayDeps } = deps()
+		createProfileTray({
+			...trayDeps, clickBehavior: () => 'show-hide' as const,
+			clickTargetProfile: () => 'work',
+			getStates: () => [{ name: 'work', running: true }, { name: 'play', running: true }]
+		})
+		clickHandler()()
+		expect(actions.showOrFocus).toHaveBeenCalledWith('work')
+		expect(actions.showOrFocus).toHaveBeenCalledWith('play')
+		expect(actions.hide).not.toHaveBeenCalled()
+	})
+
+	it('leaves the click to the system menu when the behavior is menu', () => {
+		state.visible = true
+		const { actions, trayDeps } = deps()
+		createProfileTray(trayDeps)
+		clickHandler()()
+		expect(actions.hide).not.toHaveBeenCalled()
+		expect(actions.showOrFocus).not.toHaveBeenCalled()
+	})
+})
