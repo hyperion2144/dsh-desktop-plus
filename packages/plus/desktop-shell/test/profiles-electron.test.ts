@@ -9,6 +9,8 @@ import { createElectronProfileRuntime } from '../src/profiles/electron.ts'
 const native = vi.hoisted(() => {
 	const windows: FakeWindow[] = []
 	const partitions: string[] = []
+	const webRequests: { onBeforeSendHeaders: ReturnType<typeof vi.fn> }[] = []
+	const sessions = new Map<string, { webRequest: { onBeforeSendHeaders: ReturnType<typeof vi.fn> } }>()
 	class FakeWindow {
 		readonly loaded: string[] = []
 		hidden = 0
@@ -21,7 +23,9 @@ const native = vi.hoisted(() => {
 		destroyed = false
 		closePrevented = 0
 		private readonly listeners = new Map<string, ((event: { preventDefault(): void }) => void)[]>()
+		readonly rendererId: number
 		constructor(readonly options: FakeWindowOptions) {
+			this.rendererId = windows.length
 			windows.push(this)
 		}
 		on(event: string, listener: (event: { preventDefault(): void }) => void): void {
@@ -71,6 +75,16 @@ const native = vi.hoisted(() => {
 		destroy(): void {
 			this.destroyed = true
 		}
+		/** Renderer identity and session the Host credential is scoped to. */
+		get webContents(): { id: number, executeJavaScript: (code: string, userGesture?: boolean) => Promise<unknown>, session: { webRequest: { onBeforeSendHeaders: ReturnType<typeof vi.fn> } } } {
+			return {
+				id: this.rendererId,
+				// 远程 ensure 链会探一次页面正文；测试里统一回空串（不触发配对分支）。
+				executeJavaScript: async () => '',
+				session: native.sessions.get(this.options.webPreferences?.partition ?? '')
+					?? { webRequest: { onBeforeSendHeaders: vi.fn() } },
+			}
+		}
 		async loadURL(url: string): Promise<void> {
 			this.loaded.push(url)
 		}
@@ -83,7 +97,7 @@ const native = vi.hoisted(() => {
 			this.emit('close')
 		}
 	}
-	return { windows, partitions, FakeWindow, registerPreloadScript: vi.fn(), unregisterPreloadScript: vi.fn(() => { throw new Error('plus preload id not registered yet') }) }
+	return { windows, partitions, webRequests, sessions, FakeWindow, registerPreloadScript: vi.fn(), unregisterPreloadScript: vi.fn(() => { throw new Error('plus preload id not registered yet') }) }
 })
 
 vi.mock('electron', () => ({
@@ -91,7 +105,16 @@ vi.mock('electron', () => ({
 	session: {
 		fromPartition: vi.fn((partition: string) => {
 			native.partitions.push(partition)
-			return { partition, registerPreloadScript: native.registerPreloadScript, unregisterPreloadScript: native.unregisterPreloadScript }
+			const webRequest = { onBeforeSendHeaders: vi.fn() }
+			native.webRequests.push(webRequest)
+			const created = {
+				partition,
+				webRequest,
+				registerPreloadScript: native.registerPreloadScript,
+				unregisterPreloadScript: native.unregisterPreloadScript,
+			}
+			native.sessions.set(partition, created)
+			return created
 		}),
 	},
 }))
@@ -121,6 +144,8 @@ describe('createElectronProfileRuntime', () => {
 		userDataDir = join(dir, 'userData')
 		native.windows.length = 0
 		native.partitions.length = 0
+		native.webRequests.length = 0
+		native.sessions.clear()
 		app.getPath.mockClear()
 		app.on.mockClear()
 		native.registerPreloadScript.mockClear()
@@ -133,31 +158,32 @@ describe('createElectronProfileRuntime', () => {
 	})
 
 	function runtime(
-		options: { failOn?: (name: string) => boolean, urlOf?: (name: string, attempt: number) => string } = {},
+		options: {
+			failOn?: (name: string) => boolean
+			authUrlOf?: (name: string) => string | undefined
+		} = {},
 		onChanged?: () => void,
 		onWindowVisibilityChanged?: (name: string, event: string) => void,
 	) {
-		const hosts: string[] = []
+		const opened: string[] = []
 		const stopped: string[] = []
-		let launches = 0
+		const unbound: string[] = []
 		const created = createElectronProfileRuntime({
 			app,
 			dshHome,
-			createHost: async (name, profileDir) => {
-				hosts.push(`${name}:${profileDir}`)
+			// 本地 profile 的 Host 生命周期在官方壳里：plus 只负责窗口与装载。
+			openHost: async (name, window) => {
 				if (options.failOn?.(name) === true) throw new Error(`host failed: ${name}`)
-				const attempt = launches
-				launches += 1
-				return {
-					url: options.urlOf?.(name, attempt) ?? `http://127.0.0.1:7777/${name}`,
-					stop: async () => { stopped.push(name) },
-				}
+				opened.push(name)
+				await window.loadURL(`dsh-app://profile-${name}/`)
 			},
+			closeHost: async (name) => { stopped.push(name) },
 			userDataDir,
+			unbindProfileHost: (name) => { unbound.push(name) },
 			...(onChanged === undefined ? {} : { onChanged }),
 			...(onWindowVisibilityChanged === undefined ? {} : { onWindowVisibilityChanged }),
 		})
-		return { created, hosts, stopped }
+		return { created, opened, stopped, unbound }
 	}
 
 	function writeOpenSet(names: readonly string[]): void {
@@ -176,11 +202,60 @@ describe('createElectronProfileRuntime', () => {
 			contextIsolation: true,
 			nodeIntegration: false,
 		})
-		expect(window.loaded).toEqual(['http://127.0.0.1:7777/work'])
+		expect(window.loaded).toEqual(['dsh-app://profile-work/'])
 		// #③：窗口建好即显示（此前只能从托盘点「显示」才看得到）。
 		expect(window.shown).toBe(1)
 	})
 
+	it('opens the local profile through the shell seam and loads the dsh-app document (#140)', async () => {
+		const { created, opened } = runtime()
+		await created.manager.open('work')
+		const window = native.windows[0]!
+		// 本地 profile 的 Host 生命周期在官方壳里：plus 只调 openHost，页面走 dsh-app://profile-<name>/。
+		expect(opened).toEqual(['work'])
+		expect(window.loaded).toEqual(['dsh-app://profile-work/'])
+		// plus 不再装任何 webRequest 监听：直连签名与代理都在官方壳里。
+		expect(native.webRequests.map((webRequest) => webRequest.onBeforeSendHeaders.mock.calls.length)).toEqual([0])
+	})
+
+	it('restarts through closeHost + openHost and unbinds in between (#140)', async () => {
+		const { created, opened, stopped, unbound } = runtime()
+		await created.openProfile('work')
+		await created.restartProfile('work')
+		// 重启 = 旧 Host 经 closeHost 停掉 + 重新 open 走 openHost。
+		expect(stopped).toEqual(['work'])
+		expect(opened).toEqual(['work', 'work'])
+		expect(unbound).toEqual(['work'])
+	})
+
+	it('unbinds a profile whose Host never started, leaving no window or binding behind (#140)', async () => {
+		const { created, unbound } = runtime({ failOn: (name) => name === 'broken' })
+		await expect(created.manager.open('broken')).rejects.toThrow('host failed: broken')
+		expect(unbound).toEqual(['broken'])
+		expect(created.windowState('broken')).toBeUndefined()
+	})
+
+	it('destroys the window and unbinds when the Host opens but the page fails to load (#140)', async () => {
+		// openHost 在「Host 已起来、页面装载失败」时抛：窗口必须销毁、binding 必须清掉。
+		const { created, unbound } = runtime({ failOn: (name) => name === 'broken' })
+		await expect(created.manager.open('broken')).rejects.toThrow('host failed: broken')
+		expect(unbound).toEqual(['broken'])
+		expect(created.windowState('broken')).toBeUndefined()
+		expect(native.windows[0]!.destroyed).toBe(true)
+	})
+
+	it('loads a remote profile from its origin as-is and never opens a local host (#140)', async () => {
+		// 远程地址由 plus 自己从 dsh home 的设置里解析（Host 不在本机）。
+		mkdirSync(dshHome, { recursive: true })
+		writeFileSync(join(dshHome, 'desktop-settings.json'), JSON.stringify({ remote_list: ['https://remote.example/?token=one'] }), 'utf8')
+		const { created, opened, unbound } = runtime()
+		await created.manager.open('remote-remote-example')
+		const window = native.windows[0]!
+		// 远程分支一行不动：裸 origin 装载，配对在窗口侧 ensure 链里做。
+		expect(window.loaded).toEqual(['https://remote.example'])
+		expect(opened).toEqual([])
+		expect(unbound).toEqual([])
+	})
 	it('leaves window identity to the window instead of a session marker preload (#125)', async () => {
 		const { created } = runtime()
 		await created.manager.open('work')
@@ -249,13 +324,10 @@ describe('createElectronProfileRuntime', () => {
 
 	it('reopens the profiles recorded by the last run', async () => {
 		writeOpenSet(['work', 'play'])
-		const { created, hosts } = runtime()
+		const { created, opened } = runtime()
 		await created.restoreAtStartup()
 		expect(created.manager.list().map((entry) => entry.name)).toEqual(['work', 'play'])
-		expect(hosts).toEqual([
-			`work:${join(dshHome, 'profiles', 'work')}`,
-			`play:${join(dshHome, 'profiles', 'play')}`,
-		])
+		expect(opened).toEqual(['work', 'play'])
 	})
 
 	it('starts with no profile when the last run recorded none', async () => {
@@ -296,17 +368,14 @@ describe('createElectronProfileRuntime', () => {
 	})
 
 	it('restarts a profile: the Host tree relaunches and a fresh window loads the new Host', async () => {
-		const { created, stopped, hosts } = runtime({ urlOf: (name, attempt) => `http://127.0.0.1:${7777 + attempt}/${name}` })
+		const { created, stopped, opened } = runtime()
 		await created.openProfile('work')
 		await created.restartProfile('work')
 		expect(stopped).toEqual(['work'])
-		expect(hosts).toEqual([
-			`work:${join(dshHome, 'profiles', 'work')}`,
-			`work:${join(dshHome, 'profiles', 'work')}`,
-		])
+		expect(opened).toEqual(['work', 'work'])
 		// #10: the old window is torn down; the replacement walks the full open flow again.
 		expect(native.windows[0]!.destroyed).toBe(true)
-		expect(native.windows[1]!.loaded).toEqual(['http://127.0.0.1:7778/work'])
+		expect(native.windows[1]!.loaded).toEqual(['dsh-app://profile-work/'])
 		expect(created.manager.list().map((entry) => entry.name)).toEqual(['work'])
 	})
 

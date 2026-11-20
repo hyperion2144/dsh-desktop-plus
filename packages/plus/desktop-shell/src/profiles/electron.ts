@@ -4,20 +4,14 @@ import { join } from 'node:path'
 import { BrowserWindow, session } from 'electron'
 import type { App } from 'electron'
 import { createProfileManager } from './manager.ts'
-import type { ProfileEntry, ProfileHandles, ProfileHostHandle, ProfileManager, QuitProfileResult } from './manager.ts'
-import { loadOpenProfiles, partitionFor, resolveProfileDir, saveOpenProfiles } from './registry.ts'
-import { loadDesktopSettings, saveDesktopSettings } from '../rpc/desktop-settings.ts'
+import type { ProfileEntry, ProfileHandles, ProfileManager, QuitProfileResult } from './manager.ts'
+import { loadOpenProfiles, partitionFor, remoteProfileName, saveOpenProfiles } from './registry.ts'
+import { remoteOrigin } from './remote.ts'
+import { loadDesktopSettings, loadRemoteAddressList, saveDesktopSettings } from '../rpc/desktop-settings.ts'
 import { plusFocusSessionScript } from '../notify-open.ts'
 import type { ConfiguredFetch } from '../net/configured-fetch.ts'
 
 import { observeWindowVisibility, type WindowVisibilityEvent } from '../tray/window-visibility.ts'
-/** The Host runtime behind a profile window, with the URL that window loads. */
-export interface PlusProfileHost extends ProfileHostHandle {
-	/** The loopback URL this profile's own Host serves. */
-	readonly url: string
-	/** The address to hit first so the partition session stores the auth/pairing cookie; the saved remote address carrying the token. */
-	readonly authUrl?: string
-}
 
 /** Live window facts of one profile window. */
 export interface ProfileWindowState {
@@ -38,8 +32,13 @@ export interface ElectronProfileRuntimeDeps {
 	readonly app: Pick<App, 'getPath' | 'on'>
 	/** The Harness home that holds every profile directory. */
 	readonly dshHome: string
-	/** Start the Host runtime of one profile and report the URL it serves. */
-	readonly createHost: (name: string, profileDir: string) => Promise<PlusProfileHost>
+	/**
+	 * 本地 profile 的 Host 生命周期入口（官方壳的 backend 工厂）：启动 Host、登记 binding、
+	 * 装载 `dsh-app://profile-<name>/`；plus 不再自己解析目录或装配 Host。
+	 */
+	readonly openHost: (name: string, window: BrowserWindow) => Promise<void>
+	/** 停掉一个本地 profile 的 Host（退出/重启/失败清理）。 */
+	readonly closeHost: (name: string) => Promise<void>
 	/** The directory that holds the open-profile file. */
 	readonly userDataDir: string
 	/** Called after the open profile set changed, so the shell can refresh its surfaces. */
@@ -52,6 +51,12 @@ export interface ElectronProfileRuntimeDeps {
 	readonly log?: (line: string) => void
 	/** The shell's configured HTTP entry point; pairing must use the same proxy answer as the Host. */
 	readonly configuredFetch?: ConfiguredFetch
+	/** 官方壳侧的 profile Host 登记清理；退出、重启与打开失败路径都调。 */
+	readonly unbindProfileHost: (name: string) => void
+	/** 退出前看一眼该 profile 的活动任务（官方壳的 quit-inspection）。 */
+	readonly inspectHost?: (name: string) => Promise<{ readonly activeTasks: boolean } | undefined>
+	/** 有活动任务时由壳弹确认；返回 false 表示用户取消。 */
+	readonly confirmQuit?: (name: string, activeTasks: boolean) => Promise<boolean>
 }
 
 /** The profile runtime the official shell drives. */
@@ -96,8 +101,10 @@ export function createElectronProfileRuntime(deps: ElectronProfileRuntimeDeps): 
 	const states = new Map<string, ProfileState>()
 	const changed = (): void => { deps.onChanged?.() }
 
-	const launchHost = async (name: string): Promise<PlusProfileHost> =>
-		deps.createHost(name, resolveProfileDir(deps.dshHome, name))
+	/** 远程 profile 的地址（本地 profile 返回 undefined，Host 由官方壳的 backend 工厂启动）。 */
+	const remoteAddressOf = (name: string): string | undefined =>
+		loadRemoteAddressList(deps.dshHome).find((url) => remoteProfileName(url) === name)
+
 
 	const createProfile = async (name: string): Promise<ProfileHandles> => {
 		const partition = partitionFor(name)
@@ -110,6 +117,8 @@ export function createElectronProfileRuntime(deps: ElectronProfileRuntimeDeps): 
 			title: `DeepSeek Harness — ${name}`,
 			webPreferences: { partition, contextIsolation: true, nodeIntegration: false },
 		})
+		// 窗口一建好就登记：凭据签名与重载刷新都按它找窗口。
+		states.set(name, { window })
 		// 可见性变化统一从这里上报：绑定在运行时创建窗口的地方，壳侧的兜底窗口也一并覆盖。
 		observeWindowVisibility(window, (event) => {
 			deps.onWindowVisibilityChanged?.(name, event)
@@ -119,16 +128,14 @@ export function createElectronProfileRuntime(deps: ElectronProfileRuntimeDeps): 
 			event.preventDefault()
 			window.hide()
 		})
-		let host: PlusProfileHost | undefined
-		const stopHost = async (): Promise<void> => {
-			const running = host
-			host = undefined
-			await running?.stop()
-		}
 		try {
-			const launched = await launchHost(name)
-			host = launched
-			await window.loadURL(launched.url)
+			const remoteUrl = remoteAddressOf(name)
+			if (remoteUrl === undefined) {
+				// 本地 profile：Host 生命周期完全在官方壳里（backend 工厂 + binding + 装载）。
+				await deps.openHost(name, window)
+			} else {
+				const launched = { url: remoteOrigin(remoteUrl), authUrl: remoteUrl }
+				await window.loadURL(launched.url)
 			// 认证语义：配对凭据（deviceId + cookie）都持久化——deviceId 在 dsh home 的设置里，
 			// cookie 在 profile 的 partition 里，lane 端 devices 表也持久。地址不变就永远可用：
 			// cookie 有效直接复用；被门禁挡（unpaired JSON）→ 先凭 deviceId 走 renew 换 cookie，
@@ -199,13 +206,15 @@ export function createElectronProfileRuntime(deps: ElectronProfileRuntimeDeps): 
 					}
 					await window.loadURL(launched.url)
 				}
+				}
 			}
 			// #③：profile 窗口建好就显示（否则只能从托盘点「显示」才看得到）。
 			window.show()
-			states.set(name, { window })
-			return { window, host: { stop: stopHost } }
+			return { window, host: { stop: async () => { await deps.closeHost(name) } } }
 		} catch (error) {
-			// A profile that never got a Host leaves no window behind.
+			// A profile that never got a Host leaves no window, no binding, and no state behind.
+			deps.unbindProfileHost(name)
+			states.delete(name)
 			window.destroy()
 			throw error
 		}
@@ -227,9 +236,16 @@ export function createElectronProfileRuntime(deps: ElectronProfileRuntimeDeps): 
 	}
 
 	const quitProfile = async (name: string): Promise<QuitProfileResult> => {
+		// 与产品窗口同一套退出确认：有活动任务时先问，用户取消就不停。
+		const inspection = await deps.inspectHost?.(name)
+		if (inspection?.activeTasks === true) {
+			const approved = await deps.confirmQuit?.(name, true) ?? false
+			if (!approved) return { ok: false, reason: 'cancelled' }
+		}
 		const result = await manager.quitProfile(name)
 		if (result.ok) {
-			// A quit leaves no window behind: the profile is gone, so its window goes with it.
+			// A quit leaves no window behind: the profile is gone, so its window and binding go with it.
+			deps.unbindProfileHost(name)
 			const state = states.get(name)
 			states.delete(name)
 			if (state !== undefined && !state.window.isDestroyed()) state.window.destroy()
@@ -276,8 +292,16 @@ export function createElectronProfileRuntime(deps: ElectronProfileRuntimeDeps): 
 		// 完全相同的窗口流程（官方 createWindow：preload/桌面 chrome/DevTools/console）。
 		const state = states.get(name)
 		if (state === undefined) throw new Error(`dsh desktop: the plus profile ${name} is not open`)
+		// 与 quitProfile 同一套预检：有活动任务时先问，取消就不重启。
+		const inspection = await deps.inspectHost?.(name)
+		if (inspection?.activeTasks === true) {
+			const approved = await deps.confirmQuit?.(name, true) ?? false
+			if (!approved) return
+		}
 		if (!state.window.isDestroyed()) state.window.destroy()
 		states.delete(name)
+		// 旧 binding 随旧窗口作废；重新 open 时会按新 Host 事实重新登记。
+		deps.unbindProfileHost(name)
 		// 旧进程树必须经 manager 停掉并注销，再走完整 open 流程重新注册；绕过 manager 会泄漏 Host。
 		const quit = await manager.quitProfile(name)
 		if (!quit.ok) {
@@ -285,8 +309,9 @@ export function createElectronProfileRuntime(deps: ElectronProfileRuntimeDeps): 
 			throw new Error(`dsh desktop: the plus profile ${name} could not be restarted: ${detail}`)
 		}
 		await manager.open(name)
+		// 与 openProfile 同一套：重启后托盘也要看到新的窗口/端口状态。
+		changed()
 	}
-
 
 	const restoreAtStartup = async (): Promise<void> => {
 		const result = await manager.restore(loadOpenProfiles(openProfilesFile))

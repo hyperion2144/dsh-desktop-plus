@@ -16,6 +16,11 @@ export interface AttachDownloadsOptions {
 	session: Session
 	/** Where history JSON lives (the DSH profile directory). */
 	profileDir: string
+	/**
+	 * Shared queue when several sessions feed one download list (the product window and every
+	 * profile window each own a session); a fresh queue is created when omitted.
+	 */
+	manager?: ReturnType<typeof createDownloadManager>
 }
 
 export interface AttachedDownloads {
@@ -28,7 +33,7 @@ export function attachDownloads(options: AttachDownloadsOptions): AttachedDownlo
 	const store = createFileHistoryStore(options.profileDir)
 	let disposed = false
 
-	const manager = createDownloadManager({
+	const manager = options.manager ?? createDownloadManager({
 		now: () => Date.now(),
 		defaultDir: () => app.getPath('downloads'),
 		onEvent: (event) => {
@@ -51,7 +56,8 @@ export function attachDownloads(options: AttachDownloadsOptions): AttachedDownlo
 		manager,
 		dispose(): void {
 			disposed = true
-			manager.dispose()
+			// 共享队列只由创建它的那份装配释放；其余装配只停自己的拦截。
+			if (options.manager === undefined) manager.dispose()
 		},
 	}
 }
