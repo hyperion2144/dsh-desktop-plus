@@ -45,6 +45,7 @@ export type QuitProfileResult =
 	| { readonly ok: true }
 	| { readonly ok: false; readonly reason: 'default-profile-owned-by-shell' }
 	| { readonly ok: false; readonly reason: 'not-open' }
+	| { readonly ok: false; readonly reason: 'cancelled' }
 	| { readonly ok: false; readonly reason: 'host-stop-failed'; readonly error: string }
 
 /** A failure recorded for one profile. */

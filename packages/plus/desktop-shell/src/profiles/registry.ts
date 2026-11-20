@@ -21,15 +21,6 @@ export function isValidProfileName(name: string): boolean {
 	return PROFILE_NAME.test(name)
 }
 
-/**
- * The profile's directory inside the shared Harness home.
- * @param dshHome Harness home shared with the CLI.
- * @param name Validated profile name.
- * @returns The profile directory under `<dshHome>/profiles`.
- */
-export function resolveProfileDir(dshHome: string, name: string): string {
-	return join(dshHome, 'profiles', name)
-}
 
 /**
  * 列出 `$DSH_HOME/profiles/` 下的所有 profile 目录（不只看壳拉起过的）。

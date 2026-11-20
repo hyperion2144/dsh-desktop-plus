@@ -28,7 +28,7 @@ the app built. The patch set — not the tree — is the source of truth.
 
 ## Iron rules
 
-These three rules are not style preferences; each one has a gate behind it,
+These four rules are not style preferences; each one has a gate behind it,
 and breaking one breaks a build or loses a change.
 
 1. **`upstream/` stays the official code, byte for byte.** It is the official
@@ -52,6 +52,17 @@ and breaking one breaks a build or loses a change.
    names the sets in `PATCH_SETS` (`scripts/plus/patch-set.mjs`). A mobile
    build materializes its tree in a scratch directory and never writes
    `upstream/`, so neither build can contaminate the other.
+
+4. **Official code is edited in place; it never moves.** A patch may add code,
+   but it may not relocate official code: no lifting an official function's
+   body into a new module or file, no splitting one official function into
+   several, no replacing an official variable with a parallel registry, no
+   reordering. The official file keeps its functions, their order, and their
+   logical ownership; a change to official behavior is made inside the
+   function that already owns it. New capability may live in new files, but
+   only capability the official tree does not already own. This is what keeps
+   the next `sync:upstream` a merge instead of a rewrite: a patch that moves
+   official code turns every upstream edit to that code into a conflict.
 
 ## Why `upstream/` is a plain directory, not a submodule or a fork
 

@@ -15,7 +15,6 @@ import {
 	isValidProfileName,
 	loadOpenProfiles,
 	partitionFor,
-	resolveProfileDir,
 	saveOpenProfiles,
 } from '../src/profiles/registry.ts'
 
@@ -112,15 +111,6 @@ describe('isValidProfileName', () => {
 	})
 })
 
-describe('resolveProfileDir', () => {
-	it('uses the native profile layout of the shared home', () => {
-		expect(resolveProfileDir('/home/dev/.dsh', 'work')).toBe(join('/home/dev/.dsh', 'profiles', 'work'))
-	})
-
-	it('keeps the official desktop profile where the official shell puts it', () => {
-		expect(resolveProfileDir('/home/dev/.dsh', DEFAULT_PROFILE)).toBe(join('/home/dev/.dsh', 'profiles', 'desktop'))
-	})
-})
 
 describe('partitionFor', () => {
 	it.each(PARTITION_CASES)('maps "$name" to "$partition"', ({ name, partition }) => {
