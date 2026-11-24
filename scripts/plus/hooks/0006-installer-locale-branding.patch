@@ -1,5 +1,5 @@
 diff --git a/upstream/apps/desktop/installer/locales/de_DE.json b/upstream/apps/desktop/installer/locales/de_DE.json
-index 595002b2..2f1250d9 100644
+index aefac91f..39a56b29 100644
 --- a/upstream/apps/desktop/installer/locales/de_DE.json
 +++ b/upstream/apps/desktop/installer/locales/de_DE.json
 @@ -12,16 +12,16 @@
@@ -23,7 +23,7 @@ index 595002b2..2f1250d9 100644
      "INSTALLER_DISK_SPACE": "Es ist nicht genügend freier Speicherplatz vorhanden. Wählen Sie einen anderen Standort.",
      "INSTALLER_PER_USER": "Dieses Installationsprogramm unterstützt nur den aktuellen Benutzer. Deinstallieren Sie zunächst die vorhandene All-User-Installation.",
 diff --git a/upstream/apps/desktop/installer/locales/en_US.json b/upstream/apps/desktop/installer/locales/en_US.json
-index 73af2ede..a0b938b8 100644
+index 46473f80..42efad3e 100644
 --- a/upstream/apps/desktop/installer/locales/en_US.json
 +++ b/upstream/apps/desktop/installer/locales/en_US.json
 @@ -12,16 +12,16 @@
@@ -47,7 +47,7 @@ index 73af2ede..a0b938b8 100644
      "INSTALLER_DISK_SPACE": "There is not enough free disk space. Choose another location.",
      "INSTALLER_PER_USER": "This installer supports the current user only. Uninstall the existing all-users installation first.",
 diff --git a/upstream/apps/desktop/installer/locales/es_ES.json b/upstream/apps/desktop/installer/locales/es_ES.json
-index 99e5abe6..cd68c289 100644
+index 9f267f21..64f6c2b9 100644
 --- a/upstream/apps/desktop/installer/locales/es_ES.json
 +++ b/upstream/apps/desktop/installer/locales/es_ES.json
 @@ -12,16 +12,16 @@
@@ -71,7 +71,7 @@ index 99e5abe6..cd68c289 100644
      "INSTALLER_DISK_SPACE": "No hay suficiente espacio libre en disco. Elija otra ubicación.",
      "INSTALLER_PER_USER": "Este instalador solo admite el usuario actual. Primero desinstale la instalación existente para todos los usuarios.",
 diff --git a/upstream/apps/desktop/installer/locales/fr_FR.json b/upstream/apps/desktop/installer/locales/fr_FR.json
-index 16792225..65c67f35 100644
+index 40936f4b..3180bfcd 100644
 --- a/upstream/apps/desktop/installer/locales/fr_FR.json
 +++ b/upstream/apps/desktop/installer/locales/fr_FR.json
 @@ -12,16 +12,16 @@
@@ -95,7 +95,7 @@ index 16792225..65c67f35 100644
      "INSTALLER_DISK_SPACE": "Il n'y a pas assez d'espace disque libre. Choisissez un autre emplacement.",
      "INSTALLER_PER_USER": "Ce programme d'installation prend en charge uniquement l'utilisateur actuel. Désinstallez d’abord l’installation existante pour tous les utilisateurs.",
 diff --git a/upstream/apps/desktop/installer/locales/ja_JP.json b/upstream/apps/desktop/installer/locales/ja_JP.json
-index 72ef1cc6..9cb96df1 100644
+index 785bafdd..83880f34 100644
 --- a/upstream/apps/desktop/installer/locales/ja_JP.json
 +++ b/upstream/apps/desktop/installer/locales/ja_JP.json
 @@ -12,16 +12,16 @@
@@ -119,7 +119,7 @@ index 72ef1cc6..9cb96df1 100644
      "INSTALLER_DISK_SPACE": "ディスクの空き容量が不足しています。別の場所を選択してください。",
      "INSTALLER_PER_USER": "このインストーラーは現在のユーザーのみを対象としています。先にすべてのユーザー向けの既存のインストールを削除してください。",
 diff --git a/upstream/apps/desktop/installer/locales/pt_BR.json b/upstream/apps/desktop/installer/locales/pt_BR.json
-index 93aacd5d..df300414 100644
+index 90b3ed8b..686f669d 100644
 --- a/upstream/apps/desktop/installer/locales/pt_BR.json
 +++ b/upstream/apps/desktop/installer/locales/pt_BR.json
 @@ -12,16 +12,16 @@
@@ -143,7 +143,7 @@ index 93aacd5d..df300414 100644
      "INSTALLER_DISK_SPACE": "Não há espaço livre suficiente em disco. Escolha outro local.",
      "INSTALLER_PER_USER": "Este instalador oferece suporte apenas ao usuário atual. Desinstale primeiro a instalação existente para todos os usuários.",
 diff --git a/upstream/apps/desktop/installer/locales/ru_RU.json b/upstream/apps/desktop/installer/locales/ru_RU.json
-index 20345ea3..7f202d14 100644
+index a1f9957d..4254dc2e 100644
 --- a/upstream/apps/desktop/installer/locales/ru_RU.json
 +++ b/upstream/apps/desktop/installer/locales/ru_RU.json
 @@ -12,16 +12,16 @@
@@ -167,7 +167,7 @@ index 20345ea3..7f202d14 100644
      "INSTALLER_DISK_SPACE": "Недостаточно свободного места на диске. Выберите другое место.",
      "INSTALLER_PER_USER": "Этот установщик поддерживает только текущего пользователя. Сначала удалите существующую установку для всех пользователей.",
 diff --git a/upstream/apps/desktop/installer/locales/zh_CN.json b/upstream/apps/desktop/installer/locales/zh_CN.json
-index 7951f343..a899f429 100644
+index 2f6a9bbe..94927bf2 100644
 --- a/upstream/apps/desktop/installer/locales/zh_CN.json
 +++ b/upstream/apps/desktop/installer/locales/zh_CN.json
 @@ -12,16 +12,16 @@

@@ -1,19 +1,19 @@
 diff --git a/upstream/apps/cli/package.json b/upstream/apps/cli/package.json
-index d44314dc..466d32aa 100644
+index 07dd27c7..8dc444a5 100644
 --- a/upstream/apps/cli/package.json
 +++ b/upstream/apps/cli/package.json
 @@ -116,6 +116,9 @@
      "@deepseek-ai/dsh-experimental-session-search": "workspace:*",
      "@deepseek-ai/dsh-experimental-tool-worktree": "workspace:*",
      "@deepseek-ai/dsh-cua-bundle": "workspace:*",
-+    "@deepseek-ai/dsh-desktop-plus-plugin": "0.2.2-rc.5",
-+    "@deepseek-ai/dsh-desktop-plus-remote-access": "0.2.2-rc.5",
-+    "@deepseek-ai/dsh-desktop-plus-brand": "0.2.2-rc.5",
++    "@deepseek-ai/dsh-desktop-plus-plugin": "0.2.3-alpha.2",
++    "@deepseek-ai/dsh-desktop-plus-remote-access": "0.2.3-alpha.2",
++    "@deepseek-ai/dsh-desktop-plus-brand": "0.2.3-alpha.2",
      "@deepseek-ai/dsh-cua-mcp": "workspace:*",
      "@deepseek-ai/dsh-timeline": "workspace:*",
      "@deepseek-ai/dsh-experimental-plugin-market-bundle": "workspace:*",
 diff --git a/upstream/apps/desktop/package.json b/upstream/apps/desktop/package.json
-index bb51e36d..37b6deb2 100644
+index bc3faafa..53e7332c 100644
 --- a/upstream/apps/desktop/package.json
 +++ b/upstream/apps/desktop/package.json
 @@ -94,6 +94,7 @@
@@ -392,7 +392,7 @@ index 79136479..5205e963 100644
  
  await main()
 diff --git a/upstream/apps/desktop/scripts/smoke-runtime.ts b/upstream/apps/desktop/scripts/smoke-runtime.ts
-index 7f618b72..cee43ec2 100644
+index e06f95c7..1be192d9 100644
 --- a/upstream/apps/desktop/scripts/smoke-runtime.ts
 +++ b/upstream/apps/desktop/scripts/smoke-runtime.ts
 @@ -200,35 +200,37 @@ export function apply(ctx) {
@@ -460,7 +460,7 @@ index 7f618b72..cee43ec2 100644
      clearTimeout(timer)
      try { await host.stop() } finally {
 diff --git a/upstream/apps/desktop/scripts/windows-directory-installer.mjs b/upstream/apps/desktop/scripts/windows-directory-installer.mjs
-index 8508730b..d4811d75 100644
+index 45c89071..c3b2d508 100644
 --- a/upstream/apps/desktop/scripts/windows-directory-installer.mjs
 +++ b/upstream/apps/desktop/scripts/windows-directory-installer.mjs
 @@ -4,6 +4,11 @@ import { createRequire } from 'node:module'
@@ -475,7 +475,7 @@ index 8508730b..d4811d75 100644
  const templates = join(dirname(require.resolve('app-builder-lib/package.json')), 'templates/nsis')
  const patched = Symbol.for('@deepseek-ai/dsh-desktop/directory-installer')
  
-@@ -55,9 +60,9 @@ export function directoryInstallerExits(source) {
+@@ -66,9 +71,9 @@ export function directoryInstallUtil(source) {
  /** Install the build-only NSIS adapter without replacing electron-builder's signed bootstrap path. */
  export function installWindowsDirectoryInstaller() {
    // The package entry initializes the platform classes before their mutually dependent leaves.
@@ -982,7 +982,7 @@ index 83ebe741..46258637 100644
    if (senderFrame === null) throw new Error('dsh desktop: rejected IPC without a sender frame')
    const url = new URL(senderFrame.url)
 diff --git a/upstream/apps/desktop/src/keyboard.ts b/upstream/apps/desktop/src/keyboard.ts
-index d41f6b47..0a63e988 100644
+index b0fc7850..a690c87d 100644
 --- a/upstream/apps/desktop/src/keyboard.ts
 +++ b/upstream/apps/desktop/src/keyboard.ts
 @@ -1,14 +1,14 @@
@@ -1003,7 +1003,7 @@ index d41f6b47..0a63e988 100644
 + * @param getWindow - the focused desktop window.
   * @param userData - Electron-resolved device preference directory.
   * @param platform - local device platform.
-  * @param updateMenu - rebuild the application menu when the close accelerator or availability changes.
+  * @param updateMenu - rebuild the application menu when a menu shortcut accelerator or availability changes.
 @@ -18,6 +18,8 @@ import { DESKTOP_IPC, assertDesktopSender } from './ipc.ts'
  export function installDesktopShortcuts(
    getWindow: () => BrowserWindow | undefined, userData: string, platform: ShortcutPlatform, updateMenu: () => void,
@@ -1012,8 +1012,8 @@ index d41f6b47..0a63e988 100644
 +  owner?: (event: IpcMainInvokeEvent) => BrowserWindow,
  ): {
    fileMenu(labels: { fileMenu: string; closePage: string }): MenuItemConstructorOptions
-   /**
-@@ -45,10 +47,26 @@ export function installDesktopShortcuts(
+   settingsMenuItem(label: string, available?: boolean, focusWindow?: () => void): MenuItemConstructorOptions
+@@ -48,10 +50,26 @@ export function installDesktopShortcuts(
    const scopedDesktop = platform === 'windows' || platform === 'macos'
    const disposers = new Set<() => void>()
    const guestInputs = new Map<WebContents, { window: BrowserWindow; reset(): void }>()
@@ -1033,20 +1033,21 @@ index d41f6b47..0a63e988 100644
 +   * closing must not retire the bindings another desktop window is using.
 +   */
 +  const definitionsOwners = new Set<BrowserWindow>()
-   const closeAccelerator = (): string | undefined => presentBinding(closeBinding, platform).aria
-     ?.replace('Meta+', 'Command+').replace(/Arrow(Up|Down|Left|Right)$/u, '$1')
+   const menuAccelerator = (binding: NormalizedBinding | null): string | undefined => presentBinding(binding, platform).aria
+     ?.replace('Meta+', platform === 'macos' ? 'Command+' : 'Super+').replace(/Arrow(Up|Down|Left|Right)$/u, '$1')
    const sendMenuClose = (): void => {
 -    const window = getWindow()
 +    const window = focusedWindow()
      if (window === undefined || window.isDestroyed() || !window.isFocused() || !window.isEnabled()
        || revision === undefined || recording || overlayInput(window).blocked) return
      window.webContents.send(DESKTOP_IPC.shortcutsInput, { kind: 'menu', commandId: 'page.close', revision })
-@@ -64,21 +82,24 @@ export function installDesktopShortcuts(
-     const close = rows.find(row => row.id === 'page.close')
-     closeBinding = close?.issue === null && close.conflicts.length === 0 ? close.binding : null
-     if (wasEnabled !== (revision !== undefined) || previousAccelerator !== closeAccelerator()) updateMenu()
+@@ -77,21 +95,25 @@ export function installDesktopShortcuts(
+       || wasSettingsEnabled !== settingsEnabled
+       || previousClose !== menuAccelerator(closeBinding)
+       || previousSettings !== menuAccelerator(settingsBinding)) updateMenu()
 -    const window = getWindow()
 -    if (window !== undefined && !window.isDestroyed() && window.webContents.mainFrame.url.startsWith('dsh-app://app/')) {
++    // 多 profile：每个桌面窗口都收自己那份快照，不再只发给主窗口。
 +    for (const window of windowList()) {
 +      if (window.isDestroyed()) continue
        window.webContents.send(DESKTOP_IPC.shortcutsChanged, snapshot)
@@ -1073,16 +1074,16 @@ index d41f6b47..0a63e988 100644
      definitions = parseShortcutDefinitions(input)
      persistence.setDefinitions(definitions)
      return persistence.readCurrent()
-@@ -119,6 +140,8 @@ export function installDesktopShortcuts(
+@@ -132,6 +154,8 @@ export function installDesktopShortcuts(
      const clear = (): void => {
        resetInput()
        if (guestName !== undefined) return
 +      definitionsOwners.delete(window)
 +      if (definitionsOwners.size > 0) return
-       definitions = []; keys.clear(); recording = false
+       definitions = []; keys.clear(); recording = false; settingsEnabled = false
        persistence.setDefinitions(null)
      }
-@@ -136,7 +159,7 @@ export function installDesktopShortcuts(
+@@ -149,7 +173,7 @@ export function installDesktopShortcuts(
          contents.setIgnoreMenuShortcuts(true)
          return
        }
@@ -1091,7 +1092,7 @@ index d41f6b47..0a63e988 100644
          || (guestName !== undefined && !contents.isFocused())) {
          contents.setIgnoreMenuShortcuts(false)
          held.clear()
-@@ -223,7 +246,7 @@ export function installDesktopShortcuts(
+@@ -244,7 +268,7 @@ export function installDesktopShortcuts(
  
    return {
      sendEditingKey(keyCode, modifiers) {
@@ -1101,7 +1102,7 @@ index d41f6b47..0a63e988 100644
        const contents = [...guestInputs].find(([guest, owner]) => owner.window === window && !guest.isDestroyed() && guest.isFocused())?.[0]
          ?? window.webContents
 diff --git a/upstream/apps/desktop/src/main.ts b/upstream/apps/desktop/src/main.ts
-index 92327109..69dd5e77 100644
+index 291ed084..536994c7 100644
 --- a/upstream/apps/desktop/src/main.ts
 +++ b/upstream/apps/desktop/src/main.ts
 @@ -7,8 +7,9 @@ import { DesktopUpdateSettings } from './update-settings.ts'
@@ -1896,7 +1897,7 @@ index 92327109..69dd5e77 100644
        buttons: [locale.messages.updateAcknowledge], cancelId: 0 })
    }
    const commandManager = new DesktopCommandManager({
-@@ -486,132 +1051,238 @@ async function main(): Promise<void> {
+@@ -486,138 +1051,237 @@ async function main(): Promise<void> {
      show: ordinaryMessageBox,
    })
    const appPreload = fileURLToPath(new URL('./preload-app.cjs', import.meta.url))
@@ -2020,7 +2021,10 @@ index 92327109..69dd5e77 100644
 -          if (previousAccountStatus === 'credential-stored' && state.status === 'signed-out') {
 -            void readWelcomeState().then(async (value) => {
 -              if (needsWelcome(value) && !quitting) {
--                enteredWorkspace = false
+-                if (enteredWorkspace) {
+-                  enteredWorkspace = false
+-                  refreshApplicationMenu()
+-                }
 -                await showWelcome()
 -                if (welcomeWindow !== undefined && !welcomeWindow.isDestroyed()) welcomeWindow.webContents.send(WELCOME_IPC.state, state)
 -              }
@@ -2044,7 +2048,6 @@ index 92327109..69dd5e77 100644
 +    /** stop 前的清理（账号 watch 等）。 */
 +    readonly onStop?: () => void
 +  }
-+
 +
 +  /** 所有 profile 同一套失败策略：记失败原因、刷托盘、关掉这个 profile；没有产品分支。 */
 +  const publishBackendState = (profile: string, state: DesktopBackendState): void => {
@@ -2146,16 +2149,18 @@ index 92327109..69dd5e77 100644
            void readWelcomeState().then(async (value) => {
 -            if (!needsWelcome(value) || quitting) return
 -            pendingWelcomeNotice = 'session-expired'
--            enteredWorkspace = false
--            await showWelcome()
--            const state = await accountBackend.state()
--            if (welcomeWindow !== undefined && !welcomeWindow.isDestroyed()) welcomeWindow.webContents.send(WELCOME_IPC.state, state)
+-            if (enteredWorkspace) {
+-              enteredWorkspace = false
+-              refreshApplicationMenu()
 +            if (needsWelcome(value) && !quitting) {
 +              defaultProfile()!.enteredWorkspace = false
 +              await showWelcome()
 +              const welcome = defaultProfile()!.welcomeWindow
 +              if (welcome !== undefined && !welcome.isDestroyed()) welcome.webContents.send(WELCOME_IPC.state, state)
-+            }
+             }
+-            await showWelcome()
+-            const state = await accountBackend.state()
+-            if (welcomeWindow !== undefined && !welcomeWindow.isDestroyed()) welcomeWindow.webContents.send(WELCOME_IPC.state, state)
 +            return undefined
            }).catch(() => undefined)
 -        }, (enabled) => { analyticsEnabled = enabled })
@@ -2240,7 +2245,7 @@ index 92327109..69dd5e77 100644
  
    const updateErrors = new WeakMap<DesktopUpdateState, Promise<void>>()
    const showUpdateFailure = (state: DesktopUpdateState): Promise<void> => {
-@@ -647,18 +1318,18 @@ async function main(): Promise<void> {
+@@ -653,18 +1317,18 @@ async function main(): Promise<void> {
        updateStoppedHost = false
        if (restoreHost) {
          // Only confirmed process exit permits replacement before another installation confirmation.
@@ -2264,7 +2269,7 @@ index 92327109..69dd5e77 100644
            if (workspaceRecovery === recovery) workspaceRecovery = undefined
          })
        }
-@@ -667,31 +1338,35 @@ async function main(): Promise<void> {
+@@ -673,31 +1337,35 @@ async function main(): Promise<void> {
      return state
    }
  
@@ -2315,7 +2320,7 @@ index 92327109..69dd5e77 100644
    }
  
    const manifest: unknown = JSON.parse(await readFile(join(app.getAppPath(), 'package.json'), 'utf8'))
-@@ -702,15 +1377,20 @@ async function main(): Promise<void> {
+@@ -708,15 +1376,20 @@ async function main(): Promise<void> {
      packagedChannel, changing: false,
      ...(initialChannel.kind === 'error' ? { error: configurationFailure(initialChannel.error) } : {}) }
    const updateChannel = initialChannel.kind === 'ready' ? initialChannel.channel : packagedChannel
@@ -2341,7 +2346,7 @@ index 92327109..69dd5e77 100644
        const parent = currentDialogWindow()
        if (parent === undefined || !await prepareDesktopUpdateWindow(parent, locale.messages.updateFullscreenTimeout)) return false
        const ready = desktopUpdateReadyConfirmation(locale.messages, updates.state.version ?? '', process.platform)
-@@ -729,17 +1409,20 @@ async function main(): Promise<void> {
+@@ -735,17 +1408,20 @@ async function main(): Promise<void> {
        }
        // The update lock rejects new HTTP requests, including analytics intake.
        await track('desktop_upgrade_install_restart_click', {})
@@ -2365,7 +2370,7 @@ index 92327109..69dd5e77 100644
          updateStoppedHost = true
          // The backend's async cleanup callback can assign this after the reset above.
          const stopFailure = updateStopFailure as DesktopHostUncleanExitError | undefined
-@@ -756,7 +1439,7 @@ async function main(): Promise<void> {
+@@ -762,7 +1438,7 @@ async function main(): Promise<void> {
          requireCleanStop = false
        }
        return true
@@ -2374,7 +2379,7 @@ index 92327109..69dd5e77 100644
      undefined, undefined, undefined,
      (success, reason) => { void track('desktop_upgrade_download_result', { is_success: success, ...reason === undefined ? {} : { error_reason: reason } }) },
      updateChannel,
-@@ -774,6 +1457,7 @@ async function main(): Promise<void> {
+@@ -780,6 +1456,7 @@ async function main(): Promise<void> {
  
    const updateSchedule = new DesktopUpdateSchedule(updates, resolveDesktopUpdateScheduleConfig(process.env))
  
@@ -2382,7 +2387,7 @@ index 92327109..69dd5e77 100644
    const downloadUpdate = async (version: string, revision = updates.revision): Promise<DesktopUpdateState> => {
      void track('desktop_upgrade_click', {})
      updateJournal?.action('download-requested')
-@@ -794,124 +1478,145 @@ async function main(): Promise<void> {
+@@ -800,124 +1477,145 @@ async function main(): Promise<void> {
      window.once('closed', () => { resolve() })
    })
  
@@ -2592,7 +2597,7 @@ index 92327109..69dd5e77 100644
      if (!isDesktopUpdateChannel(channel)) throw new Error('desktop update: unsupported channel')
      if (channelState === undefined) throw new Error('desktop update: settings are not initialized')
      channelRequests++
-@@ -936,22 +1641,24 @@ async function main(): Promise<void> {
+@@ -942,22 +1640,24 @@ async function main(): Promise<void> {
      }
    })
    ipcMain.handle(DESKTOP_IPC.updatesStatus, (event) => {
@@ -2625,7 +2630,7 @@ index 92327109..69dd5e77 100644
      window.setMinimumSize(active ? 960 : 520, 600)
      if (active) {
        const { width, height } = window.getBounds()
-@@ -959,7 +1666,7 @@ async function main(): Promise<void> {
+@@ -965,7 +1665,7 @@ async function main(): Promise<void> {
      }
    })
    ipcMain.handle(DESKTOP_IPC.updatesOpen, async (event) => {
@@ -2634,7 +2639,7 @@ index 92327109..69dd5e77 100644
      await openUpdatePrompt()
    })
  
-@@ -1158,8 +1865,8 @@ async function main(): Promise<void> {
+@@ -1164,8 +1864,8 @@ async function main(): Promise<void> {
    const applicationIconPath = development ? join(app.getAppPath(), 'resources', 'icon-windows.png')
      : join(process.resourcesPath, 'icon.png')
    app.setAboutPanelOptions({
@@ -2645,7 +2650,7 @@ index 92327109..69dd5e77 100644
      // The release has no separate build number; omit Electron's bundle version.
      version: '',
      copyright: '',
-@@ -1196,7 +1903,7 @@ async function main(): Promise<void> {
+@@ -1202,7 +1902,7 @@ async function main(): Promise<void> {
      ? [shortcuts.fileMenu(currentDesktopLocale().messages), macEditMenu(currentDesktopLocale().messages), { role: 'windowMenu' }]
      : [{ role: 'editMenu' }]
    const hideCommands: MenuItemConstructorOptions[] = darwin
@@ -2654,7 +2659,7 @@ index 92327109..69dd5e77 100644
        { role: 'hideOthers', label: currentDesktopLocale().messages.hideOtherApplications },
        { role: 'unhide', label: currentDesktopLocale().messages.showAllApplications }, { type: 'separator' }]
      : []
-@@ -1204,9 +1911,9 @@ async function main(): Promise<void> {
+@@ -1210,12 +1910,12 @@ async function main(): Promise<void> {
      // Windows has no system About panel; Electron's fallback is a plain
      // message box, so the shell shows its own dimmed dialog instead.
      process.platform === 'win32'
@@ -2664,9 +2669,13 @@ index 92327109..69dd5e77 100644
 -      : { label: currentDesktopLocale().messages.aboutMenu, role: 'about' },
 +      : { label: plusMenuMessage('aboutMenu'), role: 'about' },
      { type: 'separator' },
+     shortcuts.settingsMenuItem(currentDesktopLocale().messages.settingsMenu,
+-      enteredWorkspace && !isMandatory(), () => { focusPrimaryWindow() }),
++      defaultProfile()?.enteredWorkspace === true && !isMandatory(), () => { focusPrimaryWindow() }),
+     { type: 'separator' },
      { label: currentDesktopLocale().messages.checkUpdatesMenu, click: () => { void openUpdatePrompt(true) } },
      ...process.platform === 'darwin' || process.platform === 'win32'
-@@ -1219,6 +1926,8 @@ async function main(): Promise<void> {
+@@ -1228,6 +1928,8 @@ async function main(): Promise<void> {
          app.relaunch()
          quitWithoutConfirmation()
        } },
@@ -2675,7 +2684,7 @@ index 92327109..69dd5e77 100644
      ] : [],
      { role: 'toggleDevTools', label: currentDesktopLocale().messages.toggleDevToolsMenu },
      { type: 'separator' },
-@@ -1240,8 +1949,13 @@ async function main(): Promise<void> {
+@@ -1249,8 +1951,13 @@ async function main(): Promise<void> {
      tray?.relabel()
    }
    refreshApplicationMenu()
@@ -2691,7 +2700,7 @@ index 92327109..69dd5e77 100644
      // The tray is the way back to a hidden window; without it, relaunching the application still focuses it.
      try {
        tray = new DesktopTray({ iconPath: trayIconPath, locale: currentDesktopLocale,
-@@ -1254,7 +1968,19 @@ async function main(): Promise<void> {
+@@ -1263,7 +1970,19 @@ async function main(): Promise<void> {
      : undefined
    const quitConfirmation = new DesktopQuitConfirmation({
      locale: () => locale,
@@ -2712,7 +2721,7 @@ index 92327109..69dd5e77 100644
      // No owner window: a hidden window stays hidden and the native box is its own top-level window.
      show: options => dialog.showMessageBox(options),
      // macOS raises the open alert with the application; Electron exposes no handle to the Windows task
-@@ -1267,13 +1993,10 @@ async function main(): Promise<void> {
+@@ -1276,13 +1995,10 @@ async function main(): Promise<void> {
  
    if (process.platform === 'win32') {
      ipcMain.handle(DESKTOP_IPC.windowsMenu, (event, name: unknown, x: unknown, y: unknown) => {
@@ -2727,7 +2736,7 @@ index 92327109..69dd5e77 100644
        // Editor-owned history listens to key events rather than Chromium's native undo stack.
        const editItem = (label: string, keyCode: string, modifiers: Array<'control'>, accelerator?: string): MenuItemConstructorOptions => ({
          label,
-@@ -1292,21 +2015,31 @@ async function main(): Promise<void> {
+@@ -1301,21 +2017,31 @@ async function main(): Promise<void> {
          editItem(currentDesktopLocale().messages.delete, 'Delete', []),
          { type: 'separator' },
          editItem(currentDesktopLocale().messages.selectAll, 'A', ['control'], 'Ctrl+A'),
@@ -2764,7 +2773,7 @@ index 92327109..69dd5e77 100644
      })
    }
  
-@@ -1319,10 +2052,37 @@ async function main(): Promise<void> {
+@@ -1328,10 +2054,37 @@ async function main(): Promise<void> {
        window.hide()
      }
    }
@@ -2806,7 +2815,7 @@ index 92327109..69dd5e77 100644
      shortcuts.attach(window)
      window.on('focus', automaticCheck)
      // Closing hides: the page and the Host keep running, and the next show resumes the same document.
-@@ -1331,7 +2091,7 @@ async function main(): Promise<void> {
+@@ -1340,7 +2093,7 @@ async function main(): Promise<void> {
        event.preventDefault()
        if (updateDialog.isOpen) { updateDialog.focus(); return }
        const hide = (): void => {
@@ -2815,7 +2824,7 @@ index 92327109..69dd5e77 100644
        }
        if (backgroundNotice === undefined) hide()
        else backgroundNotice.close(hide)
-@@ -1346,7 +2106,10 @@ async function main(): Promise<void> {
+@@ -1355,7 +2108,10 @@ async function main(): Promise<void> {
        window.on('focus', () => { sessionEnding = false })
        window.on('show', () => { sessionEnding = false })
      }
@@ -2827,7 +2836,7 @@ index 92327109..69dd5e77 100644
      window.webContents.on('console-message', (details) => {
        if (details.level !== 'error') return
        rendererConsole.push(`${details.sourceId}:${String(details.lineNumber)} ${details.message}`)
-@@ -1360,27 +2123,53 @@ async function main(): Promise<void> {
+@@ -1369,29 +2125,55 @@ async function main(): Promise<void> {
        if (!quitting && !window.isDestroyed()) reportFatal(error, 'renderer')
      })
      window.webContents.on('render-process-gone', (_event, details) => {
@@ -2876,10 +2885,13 @@ index 92327109..69dd5e77 100644
      if (process.platform === 'win32') window.setBackgroundColor(chromeFallbackFill())
      if (activate) window.show()
      else window.showInactive()
+-    const wasInWorkspace = enteredWorkspace
 -    enteredWorkspace = true
++    const wasInWorkspace = profile.enteredWorkspace
++    profile.enteredWorkspace = true
+     if (!wasInWorkspace) refreshApplicationMenu()
 -    if (welcomeWindow !== undefined) {
 -      welcomeWindow.close()
-+    profile.enteredWorkspace = true
 +    if (profile.welcomeWindow !== undefined) {
 +      profile.welcomeWindow.close()
        window.webContents.send(DESKTOP_IPC.enterWorkspace)
@@ -2889,7 +2901,7 @@ index 92327109..69dd5e77 100644
      if (raiseAfterUpdate) {
        raiseAfterUpdate = false
        window.moveTop()
-@@ -1391,95 +2180,95 @@ async function main(): Promise<void> {
+@@ -1402,95 +2184,95 @@ async function main(): Promise<void> {
      }
    }
    let openingWelcome: Promise<void> | undefined
@@ -3019,7 +3031,7 @@ index 92327109..69dd5e77 100644
      if (window.isMinimized()) window.restore()
      window.show()
      window.focus()
-@@ -1488,6 +2277,8 @@ async function main(): Promise<void> {
+@@ -1499,6 +2281,8 @@ async function main(): Promise<void> {
    if (app.isPackaged || process.env.DSH_DESKTOP_DEV_APP === '1') app.setAsDefaultProtocolClient('dsh')
    app.on('open-url', (event, url) => {
      event.preventDefault()
@@ -3028,7 +3040,7 @@ index 92327109..69dd5e77 100644
      if (url === 'dsh://open' || url === 'dsh://open/') focusPrimaryWindow()
    })
  
-@@ -1495,6 +2286,8 @@ async function main(): Promise<void> {
+@@ -1506,6 +2290,8 @@ async function main(): Promise<void> {
      if (!hasVisibleWindows) focusPrimaryWindow()
    })
    app.on('window-all-closed', () => {
@@ -3037,7 +3049,7 @@ index 92327109..69dd5e77 100644
      if (process.platform !== 'darwin') app.quit()
    })
    if (process.platform !== 'win32') powerMonitor.on('shutdown', () => { sessionEnding = true })
-@@ -1505,18 +2298,21 @@ async function main(): Promise<void> {
+@@ -1516,18 +2302,21 @@ async function main(): Promise<void> {
      quitConfirmation.dispose()
      backgroundNotice?.dispose()
      tray?.dispose()
@@ -3064,7 +3076,7 @@ index 92327109..69dd5e77 100644
        disposeFileDrag(),
      ].map(cleanup => cleanup.catch((error: unknown) => { console.error(error) })))
        .then(() => { app.quit() })
-@@ -1531,7 +2327,7 @@ async function main(): Promise<void> {
+@@ -1542,7 +2331,7 @@ async function main(): Promise<void> {
        updateDialog.dispose()
        mandatoryUI?.dispose()
        // Installation preparation already awaited Platform storage cleanup.
@@ -3073,7 +3085,7 @@ index 92327109..69dd5e77 100644
        return
      }
      if (quitting) return
-@@ -1541,11 +2337,137 @@ async function main(): Promise<void> {
+@@ -1552,11 +2341,137 @@ async function main(): Promise<void> {
        if (quitting || shellInstallerOwnsQuit) return
        if (approved) { finishQuit(); return }
        // A quit that started from closing the welcome window destroyed it; a cancelled quit needs it back.
@@ -3213,7 +3225,7 @@ index 92327109..69dd5e77 100644
    if (typeof manifest !== 'object' || manifest === null) throw new Error('desktop policy: invalid application manifest')
    const developmentPolicy = app.isPackaged ? undefined : process.env.DSH_DESKTOP_MANDATORY_UPDATE_CONFIG
    const policyInput: unknown = app.isPackaged
-@@ -1578,7 +2500,7 @@ async function main(): Promise<void> {
+@@ -1592,7 +2507,7 @@ async function main(): Promise<void> {
      mandatoryUI = new DesktopMandatoryUpdateWindow({
        overlays: updateOverlays,
        preload: fileURLToPath(new URL('./preload-mandatory.cjs', import.meta.url)), locale,
@@ -3222,7 +3234,7 @@ index 92327109..69dd5e77 100644
        policy: () => policy.state, update: () => updates.state,
        refresh: async () => {
          if (channelState?.error !== undefined) await showConfigurationError()
-@@ -1601,15 +2523,668 @@ async function main(): Promise<void> {
+@@ -1615,15 +2530,668 @@ async function main(): Promise<void> {
    publishUpdate(updateState)
  }
  
@@ -4544,7 +4556,7 @@ index f7cbe896..6ab4466d 100644
    expect(await f.call(DESKTOP_IPC.fileDragStart, handle)).toBe(true)
    expect(f.window.webContents.startDrag).toHaveBeenCalledWith({ file: path, icon: f.icon })
 diff --git a/upstream/apps/desktop/tests/keyboard.spec.ts b/upstream/apps/desktop/tests/keyboard.spec.ts
-index 9b8d2cf3..d2963399 100644
+index 0d38fed3..5daa1a95 100644
 --- a/upstream/apps/desktop/tests/keyboard.spec.ts
 +++ b/upstream/apps/desktop/tests/keyboard.spec.ts
 @@ -61,6 +61,13 @@ const installFixture = installDesktopShortcuts as (
@@ -4592,21 +4604,24 @@ index 9b8d2cf3..d2963399 100644
    const attach = vi.fn((guest: ContentsFixture, name: DesktopBrowserLeaseId) => f.keyboard.attachGuest(f.window, guest, name))
    guests.bind(f.window, attach)
    const reservation = guests.acquire(f.contents, 'session:test')
-@@ -828,3 +836,34 @@ it('delivers Windows Edit actions to the focused browser guest without invoking
-   f.keyboard.sendEditingKey('C', ['control'])
+@@ -829,6 +837,41 @@ it('delivers Windows Edit actions to the focused browser guest without invoking
    expect(f.contents.sendInputEvent).toHaveBeenCalledTimes(2)
  })
-+
+ 
 +it('keeps the shared catalog when a second desktop window navigates', async () => {
 +  const f = await fixture()
 +  const root = await mkdtemp(join(tmpdir(), 'dsh-keyboard-multi-'))
 +  onTestFinished(async () => { await rm(root, { recursive: true, force: true }) })
 +  const otherFrame: FrameFixture = { url: 'http://127.0.0.1:43110/', name: '', parent: null }
-+  const otherContents = Object.assign(new EventEmitter(), { mainFrame: otherFrame, focusedFrame: otherFrame,
++  const otherContents = Object.assign(new EventEmitter(), {
++    mainFrame: otherFrame, focusedFrame: otherFrame,
 +    isDestroyed: () => false, isFocused: () => false, send: vi.fn(),
-+    setIgnoreMenuShortcuts: vi.fn(), focus: vi.fn(), sendInputEvent: vi.fn() })
-+  const otherWindow = Object.assign(new EventEmitter(), { webContents: otherContents, isDestroyed: vi.fn(() => false),
-+    isFocused: vi.fn(() => false), isEnabled: vi.fn(() => true), close: vi.fn() })
++    setIgnoreMenuShortcuts: vi.fn(), focus: vi.fn(), sendInputEvent: vi.fn()
++  })
++  const otherWindow = Object.assign(new EventEmitter(), {
++    webContents: otherContents, isDestroyed: vi.fn(() => false),
++    isFocused: vi.fn(() => false), isEnabled: vi.fn(() => true), close: vi.fn()
++  })
 +  const keyboard = installMultiWindowFixture(() => f.window, root, 'macos', vi.fn(),
 +    window => f.updateOverlays.input(window),
 +    () => [f.window, otherWindow],
@@ -4627,6 +4642,51 @@ index 9b8d2cf3..d2963399 100644
 +  await handlers.get(DESKTOP_IPC.shortcutsCloseWindow)!(f.event, current.revision)
 +  expect(f.window.close).toHaveBeenCalledOnce()
 +})
++
+ it.each([
+   ['macos', 'Command+,'],
+   ['windows', 'Control+,'],
+@@ -890,14 +933,14 @@ it.each([
+   const focusWindow = vi.fn()
+   f.window.isFocused.mockReturnValue(false)
+   f.contents.send.mockClear()
+-  ;(f.keyboard.settingsMenuItem('Settings…').click as () => void)()
++    ; (f.keyboard.settingsMenuItem('Settings…').click as () => void)()
+   expect(f.contents.send).not.toHaveBeenCalled()
+ 
+-  ;(f.keyboard.settingsMenuItem('Settings…', false, focusWindow).click as () => void)()
++    ; (f.keyboard.settingsMenuItem('Settings…', false, focusWindow).click as () => void)()
+   expect(focusWindow).not.toHaveBeenCalled()
+   expect(f.contents.send).not.toHaveBeenCalled()
+ 
+-  ;(f.keyboard.settingsMenuItem('Settings…', true, focusWindow).click as () => void)()
++    ; (f.keyboard.settingsMenuItem('Settings…', true, focusWindow).click as () => void)()
+   expect(focusWindow).toHaveBeenCalledOnce()
+   expect(f.contents.send).toHaveBeenCalledExactlyOnceWith(DESKTOP_IPC.shortcutsInput, {
+     kind: 'menu', commandId: 'settings.open', revision: activeRevision,
+@@ -905,19 +948,19 @@ it.each([
+ 
+   await f.call(DESKTOP_IPC.shortcutsRecording, true)
+   focusWindow.mockClear(); f.contents.send.mockClear()
+-  ;(f.keyboard.settingsMenuItem('Settings…', true, focusWindow).click as () => void)()
++    ; (f.keyboard.settingsMenuItem('Settings…', true, focusWindow).click as () => void)()
+   expect(focusWindow).not.toHaveBeenCalled()
+   expect(f.contents.send).not.toHaveBeenCalled()
+   await f.call(DESKTOP_IPC.shortcutsRecording, false)
+ 
+   f.window.isEnabled.mockReturnValue(false)
+-  ;(f.keyboard.settingsMenuItem('Settings…', true, focusWindow).click as () => void)()
++    ; (f.keyboard.settingsMenuItem('Settings…', true, focusWindow).click as () => void)()
+   expect(focusWindow).not.toHaveBeenCalled()
+   expect(f.contents.send).not.toHaveBeenCalled()
+   f.window.isEnabled.mockReturnValue(true)
+ 
+   const overlay = updateOverlayFixture(f)()
+-  ;(f.keyboard.settingsMenuItem('Settings…', true, focusWindow).click as () => void)()
++    ; (f.keyboard.settingsMenuItem('Settings…', true, focusWindow).click as () => void)()
+   expect(focusWindow).not.toHaveBeenCalled()
+   expect(f.contents.send).not.toHaveBeenCalled()
+   overlay.destroy()
 diff --git a/upstream/apps/desktop/tests/preload-app.spec.ts b/upstream/apps/desktop/tests/preload-app.spec.ts
 index fa3d2386..0628b364 100644
 --- a/upstream/apps/desktop/tests/preload-app.spec.ts
@@ -5043,11 +5103,11 @@ index ddf9c2d6..115c8bdd 100644
      entry: { [name]: `lib/types/${name}.js` },
      plugins: [packagedImportsPlugin(preloadImports)],
 diff --git a/upstream/pnpm-lock.yaml b/upstream/pnpm-lock.yaml
-index 27654927..788482c4 100644
+index 774164ab..7dcf0b5e 100644
 --- a/upstream/pnpm-lock.yaml
 +++ b/upstream/pnpm-lock.yaml
-@@ -8,6 +8,9 @@ overrides:
-   extract-zip>yauzl: 3.4.0
+@@ -11,6 +11,9 @@ overrides:
+   undici@^8: 8.12.4
    '@deepseek-ai/cosmokit': link:vendor/cosmokit
    '@deepseek-ai/schemastery': link:vendor/schemastery
 +  '@deepseek-ai/dsh-desktop-plus-plugin': link:../packages/plus/desktop-plugin
@@ -5056,7 +5116,7 @@ index 27654927..788482c4 100644
  
  patchedDependencies:
    '@botiverse/oar@0.67.0': 65de2ca1966421e30893d8d4fed6a3d88e4247e131e7575fe791246e594538d6
-@@ -369,6 +372,15 @@ importers:
+@@ -387,6 +390,15 @@ importers:
        '@deepseek-ai/dsh-deepseek-chat-import':
          specifier: workspace:*
          version: link:../../packages/experimental/deepseek-chat-import
@@ -5072,7 +5132,7 @@ index 27654927..788482c4 100644
        '@deepseek-ai/dsh-experimental-auto-review':
          specifier: workspace:*
          version: link:../../packages/experimental/auto-review
-@@ -830,6 +842,9 @@ importers:
+@@ -845,6 +857,9 @@ importers:
        '@deepseek-ai/dsh-util-file-drag':
          specifier: workspace:*
          version: link:../../packages/util/file-drag
@@ -5082,7 +5142,7 @@ index 27654927..788482c4 100644
        '@deepseek-ai/node-addon-system':
          specifier: workspace:~
          version: link:../../native/system/packages/entry
-@@ -3374,6 +3389,9 @@ importers:
+@@ -3428,6 +3443,9 @@ importers:
        '@deepseek-ai/dsh-deliverable-file-references':
          specifier: workspace:*
          version: link:../../deliverables/deliverable-file-references
@@ -5093,11 +5153,11 @@ index 27654927..788482c4 100644
          specifier: workspace:*
          version: link:../../context/file-reference
 diff --git a/upstream/pnpm-workspace.yaml b/upstream/pnpm-workspace.yaml
-index 02bb4f0f..b9c47861 100644
+index 630c1e6c..3b8716b6 100644
 --- a/upstream/pnpm-workspace.yaml
 +++ b/upstream/pnpm-workspace.yaml
-@@ -18,6 +18,11 @@ overrides:
-   'extract-zip>yauzl': '3.4.0'
+@@ -23,6 +23,11 @@ overrides:
+   'undici@^8': '8.12.4'
    '@deepseek-ai/cosmokit': 'link:vendor/cosmokit'
    '@deepseek-ai/schemastery': 'link:vendor/schemastery'
 +  # plus 桌面内置包在 upstream 之外（../../packages/plus/），apps/cli 按精确版本
