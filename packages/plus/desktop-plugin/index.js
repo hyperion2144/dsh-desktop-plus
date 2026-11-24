@@ -405,14 +405,18 @@ export function apply(ctx) {
     return nodeModules.path.join(local, 'dsh-desktop-plus', 'notify')
   }
   // 首次部署：asar 内脚本复制到磁盘（PowerShell 不能执行 asar 内文件）+ 注册 dsh-plus:// 协议。
+  // 失败不缓存：目录/权限问题修好后下一次投递能重试，不必重启应用（#142）。
   let notifyHelpersReady = null
   const deployNotifyHelpers = () => {
     if (notifyHelpersReady !== null) return notifyHelpersReady
-    notifyHelpersReady = (async () => {
+    const attempt = (async () => {
       if (!isWindowsDesktop || nodeModules.fs === undefined || nodeModules.path === undefined) return false
       const dir = notifyHelpersDir()
       if (dir === undefined) return false
       try {
+        // 父目录首次部署时不存在：不建目录 writeFileSync 必 ENOENT，被下面 catch 吞成
+        // helpers-unavailable（#142：Windows 通知全部 502 的根因）。
+        nodeModules.fs.mkdirSync(dir, { recursive: true })
         for (const name of ['win-toast.ps1', 'icon.png']) {
           // icon.png 是二进制：不能用 utf8 文本读（会毁图）。
           const src = await nodeModules.fs.promises.readFile(new URL('./notify/' + name, import.meta.url))
@@ -442,6 +446,11 @@ export function apply(ctx) {
         return false
       }
     })()
+    // 只有成功才钉住结果；失败留 null，下一次投递重新尝试。
+    notifyHelpersReady = attempt.then((ready) => {
+      if (!ready) notifyHelpersReady = null
+      return ready
+    })
     return notifyHelpersReady
   }
   const runNotifyPowerShell = (script, extraArgs) => new Promise((resolve) => {
