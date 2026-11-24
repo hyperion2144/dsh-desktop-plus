@@ -1,4 +1,4 @@
-import type { RpcHandlers } from './types.ts'
+import type { RpcCallContext, RpcHandlers } from './types.ts'
 
 /** 壳侧下载记录（manager 的 DownloadRecord）；只声明映射需要的字段。 */
 export interface DownloadRecordLike {
@@ -16,16 +16,17 @@ export interface DownloadRecordLike {
 
 /** 下载队列的 RPC 面：查询/控制走 manager，打开文件位置走壳注入的 reveal。 */
 export interface DownloadRpcDeps {
-	list(): DownloadRecordLike[]
-	pause(id: string): boolean
-	resume(id: string): boolean
-	cancel(id: string): boolean
-	clearFinished(): number
-	reveal(id: string): boolean
+	/** 下载是 dsh 数据：每个 profile 一份队列与历史，按调用来源的 profile 路由。 */
+	list(ctx?: RpcCallContext): DownloadRecordLike[]
+	pause(id: string, ctx?: RpcCallContext): boolean
+	resume(id: string, ctx?: RpcCallContext): boolean
+	cancel(id: string, ctx?: RpcCallContext): boolean
+	clearFinished(ctx?: RpcCallContext): number
+	reveal(id: string, ctx?: RpcCallContext): boolean
 	/** 下载设置（并发/目录）：与 plus 桌面设置同一份文件。 */
-	settings(): { concurrency: number; directory: string }
+	settings(ctx?: RpcCallContext): { concurrency: number; directory: string }
 	/** 回写并发（钳到 1..5，与管理器上限一致）。 */
-	saveConcurrency(value: number): void
+	saveConcurrency(value: number, ctx?: RpcCallContext): void
 }
 
 /** contract 的 wire 形状：id 是数字、状态叫 status、时间是 unix 秒。 */
@@ -85,21 +86,21 @@ export function createDownloadRpcHandlers(deps: DownloadRpcDeps): RpcHandlers {
 	})
 
 	return {
-		list_downloads: () => deps.list().map(toTask),
+		list_downloads: (_params, ctx) => deps.list(ctx).map(toTask),
 		// 卡片先读这一组：缺一条就会整张下载页空白（调用方把两条 invoke 包在同一个 try 里）。
-		get_download_settings: () => {
-			const settings = deps.settings()
+		get_download_settings: (_params, ctx) => {
+			const settings = deps.settings(ctx)
 			return { concurrency: settings.concurrency, download_dir: settings.directory }
 		},
-		set_download_concurrency: ({ value }) => {
+		set_download_concurrency: ({ value }, ctx) => {
 			const next = Math.max(1, Math.min(5, Math.round(Number(value))))
-			deps.saveConcurrency(next)
+			deps.saveConcurrency(next, ctx)
 			return { concurrency: next }
 		},
-		pause_download: ({ id }) => ({ paused: deps.pause(recordIdOf(id)) }),
-		resume_download: ({ id }) => ({ resumed: deps.resume(recordIdOf(id)) }),
-		cancel_download: ({ id }) => ({ cancelled: deps.cancel(recordIdOf(id)) }),
-		clear_finished_downloads: () => ({ removed: deps.clearFinished() }),
-		reveal_download: ({ id }) => deps.reveal(recordIdOf(id)),
+		pause_download: ({ id }, ctx) => ({ paused: deps.pause(recordIdOf(id), ctx) }),
+		resume_download: ({ id }, ctx) => ({ resumed: deps.resume(recordIdOf(id), ctx) }),
+		cancel_download: ({ id }, ctx) => ({ cancelled: deps.cancel(recordIdOf(id), ctx) }),
+		clear_finished_downloads: (_params, ctx) => ({ removed: deps.clearFinished(ctx) }),
+		reveal_download: ({ id }, ctx) => deps.reveal(recordIdOf(id), ctx),
 	}
 }
