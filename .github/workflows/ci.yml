@@ -46,6 +46,12 @@ jobs:
       - name: The patch sets stay separate
         run: pnpm run verify:patch-sets
 
+      # 打包流水线对账（#145）：官方 macos-package / windows-package 的每个步骤都必须
+      # 在 scripts/plus/workflow-parity.json 里有交代（映射到我们的步骤，或写明为什么不做）。
+      # 官方新增打包步骤时这里直接红，不再靠人肉对比（CUA helper 就是这样漏掉的）。
+      - name: Packaging workflows stay reconciled with the official pipelines
+        run: pnpm run verify:workflow-parity
+
       # 构建吃的是「官方树 + 补丁集」：装依赖之前必须先把补丁打上去，
       # 否则 upstream/apps/cli 等包清单还是官方版，锁文件与 workspace 都会漂移。
       - name: Apply the desktop patch set

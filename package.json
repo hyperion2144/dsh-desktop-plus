@@ -15,6 +15,7 @@
     "verify:patches:strict": "node scripts/plus/verify-patches.mjs --strict",
     "verify:separation": "node scripts/plus/verify-separation.mjs",
     "verify:patch-sets": "node scripts/plus/verify-patch-sets.mjs",
+    "verify:workflow-parity": "node scripts/plus/verify-workflow-parity.mjs",
     "verify:web:baseline": "node scripts/plus/verify-web-baseline.mjs",
     "patches:apply": "node scripts/plus/apply-patches.mjs apply",
     "patches:revert": "node scripts/plus/apply-patches.mjs revert",

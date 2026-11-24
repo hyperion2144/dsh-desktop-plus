@@ -9,6 +9,9 @@
 ### Fixed
 
 - 修复 Windows 通知全部投递失败：通知辅助脚本部署前先建目录，失败不再永久缓存，修好后下一次投递即重试；脚本改为纯 ASCII，避免 PowerShell 5.1 按 ANSI 码页解码时解析失败 (#142)。
+- 修复 Host 拿不到用户 shell 环境：Host 环境改为每次启动时求值，不再在 login shell 读取完成前就固定成 launchd 的极简环境，gh/homebrew 等命令恢复可用。
+- 修复 macOS 未签名构建里 Computer Use 不可用：打包时用 ad-hoc 签名现场生成 CUA helper，不再报「helper application is missing」。
+- 新增打包流水线对账门禁：官方 macos-package / windows-package 的每个步骤都必须在 workflow-parity.json 里有交代，官方新增打包步骤时 CI 直接红，不再靠人肉对比。
 
 ### Changed
 

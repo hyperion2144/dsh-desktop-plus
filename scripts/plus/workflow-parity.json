@@ -1,0 +1,169 @@
+[
+  {
+    "platform": "macos",
+    "step": "Validate selected source and adapter support",
+    "ours": null,
+    "reason": "官方校验 source_ref 与 preset（test/production）；我们固定打本仓库分支，没有可选源码与预设。"
+  },
+  {
+    "platform": "macos",
+    "step": "Configure persistent package caches",
+    "ours": null,
+    "reason": "官方在 self-hosted runner 上复用持久 pnpm store；GitHub 托管 runner 每次全新，用 setup-node 的 cache 代替。"
+  },
+  {
+    "platform": "macos",
+    "step": "Install locked dependencies",
+    "ours": "Install"
+  },
+  {
+    "platform": "macos",
+    "step": "Check original machine archival route",
+    "ours": null,
+    "reason": "官方 retain-desktop-ci.ts --check-runner 校验 self-hosted 归档路径；我们用 upload-artifact，没有归档机。"
+  },
+  {
+    "platform": "macos",
+    "step": "Validate preset and resolve build version",
+    "ours": "Resolve plus version"
+  },
+  {
+    "platform": "macos",
+    "step": "Check packaging configuration and toolchain",
+    "ours": null,
+    "reason": "官方 --check 预检打包配置与工具链；我们直接打包，失败即红，预检省下的时间不值得多一步。"
+  },
+  {
+    "platform": "macos",
+    "step": "Build and stage notarized Computer Use helpers",
+    "ours": "Stage Computer Use helper (ad-hoc signed)"
+  },
+  {
+    "platform": "macos",
+    "step": "Build signed installers",
+    "ours": "Package ${{ matrix.target }} (unsigned — no signing secrets on this repo)"
+  },
+  {
+    "platform": "macos",
+    "step": "Retain complete package outside the checkout",
+    "ours": null,
+    "reason": "官方把完整包归档到 self-hosted 机器；我们用 upload-artifact 上传产物。"
+  },
+  {
+    "platform": "macos",
+    "step": "Retain packaging diagnostics",
+    "ours": null,
+    "reason": "官方归档打包诊断到 self-hosted 机器；失败时 GitHub 日志已含完整输出。"
+  },
+  {
+    "platform": "macos",
+    "step": "Archive verified retained build",
+    "ours": null,
+    "reason": "官方第二个 job 把归档产物打成 tar；我们 upload-artifact 直接产出可下载文件。"
+  },
+  {
+    "platform": "macos",
+    "step": "Retain DMG installer",
+    "ours": null,
+    "reason": "官方第二个 job 从归档里取 DMG；我们的 upload-artifact 已包含 DMG。"
+  },
+  {
+    "platform": "macos",
+    "step": "Retain update ZIP",
+    "ours": null,
+    "reason": "官方第二个 job 从归档里取更新 ZIP；我们的 upload-artifact 已包含 ZIP。"
+  },
+  {
+    "platform": "macos",
+    "step": "Retain package metadata",
+    "ours": null,
+    "reason": "官方第二个 job 归档更新源 yml；我们的 upload-artifact 已包含 nightly*.yml。"
+  },
+  {
+    "platform": "windows",
+    "step": "Reset packaging checkout",
+    "ours": null,
+    "reason": "官方在 self-hosted runner 上重置工作区；GitHub 托管 runner 每次全新签出。"
+  },
+  {
+    "platform": "windows",
+    "step": "Checkout workflow helpers",
+    "ours": null,
+    "reason": "官方预置 windows-packaging-priority.ps1 等辅助脚本；我们没有对应的 runner 调优需求。"
+  },
+  {
+    "platform": "windows",
+    "step": "Stage workflow helpers",
+    "ours": null,
+    "reason": "同上：辅助脚本只在 self-hosted runner 上使用。"
+  },
+  {
+    "platform": "windows",
+    "step": "Validate selected source and adapter support",
+    "ours": null,
+    "reason": "官方校验 source_ref 与 preset；我们固定打本仓库分支。"
+  },
+  {
+    "platform": "windows",
+    "step": "Configure persistent pnpm store",
+    "ours": null,
+    "reason": "官方在 self-hosted runner 上复用持久 store；GitHub 托管 runner 每次全新。"
+  },
+  {
+    "platform": "windows",
+    "step": "Install locked dependencies",
+    "ours": "Install"
+  },
+  {
+    "platform": "windows",
+    "step": "Check original machine archival route",
+    "ours": null,
+    "reason": "官方校验 self-hosted 归档路径；我们用 upload-artifact。"
+  },
+  {
+    "platform": "windows",
+    "step": "Validate preset and resolve build version",
+    "ours": "Resolve plus version"
+  },
+  {
+    "platform": "windows",
+    "step": "Summarize packaging parameters",
+    "ours": null,
+    "reason": "官方把打包参数写进 job summary；我们的参数固定，没有需要汇总的可选项。"
+  },
+  {
+    "platform": "windows",
+    "step": "Check packaging configuration and toolchain",
+    "ours": null,
+    "reason": "官方 --check 预检；我们直接打包，失败即红。"
+  },
+  {
+    "platform": "windows",
+    "step": "Build installer and verify packaged runtime",
+    "ours": "Package ${{ matrix.target }} (unsigned — no signing secrets on this repo)"
+  },
+  {
+    "platform": "windows",
+    "step": "Retain complete package outside the checkout",
+    "ours": null,
+    "reason": "官方归档到 self-hosted 机器；我们用 upload-artifact。"
+  },
+  {
+    "platform": "windows",
+    "step": "Retain packaging diagnostics",
+    "ours": null,
+    "reason": "官方归档诊断；失败时 GitHub 日志已含完整输出。"
+  },
+  {
+    "platform": "windows",
+    "step": "Archive verified retained build",
+    "ours": null,
+    "reason": "官方第二个 job 打包归档产物；我们 upload-artifact 直接产出可下载文件。"
+  },
+  {
+    "platform": "windows",
+    "step": "Retain installers for the selected mode",
+    "ours": null,
+    "reason": "官方第二个 job 按 mode 取安装包；我们的 upload-artifact 已包含 exe。"
+  }
+]

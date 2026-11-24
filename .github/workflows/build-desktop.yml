@@ -116,6 +116,37 @@ jobs:
           sudo xcode-select -s "$(ls -d /Applications/Xcode*.app | sort -V | tail -1)"
           swift --version | head -1
 
+      # CUA helper：官方在 macos-package.yml 里用 scripts/cua-helper/package.ts 做签名+公证，
+      # 那条路必须有 Developer ID 证书与 Apple 公证凭据，本仓库没有。这里绕过 package.ts，
+      # 直接调 build_app.py 用 ad-hoc 签名（--identity -）生成 helper，让未签名构建里 CUA 至少能跑。
+      # 代价：没有 cua-helper.json 完整性清单（运行时只读 current.json，不影响运行），
+      # 且上游改 current.json 格式或 app 名时这里会静默失效。
+      - name: Stage Computer Use helper (ad-hoc signed)
+        if: runner.os == 'macOS'
+        working-directory: upstream
+        run: |
+          set -euo pipefail
+          # 只有 dsh 真的带 CUA bundle 时才需要 helper。
+          if ! node -e "process.exit(require('./apps/cli/package.json').dependencies?.['@deepseek-ai/dsh-cua-bundle'] ? 0 : 1)"; then
+            echo 'This source does not ship Computer Use in Desktop; no helper is staged.'
+            exit 0
+          fi
+          native=packages/experimental/cua-macos/native
+          for arch in arm64 x86_64; do
+            target_arch=$([ "$arch" = "x86_64" ] && echo x64 || echo arm64)
+            xcrun python3 "$native/build_app.py" \
+              --arch "$arch" \
+              --scratch-path "$native/.build/runtime-$target_arch" \
+              --output-directory "$native/bin/darwin-$target_arch" \
+              --identity -
+          done
+          # build_app.py 自己写 current.json；确认两个架构都就位。
+          for arch in arm64 x64; do
+            test -f "$native/bin/darwin-$arch/current.json"
+          done
+          echo 'CUA helper staged (ad-hoc signed, not notarized).'
+        shell: bash
+
       - name: Package ${{ matrix.target }} (unsigned — no signing secrets on this repo)
         working-directory: upstream/apps/desktop
         # 版本号＝官方版本号 + .plus.N（scripts/plus/version.mjs 推导，禁手改）。
