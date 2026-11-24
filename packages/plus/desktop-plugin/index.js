@@ -453,6 +453,21 @@ export function apply(ctx) {
     })
     return notifyHelpersReady
   }
+  // PowerShell 的 stderr 是主机码页（中文 Windows 是 CP936），不是 UTF-8。直接按 UTF-8
+  // 解码只会得到乱码，排障时看不出真实错误（#142 被这个坑耽误过一轮）。
+  // 这里按平台码页解码：Windows 用 chcp 报告的代码页，其它平台退回 UTF-8。
+  const decodeConsoleOutput = (buffer) => {
+    if (buffer.length === 0) return ''
+    if (process.platform !== 'win32') return buffer.toString('utf8')
+    try {
+      // 936 = GBK/CP936（中文），65001 = UTF-8；Node 的 TextDecoder 支持这些标签。
+      const codePage = Number((process.env.DSH_DESKTOP_CONSOLE_CODEPAGE ?? '936'))
+      const label = codePage === 65001 ? 'utf-8' : codePage === 936 ? 'gbk' : 'utf-8'
+      return new TextDecoder(label).decode(buffer)
+    } catch {
+      return buffer.toString('utf8')
+    }
+  }
   const runNotifyPowerShell = (script, extraArgs) => new Promise((resolve) => {
     const dir = notifyHelpersDir()
     if (dir === undefined || nodeModules.cp === undefined || nodeModules.path === undefined) { resolve({ ok: false, detail: 'no-dir' }); return }
@@ -461,13 +476,18 @@ export function apply(ctx) {
     try {
       child = nodeModules.cp.spawn(ps, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', nodeModules.path.join(dir, script)].concat(extraArgs), { windowsHide: true, stdio: ['ignore', 'ignore', 'pipe'] })
     } catch (e) { resolve({ ok: false, detail: 'spawn-failed' }); return }
-    let stderr = ''
+    const stderrChunks = []
     let settled = false
     const timer = setTimeout(() => { if (settled) return; settled = true; try { child.kill() } catch { }; resolve({ ok: false, detail: 'timeout' }) }, 20000)
-    child.stderr.setEncoding('utf8')
-    child.stderr.on('data', (c) => { stderr += c })
+    child.stderr.on('data', (c) => { stderrChunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c)) })
     child.on('error', () => { if (settled) return; settled = true; clearTimeout(timer); resolve({ ok: false, detail: 'spawn-error' }) })
-    child.on('close', (code) => { if (settled) return; settled = true; clearTimeout(timer); resolve({ ok: code === 0, detail: stderr.trim().slice(0, 200) || ('exit-' + code) }) })
+    child.on('close', (code) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      const stderr = decodeConsoleOutput(Buffer.concat(stderrChunks)).trim()
+      resolve({ ok: code === 0, detail: stderr.slice(0, 200) || ('exit-' + code) })
+    })
   })
   let notifyTagSeq = 0
   const registerNotifyRoutes = (scope) => {

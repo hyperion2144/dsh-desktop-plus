@@ -4,7 +4,7 @@
 #   powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File win-toast.ps1 -Base64 <b64 JSON>
 #
 # The toast needs no registration: the AUMID is the one the dsh-desktop-plus
-# shell already owns. A body click is protocol activation (#116 直通): the URL
+# shell already owns. A body click is protocol activation (#116 passthrough): the URL
 # carries profile + session and the registered dsh-plus:// command is the
 # application executable itself, so the single-instance second-instance handler
 # in the shell routes it to the right profile window and the page switches to
@@ -18,8 +18,9 @@
 
 param(
     [Parameter(Mandatory = $true)][string]$Base64,
-    # -DryRun：只构建并解析 XML，不创建/Show toast——给构建期测试用（#117 两类只在真实
-    # payload 上暴露的缺陷：缺花括号的语法、裸 & 的非法 XML）。
+    # -DryRun: build and parse the XML only, never create or show a toast. Used by
+    # build-time tests: the two defect classes (#117) only surface on a real
+    # payload - a missing brace, or a bare & that makes the XML invalid.
     [switch]$DryRun
 )
 
@@ -48,8 +49,9 @@ $visual = '<visual><binding template="ToastGeneric"><text>' + $title + '</text><
 $query = ''
 if ($payload.profile) { $query = 'profile=' + [Uri]::EscapeDataString($payload.profile) }
 if ($payload.session) {
-    # XML 属性里的 & 必须写成 &amp;（裸 & 会让 LoadXml 报 0xC00CE50D，所有通知全灭）。
-    # Windows 解析 XML 后会还原成 &，协议激活拿到的仍是正常 URL。
+    # A bare & in an XML attribute makes LoadXml fail with 0xC00CE50D and kills
+    # every toast, so the separator is written as &amp;. Windows decodes it back to
+    # & when parsing, so protocol activation still receives a normal URL.
     if ($query) { $query = $query + '&amp;' }
     $query = $query + 'session=' + [Uri]::EscapeDataString($payload.session)
 }

@@ -1,5 +1,5 @@
 diff --git a/upstream/packages/bundle/web-app/package.json b/upstream/packages/bundle/web-app/package.json
-index 7b8e1340..d413d6cd 100644
+index af6f965b..5f60ecf2 100644
 --- a/upstream/packages/bundle/web-app/package.json
 +++ b/upstream/packages/bundle/web-app/package.json
 @@ -85,6 +85,7 @@
