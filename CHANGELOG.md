@@ -1,11 +1,13 @@
 # Changelog
 
 ## 未发布
-- 修复 macOS 未签名构建应用内更新必然被 ShipIt 签名校验拒绝的问题：未签名构建的「安装更新」改为下载并打开 dmg 由用户手动安装，签名构建流程不变 (#122)。
-- 内核升级到官方 dsh-v0.2.2-rc.5（2e39e70496）：补丁集随上游重新生成，依赖图同步更新。
+
+### Added
+
 - 多 profile 架构按官方 desktop 路径原地重做：desktop 只是默认 profile，窗口创建/装配/导航/欢迎/退出全部走官方同一套函数，profile 只提供自己的 partition、文档源与 Host；本地 profile 窗口改走 dsh-app://profile-<name>/，旧 loopback origin 的页面本地存储不迁移 (#140)。
-- 修复通知不生效：点击通知不聚焦/不跳会话、会话名与回复摘要缺失、每场景音效与免打扰设置被忽略、Windows toast 图标空白 (#116)。
-- 桌面窗口能力改为由窗口构造派生：profile 窗口与主窗口同构（隐藏标题栏 / overlay / vibrancy / webview / 菜单 / 拖拽 / 快捷键 / 全量 dshDesktop），并删除插件侧浏览器桥、键盘桥与本地窗口标记 preload (#125)。
+
+### Fixed
+
 - 修复 Windows 通知全部投递失败：通知辅助脚本部署前先建目录，失败不再永久缓存，修好后下一次投递即重试 (#142)。
 
 ## 已发布
