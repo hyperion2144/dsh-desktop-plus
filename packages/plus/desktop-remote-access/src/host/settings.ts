@@ -4,6 +4,7 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { profileStoragePath } from './profile-scope.js'
 
 const TOP_KEY = 'dsh-desktop-tauriapp'
 
@@ -125,6 +126,57 @@ export function readShellSetting(subKey: string): unknown {
   } catch {
     return null
   }
+}
+
+// ── #145 独立发布：插件自己的设置落点（按 profile 隔离）────────────────────
+// 以前远程访问的配置键（tunnel_url/cloudflared_bin/ws_*）只存在壳的
+// desktop-settings.json 里，插件离开桌面壳就读不到。现在权威落点是
+// $DSH_HOME/storages/remote-access/profiles/<profile>/settings.json（与 pairing.json
+// 同一目录）；壳设置只作为旧数据的一次性迁移来源。
+
+/** 插件设置 JSON 的绝对路径（按 profile 隔离）。 */
+export function remoteSettingsPath(): string {
+  return profileStoragePath('settings.json')
+}
+
+/**
+ * 读插件设置字段；插件设置优先，缺失时回退壳设置（旧数据迁移）。
+ * @param subKey - 设置键名。
+ * @returns 字符串值，或 null（两处都没有）。
+ */
+export function readRemoteSetting(subKey: string): string | null {
+  try {
+    const obj = JSON.parse(fs.readFileSync(remoteSettingsPath(), 'utf8')) as Record<string, unknown> | null
+    const v = obj?.[subKey]
+    if (v !== undefined && v !== null) return typeof v === 'string' ? v : JSON.stringify(v)
+  } catch { /* 文件缺失或损坏：继续回退 */ }
+  // 旧数据迁移：壳设置里有的键读一次，下次写入就落到插件自己的文件。
+  const legacy = readShellSetting(subKey)
+  if (legacy === null || legacy === undefined) return null
+  return typeof legacy === 'string' ? legacy : JSON.stringify(legacy)
+}
+
+/**
+ * 写插件设置字段（读改写 + 原子写）；返回写入值。
+ * @param subKey - 设置键名。
+ * @param value - 要写入的值。
+ * @returns 写入的值。
+ */
+export function writeRemoteSetting(subKey: string, value: unknown): unknown {
+  const p = remoteSettingsPath()
+  let obj: Record<string, unknown> = {}
+  try {
+    const parsed = JSON.parse(fs.readFileSync(p, 'utf8')) as Record<string, unknown> | null
+    if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) obj = parsed
+  } catch { /* 新建 */ }
+  obj[subKey] = value
+  try {
+    fs.mkdirSync(path.dirname(p), { recursive: true })
+    const tmp = p + '.tmp'
+    fs.writeFileSync(tmp, JSON.stringify(obj, null, 2) + '\n', 'utf8')
+    fs.renameSync(tmp, p)
+  } catch { /* 写失败不抛：设置是尽力而为 */ }
+  return value
 }
 
 /** 写壳设置字段（读改写 + 原子写）；返回写入值。 */

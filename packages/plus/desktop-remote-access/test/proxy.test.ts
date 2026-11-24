@@ -30,15 +30,19 @@ function getRaw(u: string, headers: Record<string, string> = {}) {
   });
 }
 
-test('改写反代：外部 Host 归一为 loopback + HTML 注入', async () => {
+test('改写反代：Host 归一为 loopback + 补齐同源信号 + HTML 注入', async () => {
   const up = startUpstream();
   const upPort = await listen(up.server);
   const proxy = createRewriteProxy({ upstreamHost: '127.0.0.1', upstreamPort: upPort, inject: ['<tag-mobile-inject/>'] });
   const lp = await listen(proxy.server);
   try {
+    // #148：官方 Host fence 只认 loopback / 监听绑定 IP / 启动期 --trusted-host。
+    // 远端访问的 <LAN-IP>:<lane 端口> 三者都不是，不改写就是 403；官方 npm 版
+    // 没有 --trusted-proxy 这类开关，所以必须由 lane 改写。
     const json = JSON.parse((await getRaw('http://127.0.0.1:' + lp + '/status', { Host: 'ext.cpolar.cn', Origin: 'https://ext.cpolar.cn' })).body);
-    assert.equal(json.host, '127.0.0.1:' + upPort);
-    assert.equal(json.origin, 'http://127.0.0.1:' + upPort);
+    assert.equal(json.host, '127.0.0.1:' + upPort, 'Host 必须归一为上游 loopback 权威，否则官方 fence 回 403');
+    assert.equal(json.origin, 'http://127.0.0.1:' + upPort, 'Origin 同步归一，否则 Origin fence 拒绝');
+    assert.equal(json.sfs, 'same-origin', 'lane 补齐同源信号（#78 手机老内核不发 Sec-Fetch-*）');
     const html = (await getRaw('http://127.0.0.1:' + lp + '/', { Host: 'ext.cpolar.cn' })).body;
     assert.ok(html.includes('<tag-mobile-inject/>'));
   } finally { proxy.server.closeAllConnections?.(); proxy.server.close(); up.closeAll(); }

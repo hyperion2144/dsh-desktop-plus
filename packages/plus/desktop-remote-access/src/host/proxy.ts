@@ -9,7 +9,7 @@
 import http from 'node:http'
 import fs from 'node:fs'
 import path from 'node:path'
-import os from 'node:os'
+import { profileStoragePath } from './profile-scope.js'
 import { createGzip, createBrotliCompress, constants as zlibConstants } from 'node:zlib'
 import type { Duplex } from 'node:stream'
 import type { Socket } from 'node:net'
@@ -33,10 +33,23 @@ export interface UpstreamAuth {
 export interface AuthResult {
   ok: boolean
   setCookie?: string
+  /**
+   * 已配对设备的会话值（#145）。
+   *
+   * 门禁放行时带上它，反代把它写进 `x-dsh-lane-paired` 头交给上游的官方鉴权
+   * provider；provider 据此把请求认成 owner Peer。未配对时缺省。
+   */
+  session?: string
 }
 
 /** 配对门禁钩子。 */
 export type AuthHook = (req: http.IncomingMessage) => AuthResult
+
+/**
+ * 配对标记头（#145）：lane 转发时写入已配对设备的会话值，上游的官方鉴权 provider 据此
+ * 把请求认成 owner Peer。lane 先删客户端自带的同名头，所以外部无法伪造。
+ */
+export const LANE_PAIRED_HEADER = 'x-dsh-lane-paired'
 
 /** lane 自有路由分发器（命中即由 lane 接走）。 */
 export type LaneRouteDispatcher = (req: http.IncomingMessage, res: http.ServerResponse) => boolean
@@ -67,16 +80,34 @@ export interface RewriteProxy {
   close: () => Promise<void>
 }
 
-/** 简易 access log 写到 $DSH_HOME/remote-access.log（用户能 tail/f 看真实转发） */
-const LOG_PATH = path.join(process.env.DSH_HOME || path.join(os.homedir(), '.dsh'), 'remote-access.log')
+/**
+ * 简易 access log（用户能 tail/f 看真实转发）。
+ * 按 profile 隔离（#145）：`$DSH_HOME/storages/remote-access/profiles/<profile>/access.log`。
+ *
+ * 路径必须**惰性求值**：`setProfileScope()` 在插件 `apply()` 里才调用，而本模块在
+ * 那之前就已加载。写成模块级常量会把日志固定到 `profiles/default/`，与配对库、
+ * 设置落到的 profile 目录不一致。
+ */
 let logStream: fs.WriteStream | null = null
-try {
-  // open 是异步的，try/catch 拟不住 ENOENT；先建目录（与 pairing.ts 存储同策略），
-  // 再给 error 事件挼一个监听——日志尽力而为，绝不因磁盘/权限问题打崩服务进程。
-  fs.mkdirSync(path.dirname(LOG_PATH), { recursive: true })
-  logStream = fs.createWriteStream(LOG_PATH, { flags: 'a' })
-  logStream.once('error', () => { })
-} catch { /* noop */ }
+let logStreamOpened = false
+
+/**
+ * 取日志流；首次调用时按当前 profile 打开（之后复用）。
+ * @returns 可写流，或 null（磁盘/权限问题：日志尽力而为，不打崩服务）。
+ */
+function accessLogStream(): fs.WriteStream | null {
+  if (logStreamOpened) return logStream
+  logStreamOpened = true
+  try {
+    const target = profileStoragePath('access.log')
+    // open 是异步的，try/catch 拟不住 ENOENT；先建目录（与 pairing.ts 存储同策略），
+    // 再给 error 事件挼一个监听——日志尽力而为，绝不因磁盘/权限问题打崩服务进程。
+    fs.mkdirSync(path.dirname(target), { recursive: true })
+    logStream = fs.createWriteStream(target, { flags: 'a' })
+    logStream.once('error', () => { })
+  } catch { logStream = null }
+  return logStream
+}
 
 /** 401 UNPAIRED 的限频窗口：同一目标的重复探测 60s 内聚合，首条附 UA/IP 供定位来源。 */
 const UNPAIRED_LOG_WINDOW_MS = 60_000
@@ -115,7 +146,7 @@ const HOP_BY_HOP = ['connection', 'keep-alive', 'proxy-connection', 'transfer-en
 function stripHopByHop(headers: HeaderBag): HeaderBag { for (const k of HOP_BY_HOP) delete headers[k]; return headers }
 function accessLog(parts: (string | number | undefined)[]): void {
   const line = `[${new Date().toISOString()}] ${parts.join(' ')}\n`
-  try { logStream?.write(line); } catch { /* noop */ }
+  try { accessLogStream()?.write(line); } catch { /* noop */ }
   try { process.stdout.write(line); } catch { /* noop */ }
 }
 
@@ -187,18 +218,23 @@ export function loopbackTarget(rawUrl: unknown): LoopbackTarget | null {
 export const LOOPBACK_URL_PATCH = '<script data-dsh-mobile-loopback="1">!function(){var P="/_loopback/";function H(u){try{var s=String(u);var m=/^(https?):\\/\\/(127\\.0\\.0\\.1|localhost|\\[::1\\])(?::(\\d+))?([\\s\\S]*)$/i.exec(s);if(m)return location.origin+P+(m[3]||"80")+(m[4]||"/");return s;}catch(e){return u;}}function W(u){try{var s=String(u);var m=/^wss?:\\/\\/(127\\.0\\.0\\.1|localhost|\\[::1\\])(?::(\\d+))?([\\s\\S]*)$/i.exec(s);if(m)return (location.protocol==="https:"?"wss://":"ws://")+location.host+P+(m[2]||"80")+(m[3]||"/");return s;}catch(e){return u;}}var NW=globalThis.WebSocket;function PW(u,p){var f=W(u);return p===undefined?new NW(f):new NW(f,p);}PW.prototype=NW.prototype;["CONNECTING","OPEN","CLOSING","CLOSED"].forEach(function(k){try{PW[k]=NW[k];}catch(e){}});globalThis.WebSocket=PW;var NF=globalThis.fetch;globalThis.fetch=function(i,x){try{if(typeof i==="string")i=H(i);else if(i&&i.url)i=H(i.url);}catch(e){}return NF.call(globalThis,i,x);};var NX=XMLHttpRequest.prototype.open;XMLHttpRequest.prototype.open=function(m,u){try{u=H(u);}catch(e){}return arguments.length>2?NX.call(this,m,u,arguments[2]):NX.call(this,m,u);};var NE=globalThis.EventSource;globalThis.EventSource=function(u,c){try{u=H(u);}catch(e){}return new NE(u,c);};var NO=globalThis.open;globalThis.open=function(u,n,f){try{if(u!=null)u=H(u);}catch(e){}return NO.call(globalThis,u,n,f);};}();<\/script>'
 
 /**
- * 把浏览器可见的权威改写成 loopback 权威（Host 和 Origin 都改）。
- * dsh 0.1.6+ 的 API 守卫（核心 isTrustedApiRequest 与 task-board/beauticode 等
- * 插件守卫）要求「浏览器同源信号」：sec-fetch-site: same-origin 头，或
- * Origin == Host。手机老内核 WebView 不发 Sec-Fetch-* 头、同源 GET 也不带
- * Origin（#78），lane 作为受信反代在此补齐：无值注入 same-origin，已有值
- * 保留（显式 cross-site 不覆盖——真正跨站请求仍由上游守卫拒绝，不引入新开放面）。
+ * 把浏览器可见的权威改写成 loopback 权威（Host 和 Origin 都改），并补齐同源信号。
+ *
+ * 为什么必须改写（#148）：官方 Host fence 只接受三种 authority——loopback、监听绑定的 IP、
+ * 启动期 `--trusted-host` 列表。远端访问的 `<LAN-IP>:<lane 端口>` 三者都不是，
+ * 不改写就是 403（官方 npm 版没有 `--trusted-proxy` 这类开关，不能依赖补丁）。
+ *
+ * 改写后 dsh 用 loopback 算会话 cookie 名（`cookieName = sha256(Host)`），与浏览器持有的
+ * 外部 Host cookie 对不上——所以远端身份**不再依赖 dsh 的 cookie**，改由 lane 的配对闸准入，
+ * 再由注册进 `connection.authentication` 的 provider 把已配对请求认成 owner Peer。
+ *
+ * 同源信号：手机老内核 WebView 不发 Sec-Fetch-* 头、同源 GET 也不带 Origin（#78），
+ * 无值时注入 same-origin；已有值保留（显式 cross-site 不覆盖）。
+ * @param headers - 待转发的请求头。
+ * @param authority - 要改写成的权威（`host:port`）。
+ * @returns 同一个 headers 对象。
  */
-function loopbackAuthority(headers: HeaderBag, upstreamHost: string, upstreamPort: UpstreamPort): HeaderBag {
-  // apply 传进来的 upstreamPort 可能是函数（每请求现解析 webServer.port）：
-  // 必须当场求值，否则 authority 会被模板串成函数源码 → origin/Host 头含非法字符。
-  const port = typeof upstreamPort === 'function' ? upstreamPort() : upstreamPort
-  const authority = `${upstreamHost}:${port}`
+function loopbackAuthority(headers: HeaderBag, authority: string): HeaderBag {
   headers.Host = authority
   if (headers['origin']) headers['origin'] = `http://${authority}`
   if (headers['Origin']) headers['Origin'] = `http://${authority}`
@@ -449,6 +485,8 @@ export function createRewriteProxy(opts: RewriteProxyOptions): RewriteProxy {
       return
     }
     // 配对门禁（dsh-remote-access 自用）
+    // 放行时把会话值带下去，反代写进 `x-dsh-lane-paired` 头交给上游的官方鉴权 provider（#145）。
+    let pairedSession: string | null = null
     if (auth) {
       const r = auth(req)
       if (!r.ok) {
@@ -458,6 +496,7 @@ export function createRewriteProxy(opts: RewriteProxyOptions): RewriteProxy {
         return
       }
       if (r.setCookie) res.setHeader('set-cookie', r.setCookie)
+      pairedSession = r.session ?? null
     }
     // 门禁通过：现在才把令牌段去掉，后续转发与上游只认原路径。
     if (directMatch !== null) req.url = '/' + rawUrl.slice(directMatch[0].length);
@@ -474,7 +513,14 @@ export function createRewriteProxy(opts: RewriteProxyOptions): RewriteProxy {
       const upHost = lb ? lb.host : upstreamHost
       const upPort = lb ? lb.port : resolveUpstreamPort()
       const buildHeaders = (): HeaderBag => {
-        const h = loopbackAuthority({ ...req.headers }, upHost, upPort)
+        // 主转发与映射路径都改写成目标回环权威：官方 Host fence 只认 loopback，
+        // 不改写就是 403（见 loopbackAuthority 注释）。
+        const h = loopbackAuthority({ ...req.headers }, `${upHost}:${upPort}`)
+        // #145：把配对身份交给上游的官方鉴权 provider。先删客户端自带的同名头（防伪造），
+        // 再写入本次请求已通过配对闸的会话值。
+        delete h[LANE_PAIRED_HEADER]
+        delete h[LANE_PAIRED_HEADER.toUpperCase()]
+        if (pairedSession !== null) h[LANE_PAIRED_HEADER] = pairedSession
         upstreamAuth?.applyTo(h)
         stripHopByHop(h) // 连接语义由本代理与上游之间重新协商
         // #42：文档导航强制 identity——上游对 HTML 也 gzip，压缩响应无法注入
@@ -488,6 +534,9 @@ export function createRewriteProxy(opts: RewriteProxyOptions): RewriteProxy {
       accessLog(['HTTP', req.method, req.headers.host ?? '-', '->', targetPath + stripped])
 
       const handleUpstreamResponse = (proxyRes: http.IncomingMessage) => {
+        // 401 重换分支会先 pause() 再决定重放还是透传；透传时必须把流放回来，
+        // 否则下面的 pipe/收集永远等不到数据，请求挂死到客户端超时（#148）。
+        proxyRes.resume()
         const contentType = String(proxyRes.headers['content-type'] ?? '')
         const htmlDoc = contentType.includes('text/html')
         const shouldInject = !lb && htmlDoc && !isCompressed(proxyRes.headers) && inject.length > 0
@@ -624,6 +673,7 @@ export function createRewriteProxy(opts: RewriteProxyOptions): RewriteProxy {
     // 同 HTTP：令牌在前缀里，必须在门禁之后才剥（否则 auth 钩子看不到令牌）。
     const rawWsUrl = req.url ?? '';
     const wsDirect = /^\/__dsh_ws\/[^/]+\//.exec(rawWsUrl);
+    let wsPairedSession: string | null = null
     if (auth) {
       const r = auth(req)
       if (!r.ok) {
@@ -632,6 +682,7 @@ export function createRewriteProxy(opts: RewriteProxyOptions): RewriteProxy {
         socket.end()
         return
       }
+      wsPairedSession = r.session ?? null
     }
     // 门禁通过：剥掉令牌段，后面的映射判定/转发/上游只认原路径。
     if (wsDirect !== null) req.url = '/' + rawWsUrl.slice(wsDirect[0].length);
@@ -641,7 +692,12 @@ export function createRewriteProxy(opts: RewriteProxyOptions): RewriteProxy {
     // 这一段压缩，lane 到 dsh 这一段始终是明文——网关侧不参与压缩，也就不会因为压缩态
     // 与心跳/判死窗口互相干扰而掉线。
     const deflate = wsDirect !== null && wantsPermessageDeflate(req.headers)
-    const headers = loopbackAuthority({ ...req.headers }, lbWs ? lbWs.host : upstreamHost, lbWs ? lbWs.port : upstreamPort)
+    // WS 同样改写成目标回环权威（官方 Host fence 只认 loopback）。
+    const headers = loopbackAuthority({ ...req.headers }, lbWs ? `${lbWs.host}:${lbWs.port}` : `${upstreamHost}:${typeof upstreamPort === 'function' ? upstreamPort() : upstreamPort}`)
+    // #145：与 HTTP 同构——先删客户端自带的标记头（防伪造），再写入已配对会话值。
+    delete headers[LANE_PAIRED_HEADER]
+    delete headers[LANE_PAIRED_HEADER.toUpperCase()]
+    if (wsPairedSession !== null) headers[LANE_PAIRED_HEADER] = wsPairedSession
     // WS upgrade 保留 connection/upgrade（握手必需），只清掉无关的逐跳头
     delete headers['keep-alive']
     delete headers['proxy-connection']
@@ -843,7 +899,7 @@ export function createRewriteProxy(opts: RewriteProxyOptions): RewriteProxy {
   return {
     server,
     upstream,
-    rewriteHeaders: (h) => loopbackAuthority({ ...h }, upstreamHost, upstreamPort),
+    rewriteHeaders: (h) => loopbackAuthority({ ...h }, `${upstreamHost}:${typeof upstreamPort === 'function' ? upstreamPort() : upstreamPort}`),
     listen: (port = 0) => new Promise<number>((res) => { server.listen(port, '0.0.0.0', () => res((server.address() as { port: number }).port)) }),
     close: () => new Promise<void>((r) => {
       for (const s of clientSockets) { try { s.destroy(); } catch { /* 忽略 */ } }
