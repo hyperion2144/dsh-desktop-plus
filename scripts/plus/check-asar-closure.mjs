@@ -197,16 +197,23 @@ function checkArchive(archive, label) {
   }
 }
 
-/** native/bin 下的可执行文件必须落在 app.asar.unpacked 且带执行位：asar 内的路径
- * 只能读不能 spawn（真实故障：CUA helper 在 asar 里，插件报 NATIVE_IO 写入失败）。 */
+/**
+ * native/bin 下的可执行文件必须落在 app.asar.unpacked 且带执行位：asar 内的路径
+ * 只能读不能 spawn（真实故障：CUA helper 在 asar 里，插件报 NATIVE_IO 写入失败）。
+ *
+ * 只校验真正的可执行文件：CUA helper 是一个 .app 包，里面还有 Info.plist、.icns、
+ * LICENSE、_CodeSignature/CodeResources、current.json 这些非可执行文件，它们同样
+ * 需要解包（LaunchServices 要读整个包），但没有执行位。
+ */
 function assertNativeUnpacked(archive, label) {
 	for (const entry of archive.entries) {
 		if (!entry.includes('/native/bin/')) continue
 		const physical = `${archive.path}.unpacked${entry.replaceAll('/', sep)}`
 		try {
-			accessSync(physical, constants.X_OK)
+			// 解包位置必须存在；可执行位只对可执行文件要求。
+			accessSync(physical, entry.endsWith('.app/Contents/MacOS/dsh-cua-native') ? constants.X_OK : constants.F_OK)
 		} catch {
-			failures.push(`${label}: native executable must be unpacked and executable: ${entry}`)
+			failures.push(`${label}: native payload must be unpacked${entry.endsWith('.app/Contents/MacOS/dsh-cua-native') ? ' and executable' : ''}: ${entry}`)
 		}
 	}
 }

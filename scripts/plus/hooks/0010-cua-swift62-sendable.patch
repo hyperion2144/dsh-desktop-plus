@@ -1,0 +1,17 @@
+diff --git a/upstream/packages/experimental/cua-macos/native/Sources/CuaNative/AXWorker.swift b/upstream/packages/experimental/cua-macos/native/Sources/CuaNative/AXWorker.swift
+index 47a66d75..8bc1abfb 100644
+--- a/upstream/packages/experimental/cua-macos/native/Sources/CuaNative/AXWorker.swift
++++ b/upstream/packages/experimental/cua-macos/native/Sources/CuaNative/AXWorker.swift
+@@ -424,7 +424,11 @@ actor AXWorker {
+                 }
+                 elementWindow = enclosing.element
+                 guard let bounds = try ax().bounds(selected), bounds.width > 0, bounds.height > 0 else { throw NativeFailure(code: "NATIVE_ERROR", message: "Element has no pointer bounds") }
+-                window = try WindowGeometry.resolve(owner: identity, windowID: enclosing.id) { try ax().bounds(enclosing.element) }
++                // Swift 6.2 的 region-based isolation 把闭包捕获 AXUIElement（非 Sendable）判成
++                // sending 风险（6.4 已放宽）。先在闭包外把 bounds 读出来，只捕获 Sendable 的
++                // WindowBounds，语义不变：resolve 本来就在前后各读一次窗口几何做一致性校验。
++                let enclosingBounds = try ax().bounds(enclosing.element)
++                window = try WindowGeometry.resolve(owner: identity, windowID: enclosing.id) { enclosingBounds }
+                 point = WindowPoint(x: bounds.x + bounds.width / 2 - window.bounds.x, y: bounds.y + bounds.height / 2 - window.bounds.y)
+             } else {
+                 let id = try params.windowID()

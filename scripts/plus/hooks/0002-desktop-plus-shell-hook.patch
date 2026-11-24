@@ -1102,7 +1102,7 @@ index b0fc7850..a690c87d 100644
        const contents = [...guestInputs].find(([guest, owner]) => owner.window === window && !guest.isDestroyed() && guest.isFocused())?.[0]
          ?? window.webContents
 diff --git a/upstream/apps/desktop/src/main.ts b/upstream/apps/desktop/src/main.ts
-index 291ed084..536994c7 100644
+index 291ed084..43a3fb12 100644
 --- a/upstream/apps/desktop/src/main.ts
 +++ b/upstream/apps/desktop/src/main.ts
 @@ -7,8 +7,9 @@ import { DesktopUpdateSettings } from './update-settings.ts'
@@ -1897,7 +1897,7 @@ index 291ed084..536994c7 100644
        buttons: [locale.messages.updateAcknowledge], cancelId: 0 })
    }
    const commandManager = new DesktopCommandManager({
-@@ -486,138 +1051,237 @@ async function main(): Promise<void> {
+@@ -486,138 +1051,244 @@ async function main(): Promise<void> {
      show: ordinaryMessageBox,
    })
    const appPreload = fileURLToPath(new URL('./preload-app.cjs', import.meta.url))
@@ -2035,7 +2035,14 @@ index 291ed084..536994c7 100644
 +    readonly profile: string
 +    readonly profileDir: string
 +    readonly inspectPort: number | undefined
-+    readonly env: NodeJS.ProcessEnv
++    /**
++     * Host 环境，在每次 start 时求值。
++     *
++     * 必须是函数：login shell 的读取是异步的，`prepareHostEnvironment()` 在 start 之前才把
++     * `hostEnvironment` 从 launchd 的极简环境换成用户 shell 的完整环境。创建时求值会拿到
++     * 没有 PATH 的那一份，Host 里 gh/homebrew 等命令全部找不到。
++     */
++    readonly env: () => NodeJS.ProcessEnv
 +    /** start 前的阶段通知（产品窗口的托盘阶段）。 */
 +    readonly onStart?: () => void
 +    /** Host 的致命失败：先通知调用方（托盘阶段/日志），再交给 controller 发布。 */
@@ -2067,7 +2074,7 @@ index 291ed084..536994c7 100644
 +    new DesktopBackendController((onFailure) => {
 +      options.onStart?.()
 +      const host = new DesktopHostProcess(resources.node, resources.dsh, options.profileDir,
-+        options.inspectPort, options.env,
++        options.inspectPort, options.env(),
 +        (error) => { options.onFailure(error); onFailure(error) },
 +        primaryRuntime, resources, options.platformSession,
 +        options.onPluginOperation, options.onHostOutput, options.profile)
@@ -2100,7 +2107,7 @@ index 291ed084..536994c7 100644
 +    profile: defaultProfileName(),
 +    profileDir: activeProject,
 +    inspectPort: developmentHostInspectPort(development),
-+    env: plusDesktopPatchEnv({ ...hostEnvironment, ...resolvedProxyEnvRecord(), DSH_CLIENT_VERSION: desktopClientVersion(), DSH_REMOTE_LANE_PORT: String(lanePortFor(defaultProfileName())), DSH_DESKTOP_PORT_FILE: join(app.getPath('userData'), 'dsh-desktop-port'), ...plusTelemetryOptOutEnv() }),
++    env: () => plusDesktopPatchEnv({ ...hostEnvironment, ...resolvedProxyEnvRecord(), DSH_CLIENT_VERSION: desktopClientVersion(), DSH_REMOTE_LANE_PORT: String(lanePortFor(defaultProfileName())), DSH_DESKTOP_PORT_FILE: join(app.getPath('userData'), 'dsh-desktop-port'), ...plusTelemetryOptOutEnv() }),
 +    onStart: () => { plusShell.noteHostPhase('starting') },
 +    onFailure: (error) => { plusShell.noteHostPhase('failed', error) },
 +    onPluginOperation: (record) => {
@@ -2245,7 +2252,7 @@ index 291ed084..536994c7 100644
  
    const updateErrors = new WeakMap<DesktopUpdateState, Promise<void>>()
    const showUpdateFailure = (state: DesktopUpdateState): Promise<void> => {
-@@ -653,18 +1317,18 @@ async function main(): Promise<void> {
+@@ -653,18 +1324,18 @@ async function main(): Promise<void> {
        updateStoppedHost = false
        if (restoreHost) {
          // Only confirmed process exit permits replacement before another installation confirmation.
@@ -2269,7 +2276,7 @@ index 291ed084..536994c7 100644
            if (workspaceRecovery === recovery) workspaceRecovery = undefined
          })
        }
-@@ -673,31 +1337,35 @@ async function main(): Promise<void> {
+@@ -673,31 +1344,35 @@ async function main(): Promise<void> {
      return state
    }
  
@@ -2320,7 +2327,7 @@ index 291ed084..536994c7 100644
    }
  
    const manifest: unknown = JSON.parse(await readFile(join(app.getAppPath(), 'package.json'), 'utf8'))
-@@ -708,15 +1376,20 @@ async function main(): Promise<void> {
+@@ -708,15 +1383,20 @@ async function main(): Promise<void> {
      packagedChannel, changing: false,
      ...(initialChannel.kind === 'error' ? { error: configurationFailure(initialChannel.error) } : {}) }
    const updateChannel = initialChannel.kind === 'ready' ? initialChannel.channel : packagedChannel
@@ -2346,7 +2353,7 @@ index 291ed084..536994c7 100644
        const parent = currentDialogWindow()
        if (parent === undefined || !await prepareDesktopUpdateWindow(parent, locale.messages.updateFullscreenTimeout)) return false
        const ready = desktopUpdateReadyConfirmation(locale.messages, updates.state.version ?? '', process.platform)
-@@ -735,17 +1408,20 @@ async function main(): Promise<void> {
+@@ -735,17 +1415,20 @@ async function main(): Promise<void> {
        }
        // The update lock rejects new HTTP requests, including analytics intake.
        await track('desktop_upgrade_install_restart_click', {})
@@ -2370,7 +2377,7 @@ index 291ed084..536994c7 100644
          updateStoppedHost = true
          // The backend's async cleanup callback can assign this after the reset above.
          const stopFailure = updateStopFailure as DesktopHostUncleanExitError | undefined
-@@ -762,7 +1438,7 @@ async function main(): Promise<void> {
+@@ -762,7 +1445,7 @@ async function main(): Promise<void> {
          requireCleanStop = false
        }
        return true
@@ -2379,7 +2386,7 @@ index 291ed084..536994c7 100644
      undefined, undefined, undefined,
      (success, reason) => { void track('desktop_upgrade_download_result', { is_success: success, ...reason === undefined ? {} : { error_reason: reason } }) },
      updateChannel,
-@@ -780,6 +1456,7 @@ async function main(): Promise<void> {
+@@ -780,6 +1463,7 @@ async function main(): Promise<void> {
  
    const updateSchedule = new DesktopUpdateSchedule(updates, resolveDesktopUpdateScheduleConfig(process.env))
  
@@ -2387,7 +2394,7 @@ index 291ed084..536994c7 100644
    const downloadUpdate = async (version: string, revision = updates.revision): Promise<DesktopUpdateState> => {
      void track('desktop_upgrade_click', {})
      updateJournal?.action('download-requested')
-@@ -800,124 +1477,145 @@ async function main(): Promise<void> {
+@@ -800,124 +1484,145 @@ async function main(): Promise<void> {
      window.once('closed', () => { resolve() })
    })
  
@@ -2597,7 +2604,7 @@ index 291ed084..536994c7 100644
      if (!isDesktopUpdateChannel(channel)) throw new Error('desktop update: unsupported channel')
      if (channelState === undefined) throw new Error('desktop update: settings are not initialized')
      channelRequests++
-@@ -942,22 +1640,24 @@ async function main(): Promise<void> {
+@@ -942,22 +1647,24 @@ async function main(): Promise<void> {
      }
    })
    ipcMain.handle(DESKTOP_IPC.updatesStatus, (event) => {
@@ -2630,7 +2637,7 @@ index 291ed084..536994c7 100644
      window.setMinimumSize(active ? 960 : 520, 600)
      if (active) {
        const { width, height } = window.getBounds()
-@@ -965,7 +1665,7 @@ async function main(): Promise<void> {
+@@ -965,7 +1672,7 @@ async function main(): Promise<void> {
      }
    })
    ipcMain.handle(DESKTOP_IPC.updatesOpen, async (event) => {
@@ -2639,7 +2646,7 @@ index 291ed084..536994c7 100644
      await openUpdatePrompt()
    })
  
-@@ -1164,8 +1864,8 @@ async function main(): Promise<void> {
+@@ -1164,8 +1871,8 @@ async function main(): Promise<void> {
    const applicationIconPath = development ? join(app.getAppPath(), 'resources', 'icon-windows.png')
      : join(process.resourcesPath, 'icon.png')
    app.setAboutPanelOptions({
@@ -2650,7 +2657,7 @@ index 291ed084..536994c7 100644
      // The release has no separate build number; omit Electron's bundle version.
      version: '',
      copyright: '',
-@@ -1202,7 +1902,7 @@ async function main(): Promise<void> {
+@@ -1202,7 +1909,7 @@ async function main(): Promise<void> {
      ? [shortcuts.fileMenu(currentDesktopLocale().messages), macEditMenu(currentDesktopLocale().messages), { role: 'windowMenu' }]
      : [{ role: 'editMenu' }]
    const hideCommands: MenuItemConstructorOptions[] = darwin
@@ -2659,7 +2666,7 @@ index 291ed084..536994c7 100644
        { role: 'hideOthers', label: currentDesktopLocale().messages.hideOtherApplications },
        { role: 'unhide', label: currentDesktopLocale().messages.showAllApplications }, { type: 'separator' }]
      : []
-@@ -1210,12 +1910,12 @@ async function main(): Promise<void> {
+@@ -1210,12 +1917,12 @@ async function main(): Promise<void> {
      // Windows has no system About panel; Electron's fallback is a plain
      // message box, so the shell shows its own dimmed dialog instead.
      process.platform === 'win32'
@@ -2675,7 +2682,7 @@ index 291ed084..536994c7 100644
      { type: 'separator' },
      { label: currentDesktopLocale().messages.checkUpdatesMenu, click: () => { void openUpdatePrompt(true) } },
      ...process.platform === 'darwin' || process.platform === 'win32'
-@@ -1228,6 +1928,8 @@ async function main(): Promise<void> {
+@@ -1228,6 +1935,8 @@ async function main(): Promise<void> {
          app.relaunch()
          quitWithoutConfirmation()
        } },
@@ -2684,7 +2691,7 @@ index 291ed084..536994c7 100644
      ] : [],
      { role: 'toggleDevTools', label: currentDesktopLocale().messages.toggleDevToolsMenu },
      { type: 'separator' },
-@@ -1249,8 +1951,13 @@ async function main(): Promise<void> {
+@@ -1249,8 +1958,13 @@ async function main(): Promise<void> {
      tray?.relabel()
    }
    refreshApplicationMenu()
@@ -2700,7 +2707,7 @@ index 291ed084..536994c7 100644
      // The tray is the way back to a hidden window; without it, relaunching the application still focuses it.
      try {
        tray = new DesktopTray({ iconPath: trayIconPath, locale: currentDesktopLocale,
-@@ -1263,7 +1970,19 @@ async function main(): Promise<void> {
+@@ -1263,7 +1977,19 @@ async function main(): Promise<void> {
      : undefined
    const quitConfirmation = new DesktopQuitConfirmation({
      locale: () => locale,
@@ -2721,7 +2728,7 @@ index 291ed084..536994c7 100644
      // No owner window: a hidden window stays hidden and the native box is its own top-level window.
      show: options => dialog.showMessageBox(options),
      // macOS raises the open alert with the application; Electron exposes no handle to the Windows task
-@@ -1276,13 +1995,10 @@ async function main(): Promise<void> {
+@@ -1276,13 +2002,10 @@ async function main(): Promise<void> {
  
    if (process.platform === 'win32') {
      ipcMain.handle(DESKTOP_IPC.windowsMenu, (event, name: unknown, x: unknown, y: unknown) => {
@@ -2736,7 +2743,7 @@ index 291ed084..536994c7 100644
        // Editor-owned history listens to key events rather than Chromium's native undo stack.
        const editItem = (label: string, keyCode: string, modifiers: Array<'control'>, accelerator?: string): MenuItemConstructorOptions => ({
          label,
-@@ -1301,21 +2017,31 @@ async function main(): Promise<void> {
+@@ -1301,21 +2024,31 @@ async function main(): Promise<void> {
          editItem(currentDesktopLocale().messages.delete, 'Delete', []),
          { type: 'separator' },
          editItem(currentDesktopLocale().messages.selectAll, 'A', ['control'], 'Ctrl+A'),
@@ -2773,7 +2780,7 @@ index 291ed084..536994c7 100644
      })
    }
  
-@@ -1328,10 +2054,37 @@ async function main(): Promise<void> {
+@@ -1328,10 +2061,37 @@ async function main(): Promise<void> {
        window.hide()
      }
    }
@@ -2815,7 +2822,7 @@ index 291ed084..536994c7 100644
      shortcuts.attach(window)
      window.on('focus', automaticCheck)
      // Closing hides: the page and the Host keep running, and the next show resumes the same document.
-@@ -1340,7 +2093,7 @@ async function main(): Promise<void> {
+@@ -1340,7 +2100,7 @@ async function main(): Promise<void> {
        event.preventDefault()
        if (updateDialog.isOpen) { updateDialog.focus(); return }
        const hide = (): void => {
@@ -2824,7 +2831,7 @@ index 291ed084..536994c7 100644
        }
        if (backgroundNotice === undefined) hide()
        else backgroundNotice.close(hide)
-@@ -1355,7 +2108,10 @@ async function main(): Promise<void> {
+@@ -1355,7 +2115,10 @@ async function main(): Promise<void> {
        window.on('focus', () => { sessionEnding = false })
        window.on('show', () => { sessionEnding = false })
      }
@@ -2836,7 +2843,7 @@ index 291ed084..536994c7 100644
      window.webContents.on('console-message', (details) => {
        if (details.level !== 'error') return
        rendererConsole.push(`${details.sourceId}:${String(details.lineNumber)} ${details.message}`)
-@@ -1369,29 +2125,55 @@ async function main(): Promise<void> {
+@@ -1369,29 +2132,55 @@ async function main(): Promise<void> {
        if (!quitting && !window.isDestroyed()) reportFatal(error, 'renderer')
      })
      window.webContents.on('render-process-gone', (_event, details) => {
@@ -2901,7 +2908,7 @@ index 291ed084..536994c7 100644
      if (raiseAfterUpdate) {
        raiseAfterUpdate = false
        window.moveTop()
-@@ -1402,95 +2184,95 @@ async function main(): Promise<void> {
+@@ -1402,95 +2191,95 @@ async function main(): Promise<void> {
      }
    }
    let openingWelcome: Promise<void> | undefined
@@ -3031,7 +3038,7 @@ index 291ed084..536994c7 100644
      if (window.isMinimized()) window.restore()
      window.show()
      window.focus()
-@@ -1499,6 +2281,8 @@ async function main(): Promise<void> {
+@@ -1499,6 +2288,8 @@ async function main(): Promise<void> {
    if (app.isPackaged || process.env.DSH_DESKTOP_DEV_APP === '1') app.setAsDefaultProtocolClient('dsh')
    app.on('open-url', (event, url) => {
      event.preventDefault()
@@ -3040,7 +3047,7 @@ index 291ed084..536994c7 100644
      if (url === 'dsh://open' || url === 'dsh://open/') focusPrimaryWindow()
    })
  
-@@ -1506,6 +2290,8 @@ async function main(): Promise<void> {
+@@ -1506,6 +2297,8 @@ async function main(): Promise<void> {
      if (!hasVisibleWindows) focusPrimaryWindow()
    })
    app.on('window-all-closed', () => {
@@ -3049,7 +3056,7 @@ index 291ed084..536994c7 100644
      if (process.platform !== 'darwin') app.quit()
    })
    if (process.platform !== 'win32') powerMonitor.on('shutdown', () => { sessionEnding = true })
-@@ -1516,18 +2302,21 @@ async function main(): Promise<void> {
+@@ -1516,18 +2309,21 @@ async function main(): Promise<void> {
      quitConfirmation.dispose()
      backgroundNotice?.dispose()
      tray?.dispose()
@@ -3076,7 +3083,7 @@ index 291ed084..536994c7 100644
        disposeFileDrag(),
      ].map(cleanup => cleanup.catch((error: unknown) => { console.error(error) })))
        .then(() => { app.quit() })
-@@ -1542,7 +2331,7 @@ async function main(): Promise<void> {
+@@ -1542,7 +2338,7 @@ async function main(): Promise<void> {
        updateDialog.dispose()
        mandatoryUI?.dispose()
        // Installation preparation already awaited Platform storage cleanup.
@@ -3085,7 +3092,7 @@ index 291ed084..536994c7 100644
        return
      }
      if (quitting) return
-@@ -1552,11 +2341,137 @@ async function main(): Promise<void> {
+@@ -1552,11 +2348,137 @@ async function main(): Promise<void> {
        if (quitting || shellInstallerOwnsQuit) return
        if (approved) { finishQuit(); return }
        // A quit that started from closing the welcome window destroyed it; a cancelled quit needs it back.
@@ -3108,7 +3115,7 @@ index 291ed084..536994c7 100644
 +      profile: name,
 +      profileDir,
 +      inspectPort: developmentHostInspectPort(development),
-+      env: plusProfileHostEnv(hostEnvironment, name),
++      env: () => plusProfileHostEnv(hostEnvironment, name),
 +      onFailure: (error) => { plusLogger.append(`[${name}] host failure: ${error.message}`) },
 +      onPluginOperation: (record) => {
 +        operationJournal ??= new OperationJournal(join(app.getPath('userData'), 'plugin-operations'), {
@@ -3225,7 +3232,7 @@ index 291ed084..536994c7 100644
    if (typeof manifest !== 'object' || manifest === null) throw new Error('desktop policy: invalid application manifest')
    const developmentPolicy = app.isPackaged ? undefined : process.env.DSH_DESKTOP_MANDATORY_UPDATE_CONFIG
    const policyInput: unknown = app.isPackaged
-@@ -1592,7 +2507,7 @@ async function main(): Promise<void> {
+@@ -1592,7 +2514,7 @@ async function main(): Promise<void> {
      mandatoryUI = new DesktopMandatoryUpdateWindow({
        overlays: updateOverlays,
        preload: fileURLToPath(new URL('./preload-mandatory.cjs', import.meta.url)), locale,
@@ -3234,7 +3241,7 @@ index 291ed084..536994c7 100644
        policy: () => policy.state, update: () => updates.state,
        refresh: async () => {
          if (channelState?.error !== undefined) await showConfigurationError()
-@@ -1615,15 +2530,668 @@ async function main(): Promise<void> {
+@@ -1615,15 +2537,668 @@ async function main(): Promise<void> {
    publishUpdate(updateState)
  }
  
