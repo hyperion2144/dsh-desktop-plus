@@ -10,6 +10,7 @@ import {
   OWNS_HOST_PATCH,
   THEME_SYNC_PATCH,
   LOOPBACK_URL_PATCH,
+  LANE_PAIRED_HEADER,
   type RewriteProxy,
   type UpstreamPort,
 } from './proxy.js'
@@ -19,7 +20,8 @@ import { createDshUpstreamAuth, type DshUpstreamAuth } from './dshauth.js'
 import { PairingStore, createFileStorage, type PairingStorage, type PersistedPairingState } from './pairing.js'
 import { selectLanIPv4, buildPairLink, buildHttpPairLink, normalizeRemote, resolveBaseCandidates, sanitizeLocalHostname, type NetworkInterfacesLike } from './links.js'
 import { buildLaneServiceRecord, buildLaneTxt, createBonjourPublisher, createLaneAdvertiser, defaultServiceName, type LaneAdvertiser, type LaneServiceRecord, type Publisher } from './mdns.js'
-import { readSettingsString, writeSettingsKey, readTopLevelBlockKey, readShellSetting, writeShellSetting } from './settings.js'
+import { readSettingsString, writeSettingsKey, readTopLevelBlockKey, readShellSetting, readRemoteSetting, writeRemoteSetting } from './settings.js'
+import { setProfileScope, currentProfileScope, profileStorageDir } from './profile-scope.js'
 import { laneWsTokenSecret, mintWsToken, verifyWsToken, wsTokenOf } from './ws-token.js'
 import { resolveCloudflared } from './cloudflared.js'
 
@@ -240,7 +242,8 @@ export function createRemoteAccessService(opts: RemoteAccessServiceOptions = {})
       const direct = token ?? (bearer.startsWith('Bearer ') ? bearer.slice('Bearer '.length).trim() : null);
       if (direct !== null) {
         const session = verifyWsToken(laneWsTokenSecret(), direct);
-        return { ok: session !== null && store.isDevice(session, meta0) };
+        const paired = session !== null && store.isDevice(session, meta0);
+        return paired ? { ok: true, session } : { ok: false };
       }
       // 配对门禁：所有到达反代本体的路径都必须是已配对设备（携带会话 cookie）。
       // lane 自有控制面住在保留命名空间（LANE_PREFIX/*，含冻结别名 /pair、/api/pair/*），
@@ -259,8 +262,9 @@ export function createRemoteAccessService(opts: RemoteAccessServiceOptions = {})
         ip: clientIp(req),
         entry: entryKind(req),
       };
-      const ok = cookies.some((c) => store.isDevice(c, meta));
-      return { ok };
+      // 命中即带上该会话值：反代把它写进标记头，上游 provider 据此认 owner Peer（#145）。
+      const session = cookies.find((c) => store.isDevice(c, meta));
+      return session === undefined ? { ok: false } : { ok: true, session };
     },
     onInjectSkip: opts.warn
       ? (p) => opts.warn!('[dsh-remote-access] 上游压缩 HTML，跳过注入（该页无 polyfill/桌面补丁）: ' + p)
@@ -544,6 +548,9 @@ export function createRemoteAccessService(opts: RemoteAccessServiceOptions = {})
       }
       json(200, {
         lanePort: tunnel.port,
+        // #145：状态按 profile 隔离，把当前 profile 与落点报出来方便排查。
+        profile: currentProfileScope(),
+        storageDir: profileStorageDir(),
         lanIp,
         baseCandidates,
         tunnelUrl: tunnel.url,
@@ -882,6 +889,15 @@ export interface SettingsService {
 export interface ConnectionService {
   authenticatedUrl?: (origin: string) => string | null
   rpc?: { handle?: unknown }
+  /**
+   * 官方凭据注册点（#145）：lane 把已配对设备的会话 cookie 接进官方鉴权链，
+   * 让远端请求在官方语义里成为一个真正的 owner Peer，而不是靠反代伪装。
+   */
+  authentication?: {
+    register?: (provider: { authenticate: (request: { headers: Record<string, string | string[] | undefined> }) => unknown }) => () => Promise<void>
+  }
+  /** 官方 Peer 工厂：provider 自己创建并持有 Peer。 */
+  createPeer?: (options: { principal: { kind: 'owner' } }) => unknown
   fetch?: {
     register?: (route: {
       path: string
@@ -939,6 +955,8 @@ export const inject = ['connection', 'settings', 'webServer'];
 // 服务不可用时回退 legacy 行级读写（独立运行/老版 dsh）。
 const NS = 'dsh-desktop-plus';
 
+
+
 /**
  * 启动 lane 运行时（插件入口与单测共用）：监听端口 → 广播 mDNS → 就绪。
  *
@@ -952,10 +970,24 @@ const NS = 'dsh-desktop-plus';
 export function startLaneRuntime(ctx: LaneRuntimeContext, opts: { mdns?: MdnsRuntimeOptions } = {}): LaneRuntime | undefined {
   const platform = typeof process !== 'undefined' ? process.platform : ''
   if (!platform || !ctx || typeof ctx.on !== 'function') return;
-  if (process.env.DSH_REMOTE_ENABLED === '0') return;
-  const lanePort = Number(process.env.DSH_REMOTE_LANE_PORT || 3091);
-  // mDNS 广播：桌面场景默认开启（DSH_REMOTE_MDNS=0 可关）；测试注入假广播器。
-  const mdns = opts.mdns ?? { enabled: process.env.DSH_REMOTE_MDNS !== '0' };
+  // 配置优先级（#145 独立发布）：插件设置 > 环境变量 > 缺省。
+  //
+  // 环境变量是桌面壳 spawn 时注入的旧通道，现在降为兼容层：不设任何 DSH_* 也能起 lane，
+  // 设置从 $DSH_HOME/storages/remote-access/ 读（与 pairing.json 同一落点）。
+  // 这样插件装进任意 profile 都能用，不依赖桌面壳。
+  const readConfig = (key: string): string | null => {
+    const fromStore = readRemoteSetting(key)
+    if (fromStore !== null) return fromStore
+    const fromEnv = process.env[key]
+    return fromEnv === undefined || fromEnv === '' ? null : fromEnv
+  }
+  if (readConfig('DSH_REMOTE_ENABLED') === '0') return;
+  // let：端口被占时会改取空闲端口（见 boot）。
+  let lanePort = Number(readConfig('DSH_REMOTE_LANE_PORT') ?? 3091);
+  // lane 彻底起不来时的原因；mint 据此直接失败，不再发出指向别人 lane 的链接。
+  let laneFailure: string | null = null
+  // mDNS 广播：默认开启（DSH_REMOTE_MDNS=0 可关）；测试注入假广播器。
+  const mdns = opts.mdns ?? { enabled: readConfig('DSH_REMOTE_MDNS') !== '0' };
   // upstream 端口：显式 env 优先；否则端口文件（壳在 dsh web ready 后写入，端口动态时用）；最后回退 3080。
   const resolveUpstreamPort = () => {
     // 本插件就跑在 dsh web 的宿主进程里：webServer 就是上游本体，端口最准；
@@ -982,14 +1014,12 @@ export function startLaneRuntime(ctx: LaneRuntimeContext, opts: { mdns?: MdnsRun
       settingsSvc.register(NS, passthrough)
     } catch { /* 已注册（桌面壳插件先注册） */ }
   }
-  // #116：壳专属键（tunnel_url/cloudflared_bin/ws_*）的权威落点是壳的
-  // $DSH_HOME/desktop-settings.json（#95 后 dsh settings 插件命名空间与 settings.yaml 均已废除，
-  // 经它们保存只会“看似成功”而无处落盘）；旧通道仅作历史数据读取兜底。
+  // #145 独立发布：设置权威落点是插件自己的 $DSH_HOME/storages/remote-access/settings.json。
+  // 壳的 desktop-settings.json 与 dsh settings 命名空间降为旧数据读取兜底（读一次，下次写入
+  // 就落到插件自己的文件）——插件装进任意 profile 都能用，不依赖桌面壳。
   const readSetting = (key: string): string | null => {
-    const shell = readShellSetting(key)
-    if (shell !== null && shell !== undefined) {
-      return typeof shell === 'string' ? shell : JSON.stringify(shell)
-    }
+    const own = readRemoteSetting(key)
+    if (own !== null) return own
     if (settingsSvc) {
       const v = settingsSvc.get(NS)?.[key]
       if (v !== undefined && v !== null) return v as string | null
@@ -997,8 +1027,8 @@ export function startLaneRuntime(ctx: LaneRuntimeContext, opts: { mdns?: MdnsRun
     return readSettingsString(key);
   };
   const writeSettings = async (patch: Record<string, unknown>): Promise<void> => {
-    // #116：只写壳设置 JSON；不再 mutate dsh settings 命名空间（已废除，勿回改）
-    for (const [key, value] of Object.entries(patch)) writeShellSetting(key, value);
+    // #145：写插件自己的设置文件（与 pairing.json 同一目录），不再依赖壳的 desktop-settings.json。
+    for (const [key, value] of Object.entries(patch)) writeRemoteSetting(key, value);
   };
   const svc = createRemoteAccessService({
     upstreamHost: '127.0.0.1',
@@ -1018,6 +1048,43 @@ export function startLaneRuntime(ctx: LaneRuntimeContext, opts: { mdns?: MdnsRun
   // 桌面壳 WebView 跨域 fetch 被浏览器拦截，必须走 dsh 同源 connection RPC。
   // 同源 RPC handler：connection 用 ctx.get 取（属性代理对拓扑敏感）；失败不能拖垮 lane 启动。
   const connection: ConnectionService | null = (typeof ctx.get === 'function' ? ctx.get('connection') as ConnectionService | undefined : undefined) ?? ctx.connection ?? null;
+
+  // #145：把 lane 的配对身份接进官方鉴权链。
+  //
+  // lane 转发时把 Host 改写成 loopback（官方 Host fence 只认 loopback，不改写就是 403）。
+  // 改写后 dsh 用 loopback 算会话 cookie 名（cookieName = sha256(Host)），与浏览器持有的
+  // 外部 Host cookie 对不上——所以远端身份**不靠 dsh 的 cookie**，而是：
+  //   1. lane 的配对闸先准入（未配对请求根本到不了上游）；
+  //   2. 这个 provider 把已配对请求在官方语义里认成 owner Peer。
+  //
+  // 安全红线：没有我们凭据的请求必须返回 undefined，交给官方回 401。
+  // 判据是「lane 的配对闸已放行」——lane 在转发前把已配对设备的会话值写进
+  // `x-dsh-lane-paired` 头（外部无法伪造：lane 先删掉客户端自带的同名头）。
+  if (connection?.authentication?.register && connection.createPeer) {
+    const createPeer = connection.createPeer.bind(connection);
+    try {
+      connection.authentication.register({
+        authenticate: (request) => {
+          // 判据：lane 在转发前注入的标记头。lane 先删掉客户端自带的同名头，
+          // 所以外部无法伪造；没有这个头就说明请求没经过 lane 的配对闸。
+          const marker = request.headers instanceof Headers
+            ? request.headers.get(LANE_PAIRED_HEADER) ?? undefined
+            : request.headers[LANE_PAIRED_HEADER];
+          const session = typeof marker === 'string' ? marker : Array.isArray(marker) ? marker[0] : undefined;
+          if (session === undefined || session === '') return undefined;
+          // 会话值必须仍对应一个未吊销的设备（吊销后立即失效）。
+          const meta = { ua: '', ip: '', entry: 'remote' };
+          if (!svc.store.isDevice(session, meta)) return undefined;
+          // 已配对：在官方语义里就是一个 owner Peer（与官方「配对浏览器 = owner」一致）。
+          return createPeer({ principal: { kind: 'owner' } });
+        },
+      });
+      try { ctx?.logger?.info?.('dsh-remote-access: 已注册官方鉴权 provider'); } catch { /* noop */ }
+    } catch (error) {
+      // 注册失败不能拖垮 lane：反代照常起来，只是远端请求仍由官方回 401。
+      try { ctx?.logger?.warn?.('dsh-remote-access: 注册官方鉴权 provider 失败: ' + String((error as { message?: unknown } | null | undefined)?.message ?? error)); } catch { /* noop */ }
+    }
+  }
 
   if (connection?.rpc?.handle) {
     const ch = '/dsh-remote-access';
@@ -1042,6 +1109,9 @@ export function startLaneRuntime(ctx: LaneRuntimeContext, opts: { mdns?: MdnsRun
             return ok(true);
           }
           case 'token.mint': {
+            // lane 没起来时直接失败：否则用户拿到的是指向别人 lane 的链接，
+            // 表现为「令牌无效或已过期」（#145）。
+            if (laneFailure !== null) return errRpc(laneFailure);
             const t = svc.store.mint();
             return ok({ token: t, expiresAt: svc.store.tokenExpiresAt });
           }
@@ -1050,13 +1120,17 @@ export function startLaneRuntime(ctx: LaneRuntimeContext, opts: { mdns?: MdnsRun
           case 'info': {
             const interfaces: NetworkInterfacesLike = os.networkInterfaces?.() ?? {}
             const lanIp = selectLanIPv4(interfaces);
-            const baseCandidates = resolveBaseCandidates({ hostname: os.hostname(), interfaces, port: svc.tunnel?.port ?? 3091 });
+            // 用实际绑定的端口（可能因占用而改取空闲端口），不能写死 3091。
+            const baseCandidates = resolveBaseCandidates({ hostname: os.hostname(), interfaces, port: svc.tunnel?.port ?? lanePort });
             let customTunnelUrl = svc.tunnel && svc.tunnel._customUrl ? svc.tunnel._customUrl : '';
             if (!customTunnelUrl) {
               try { customTunnelUrl = readSetting('tunnel_url') ?? ''; } catch { /* noop */ }
             }
             return ok({
-              lanePort: svc.tunnel?.port ?? 3091,
+              lanePort: svc.tunnel?.port ?? lanePort,
+              // #145：状态按 profile 隔离，把当前 profile 与落点报出来方便排查。
+              profile: currentProfileScope(),
+              storageDir: profileStorageDir(),
               lanIp,
               baseCandidates,
               tunnelUrl: svc.tunnel?.url ?? null,
@@ -1158,12 +1232,23 @@ export function startLaneRuntime(ctx: LaneRuntimeContext, opts: { mdns?: MdnsRun
   }
   let closed = false;
   const boot = async (): Promise<void> => {
+    // 端口被占时自动取空闲端口（#145）：桌面宿主常占着 3091，独立 profile 的 lane
+    // 如果静默失败，mint 照常成功、链接却指向别人的 lane，用户看到的是「令牌无效」。
+    let boundPort = lanePort
     try {
-      await svc.listen(lanePort);
+      boundPort = await svc.listen(lanePort)
     } catch (e) {
-      try { ctx?.logger?.error?.(`dsh-remote-access: lane ${lanePort} 启动失败: ${String(e)}`); } catch { /* noop */ }
-      return;
+      try { ctx?.logger?.warn?.(`dsh-remote-access: lane ${lanePort} 不可用（${String(e)}），改取空闲端口`); } catch { /* noop */ }
+      try {
+        boundPort = await svc.listen(0)
+      } catch (e2) {
+        // 连空闲端口都拿不到：lane 彻底不可用，记下原因让 mint 直接失败。
+        laneFailure = `lane 启动失败: ${String(e2)}`
+        try { ctx?.logger?.error?.(`dsh-remote-access: ${laneFailure}`); } catch { /* noop */ }
+        return;
+      }
     }
+    lanePort = boundPort
     // 启动横幅：报出上游与自有控制面的保留命名空间——命名空间外的一切路径原样透传（#145）。
     try { ctx?.logger?.info?.(`dsh-remote-access: lane 改写反代已监听 127.0.0.1:${lanePort} → ${svc.proxy.upstream}（控制面 ${LANE_PREFIX}/，其余全量透传）`); } catch { /* noop */ }
     // 预热 dsh 会话凭证（异步，失败不阻塞：首个上游 401 会触发自动重换）
@@ -1196,6 +1281,13 @@ export function startLaneRuntime(ctx: LaneRuntimeContext, opts: { mdns?: MdnsRun
 
 /** dsh bundle 插件入口：cordis-plugin-loader 会同时读取 apply + inject。 */
 export function apply(ctx: LaneRuntimeContext): void {
+  // #145：所有状态（配对设备、会话 cookie、隧道地址、调优参数、访问日志）按 profile 隔离。
+  // profile 名来自官方 profileContext；拿不到时回退 default（单 profile 场景行为不变）。
+  // 必须在 startLaneRuntime 之前设好——存储路径在构造时就要确定。
+  try {
+    const profile = (typeof ctx.get === 'function' ? ctx.get('profileContext') : undefined) as { name?: unknown } | undefined
+    setProfileScope(typeof profile?.name === 'string' ? profile.name : null)
+  } catch { /* 服务不可用：保持回退值 */ }
   const runtime = startLaneRuntime(ctx);
   if (!runtime) return;
   // ctx dispose = lane 生命周期终点：停隧道、停 mDNS 广播、关端口。

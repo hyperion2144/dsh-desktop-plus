@@ -4,4 +4,8 @@
 - insert:
     - id: "@deepseek-ai-dsh-desktop-plus-remote-access"
       name: "@deepseek-ai/dsh-desktop-plus-remote-access"
-      inject: [connection, settings, webServer]
+      # connection.authentication 是官方凭据注册点（#145）：lane 把已配对设备的会话
+      # 接进官方鉴权链，远端请求在官方语义里成为 owner Peer。
+      # profileContext 提供 profile 名：插件所有状态（配对设备、会话 cookie、隧道地址、
+      # 调优参数、访问日志）按 profile 隔离，不同 profile 不串。
+      inject: [connection, connection.authentication, profileContext, settings, webServer]

@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-desktop-plus-remote-access",
   "version": "0.2.3-alpha.2",
-  "description": "远程访问服务：Host/Origin 改写反代 + 配对（扫码/输入地址）+ SSE 设备会话 + cloudflared 隧道（DSH Desktop Plus 内置包）",
+  "description": "远程访问：把本机工作区开放给已配对设备。薄反代 + 配对（扫码/输入地址）+ SSE 设备会话 + cloudflared 隧道；装进任意 DSH profile 即用，不依赖桌面壳。",
   "type": "module",
   "main": "lib/index.js",
   "exports": {
@@ -42,6 +42,9 @@
         "@deepseek-ai/dsh-client-runtime"
       ]
     }
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "engines": {
     "node": ">=22"

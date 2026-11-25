@@ -56,7 +56,7 @@ export function apply(ctx) {
   );
 }
 
-const lanePort = Number(globalThis.__DSH_REMOTE_LANE_PORT__) || 3091;
+
 
 /**
  * 设置面板与 host 的**唯一**通道：dsh 同源 connection RPC（通道 `/dsh-remote-access`）。
@@ -285,6 +285,8 @@ function RemoteAccessPanel() {
   // ---- LAN state ----
   // lanBase 只在 mint handler 内被读，不参与渲染 → 用 ref 避免触发重渲染
   const lanBaseRef = useRef(null);
+  // 实际绑定的 lane 端口（host 下发；可能因占用而改取空闲端口）。
+  const [lanePort, setLanePort] = useState(null);
   const [lanLink, setLanLink] = useState(null);
   const [lanHint, setLanHint] = useState(null);
 
@@ -354,7 +356,9 @@ function RemoteAccessPanel() {
   const refreshLanBase = useCallback(async () => {
     try {
       const info = await hostCall("info");
-      const port = info.lanePort ?? lanePort;
+      // 端口只认 host 下发的实际绑定值（可能因占用而改取空闲端口）；不再读全局变量。
+      const port = info.lanePort;
+      setLanePort(port);
       // 地址候选：`.local` 主机名 + 多网卡 IP（桌面下发；手机壳按平台择优：iOS 用 .local，
       // Android/鸿蒙用 IP）。链接本身仍用可达的 IP 打开——.local 只作候选，不做主地址。
       const candidates = Array.isArray(info.baseCandidates) ? info.baseCandidates : [];

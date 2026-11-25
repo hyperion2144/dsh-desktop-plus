@@ -2,7 +2,7 @@
 import { randomBytes, createHash } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
-import os from 'node:os'
+import { profileStoragePath } from './profile-scope.js'
 import { describeClient, type ClientMeta } from './client-info.js'
 
 export const TOKEN_TTL_MS = 10 * 60 * 1000 // 10 分钟
@@ -60,10 +60,13 @@ export type PairingListener = (event: string, data: unknown) => void
 
 /**
  * 文件存储适配器（默认）：$DSH_HOME 下 0600 文件，重启后设备会话/令牌恢复。
- * @param file 存储文件路径；默认 $DSH_HOME/storages/remote-access/pairing.json
+ * 按 profile 隔离（#145）：默认落点是
+ * `$DSH_HOME/storages/remote-access/profiles/<profile>/pairing.json`——
+ * 不同 profile 的配对设备与会话 cookie 不串。
+ * @param file 存储文件路径；缺省用当前 profile 的落点。
  */
 export function createFileStorage(file?: string): FileStorage {
-  const resolved = file ?? path.join(process.env.DSH_HOME || path.join(os.homedir(), '.dsh'), 'storages', 'remote-access', 'pairing.json')
+  const resolved = file ?? profileStoragePath('pairing.json')
   return {
     path: resolved,
     load() {

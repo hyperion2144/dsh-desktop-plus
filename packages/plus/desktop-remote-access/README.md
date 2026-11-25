@@ -1,8 +1,26 @@
-# dsh-remote-access（内部包）
+# dsh-remote-access
 
-远程访问服务的 host+client 双半区实现，随 DeepSeek Harness Desktop 内置（共享模块池 + --patch 注入，不写 profile bundles）。
+把本机工作区开放给已配对设备：薄反代（HTTP+WS 全量透传）+ 配对令牌 + 设备会话 + SSE 状态 +
+cloudflared 隧道 + H5 手机壳接入（扫码/输入地址双入口）。
 
-能力：Host/Origin 改写反代（HTTP+WS）、配对令牌、设备会话、SSE 状态、cloudflared 隧道、H5 手机壳接入（扫码/输入地址双入口）。
+## 安装
+
+本包自带 bundle 组合层（`cordis.patch.yml`），装进**任意** DSH profile 即被装载，不依赖桌面壳、
+不依赖本仓补丁集：
+
+```sh
+dsh plugin install @deepseek-ai/dsh-desktop-plus-remote-access
+```
+
+装完重启 dsh，lane 自动监听（默认 3091），配对页在 `http://<本机地址>:3091/pair`。
+
+## 配置
+
+设置权威落点是 `$DSH_HOME/storages/remote-access/settings.json`（与 `pairing.json` 同一目录）。
+环境变量（`DSH_REMOTE_ENABLED` / `DSH_REMOTE_LANE_PORT` / `DSH_REMOTE_MDNS` / `DSH_CLOUDFLARED_BIN`）
+是桌面壳注入的旧通道，降为兼容层：设置文件优先，环境变量次之，最后才是缺省值。
+
+cloudflared 不需要手工准备：先找 `PATH`，再找缓存，都没有就自动下载并校验。
 
 授权模型：一次性限时令牌 + HttpOnly 会话 cookie（无密码，对齐 dsh-remote-web-ui 配对机制）。
 

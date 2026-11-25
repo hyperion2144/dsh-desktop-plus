@@ -33,7 +33,7 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 ));
 var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 
-// ../desktop-remote-access/client/client.source.jsx
+// packages/plus/desktop-remote-access/client/client.source.jsx
 var client_source_exports = {};
 __export(client_source_exports, {
   apply: () => apply,
@@ -42,7 +42,7 @@ __export(client_source_exports, {
 module.exports = __toCommonJS(client_source_exports);
 var import_react2 = __toESM(require("react"), 1);
 
-// ../../../node_modules/.pnpm/qrcode-generator@2.0.4/node_modules/qrcode-generator/dist/qrcode.mjs
+// node_modules/.pnpm/qrcode-generator@2.0.4/node_modules/qrcode-generator/dist/qrcode.mjs
 var qrcode = function(typeNumber, errorCorrectionLevel) {
   const PAD0 = 236;
   const PAD1 = 17;
@@ -1676,7 +1676,7 @@ var createDataURL = function(width, height, getPixel) {
 var qrcode_default = qrcode;
 var stringToBytes = qrcode.stringToBytes;
 
-// ../desktop-remote-access/src/client/i18n/provider.tsx
+// packages/plus/desktop-remote-access/src/client/i18n/provider.tsx
 var import_react = require("react");
 var import_jsx_runtime = require("react/jsx-runtime");
 var CopyContext = (0, import_react.createContext)(null);
@@ -1689,7 +1689,7 @@ function useRemoteAccessT() {
   return t;
 }
 
-// ../desktop-remote-access/src/client/i18n/dictionary.ts
+// packages/plus/desktop-remote-access/src/client/i18n/dictionary.ts
 var en = {
   // ── 页面外框 ──
   "\u8FDC\u7A0B\u8BBF\u95EE": "Remote access",
@@ -1754,16 +1754,16 @@ var zh = Object.fromEntries(
   Object.keys(en).map((key) => [key, key])
 );
 
-// ../desktop-remote-access/src/client/i18n/namespace.ts
+// packages/plus/desktop-remote-access/src/client/i18n/namespace.ts
 var REMOTE_ACCESS_NAMESPACE = "dsh-remote-access";
 
-// ../desktop-remote-access/src/client/i18n/install.ts
+// packages/plus/desktop-remote-access/src/client/i18n/install.ts
 function installRemoteAccessCopy(ctx) {
   ctx.effect(() => ctx.locale.register(REMOTE_ACCESS_NAMESPACE, { zh, en }), "dsh-remote-access: dictionaries");
   return ctx.locale.bind(REMOTE_ACCESS_NAMESPACE);
 }
 
-// ../desktop-remote-access/client/client.source.jsx
+// packages/plus/desktop-remote-access/client/client.source.jsx
 var import_jsx_runtime2 = require("react/jsx-runtime");
 var inject = ["slots", "connection", "locale"];
 function apply(ctx) {
@@ -1794,7 +1794,6 @@ function apply(ctx) {
     )
   );
 }
-var lanePort = Number(globalThis.__DSH_REMOTE_LANE_PORT__) || 3091;
 var hostRpc = null;
 async function hostCall(endpoint, payload = {}) {
   if (!hostRpc) throw new Error("host \u901A\u9053\u4E0D\u53EF\u7528\uFF08connection.rpc \u7F3A\u5931\uFF09");
@@ -1980,6 +1979,7 @@ function RemoteAccessPanel() {
     };
   }, []);
   const lanBaseRef = (0, import_react2.useRef)(null);
+  const [lanePort, setLanePort] = (0, import_react2.useState)(null);
   const [lanLink, setLanLink] = (0, import_react2.useState)(null);
   const [lanHint, setLanHint] = (0, import_react2.useState)(null);
   const [tunInputValue, setTunInputValue] = (0, import_react2.useState)("");
@@ -2037,7 +2037,8 @@ function RemoteAccessPanel() {
   const refreshLanBase = (0, import_react2.useCallback)(async () => {
     try {
       const info = await hostCall("info");
-      const port = info.lanePort ?? lanePort;
+      const port = info.lanePort;
+      setLanePort(port);
       const candidates = Array.isArray(info.baseCandidates) ? info.baseCandidates : [];
       lanBaseRef.current = {
         base: info.lanIp ? info.lanIp + ":" + port : "127.0.0.1:" + port,
