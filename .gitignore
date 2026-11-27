@@ -6,12 +6,6 @@ node_modules/
 .plus/tmp/
 packages/plus/*/lib/
 
-# hvigor 的本地缓存与产物（构建时生成，不入库）。
-.hvigor/
-
-# IDE 本地状态（DevEco Studio 打开工程时自动生成）。
-mobile/harmony/.idea/
-
 # Local Electron scratch copies (never committed)
 /dist
 

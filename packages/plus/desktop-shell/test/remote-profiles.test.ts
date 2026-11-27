@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { loadRemoteAddressList } from '../src/rpc/desktop-settings.ts'
+import { loadRemoteAddressList, loadRemoteOrigins } from '../src/rpc/desktop-settings.ts'
 import { remoteProfileName } from '../src/profiles/registry.ts'
 import { remoteOrigin } from '../src/profiles/remote.ts'
 
@@ -23,5 +23,18 @@ describe('remote profile naming and address list', () => {
 		expect(loadRemoteAddressList(home)).toEqual(['http://192.168.1.20:3091'])
 		expect(loadRemoteAddressList(join(home, 'missing'))).toEqual([])
 		expect(remoteOrigin('http://192.168.1.20:3091/dsh/app')).toBe('http://192.168.1.20:3091')
+	})
+
+	it('reads remote profiles from the remote-access host store and drops malformed entries (#93)', () => {
+		const home = mkdtempSync(join(tmpdir(), 'plus-origins-'))
+		expect(loadRemoteOrigins(home)).toEqual([])
+		const file = join(home, 'storages', 'remote-access', 'remote-hosts.json')
+		mkdirSync(join(home, 'storages', 'remote-access'), { recursive: true })
+		writeFileSync(file, JSON.stringify({ hosts: [{ origin: 'http://192.168.1.20:3091' }, { origin: 42 }, {}, null] }), 'utf8')
+		expect(loadRemoteOrigins(home)).toEqual(['http://192.168.1.20:3091'])
+		writeFileSync(file, JSON.stringify({ hosts: 'not-a-list' }), 'utf8')
+		expect(loadRemoteOrigins(home)).toEqual([])
+		writeFileSync(file, 'not json', 'utf8')
+		expect(loadRemoteOrigins(home)).toEqual([])
 	})
 })

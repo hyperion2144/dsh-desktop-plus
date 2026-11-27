@@ -1,18 +1,17 @@
 #!/usr/bin/env node
 /**
- * The two patch sets stay separate.
+ * A path belongs to at most one patch.
  *
- * Iron rule 3: a patch file belongs to exactly one set, and a path belongs to
- * at most one patch. This script checks both, and that every set still
- * applies to the official tree:
+ * The patch discipline keeps one owner per path: `patches:extract` decides which
+ * patch file receives a change by the paths it already owns, so a path owned by
+ * two patches would make that decision ambiguous. This script checks that no
+ * path is owned twice, and that every registered patch set still applies to the
+ * official tree:
  *
- *   1. no path is owned by a patch of two different sets,
- *   2. no path is owned by two patches of the same set,
- *   3. every patch of every set applies to the committed official tree.
+ *   1. no path is owned by two patches of the same set,
+ *   2. every registered patch set applies to the committed official tree.
  *
- * (1) is what keeps a desktop change out of a mobile build and the other way
- * round: the two sets are replayed onto separate trees, so a shared path
- * would make one build inherit the other's change.
+ * Only the `desktop` set is registered (`PATCH_SETS` in `patch-set.mjs`).
  *
  * Usage:
  *   node scripts/plus/verify-patch-sets.mjs

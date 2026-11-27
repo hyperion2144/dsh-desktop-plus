@@ -63,14 +63,18 @@ export function buildSnapshot(
     },
     proxyEffective: p.effective,
     // 以 **壳返回的完整对象为基底**，只覆盖三个以 ns 优先的展示字段。
-    desktop: {
-      ...d,
-      remote_list: (ns.remote_list as string[]) ?? d.remote_list ?? [],
-      port: (ns.port as number) || d.port || 3080,
-      mux_heartbeat_ms: d.mux_heartbeat_ms ?? null,
-      prevent_sleep: d.prevent_sleep ?? null,
-      keep_awake: d.keep_awake ?? null,
-    },
+    desktop: Object.assign(
+      {
+        ...d,
+        remote_list: (ns.remote_list as string[]) ?? d.remote_list ?? [],
+        port: (ns.port as number) || d.port || 3080,
+        mux_heartbeat_ms: d.mux_heartbeat_ms ?? null,
+        prevent_sleep: d.prevent_sleep ?? null,
+        keep_awake: d.keep_awake ?? null,
+      },
+      // 地址自定义名：壳的 DesktopData 还没有这个字段，用 Object.assign 挂上去，避免改壳的类型。
+      { remote_names: (ns.remote_names as Record<string, string>) ?? {} },
+    ),
     ...savedPortInputs(ns),
     ...migrationSelectDefaults(d),
   }

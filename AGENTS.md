@@ -9,9 +9,8 @@ bundled runtimes, multi-instance, tray, notifications, installers).
 ```
 upstream/                   Official deepseek-harness tree, vendored verbatim.
 packages/plus/              Our packages (@deepseek-ai/dsh-desktop-plus-*).
-scripts/plus/               Our generators, the patch sets and the upstream sync driver.
+scripts/plus/               Our generators, the patch set and the upstream sync driver.
 scripts/plus/hooks/         The desktop patch set: our changes to upstream/.
-scripts/plus/hooks-mobile/  The mobile patch set: the mobile variant's changes to upstream/.
 .plus/upstream-base         SHA of the official commit upstream/ was taken from.
 .plus/upstream-tree         Git tree id of that commit's tree — upstream/ must equal it.
 ```
@@ -44,14 +43,11 @@ and breaking one breaks a build or loses a change.
    puts the official tree back. The commit carries the patch, never the
    modified tree. `pnpm run patches:revert` undoes a tree that was left dirty.
 
-3. **The desktop patch set and the mobile patch set are physically separate.**
-   The desktop set is `scripts/plus/hooks/`; the mobile set is
-   `scripts/plus/hooks-mobile/`. A patch file belongs to exactly one set, and
-   a build applies exactly one set: the desktop build never applies a mobile
-   patch, and a mobile build never applies a desktop patch. `scripts/plus/`
-   names the sets in `PATCH_SETS` (`scripts/plus/patch-set.mjs`). A mobile
-   build materializes its tree in a scratch directory and never writes
-   `upstream/`, so neither build can contaminate the other.
+3. **A path belongs to at most one patch.** The patch set is
+   `scripts/plus/hooks/` — the only set named in `PATCH_SETS`
+   (`scripts/plus/patch-set.mjs`). `patches:extract` files a change under the
+   patch that already owns its path, so a path owned by two patches would make
+   that ambiguous; `pnpm run verify:patch-sets` fails when it happens.
 
 4. **Official code is edited in place; it never moves.** A patch may add code,
    but it may not relocate official code: no lifting an official function's
@@ -102,10 +98,7 @@ pnpm run gen:workspace:check  # fail if the generated file is stale
 pnpm run sync:upstream        # pull a newer official tree into upstream/
 pnpm run verify:patches       # upstream/ is the official tree; the patch set replays
 pnpm run verify:separation    # prove the build still consumes the pre-separation tree
-pnpm run verify:patch-sets    # the desktop and mobile patch sets own disjoint paths
-pnpm run build:web:mobile     # build the mobile variant dist (official tree + mobile patch set)
-pnpm run build:web:official   # build the official dist (official tree, no patch set)
-pnpm run verify:web:baseline  # an empty patch set must build the official dist, byte for byte
+pnpm run verify:patch-sets    # a path belongs to at most one patch, and the patch set replays
 pnpm run typecheck            # official typecheck gates, run inside upstream/
 pnpm run typecheck:plus       # typecheck our packages
 ```
@@ -121,25 +114,6 @@ Our packages extend `upstream/tsconfig.base.json` directly. TypeScript resolves
 pointing at `upstream/packages/*/src` without a single edit. A package that
 depends on an upstream package lists it in `references`, exactly like an
 official package would.
-
-## Variant builds
-
-A *variant* is the official tree plus exactly one patch set, built with the
-official build command. The desktop build consumes `official + desktop`;
-the mobile build consumes `official + mobile`.
-
-`scripts/plus/build-web-variant.mjs` materializes a variant in a scratch
-directory from `HEAD:upstream` — the committed official tree — and runs the
-official artifact build there. It never writes `upstream/`, so `upstream/`
-keeps its official bytes even when the build fails, and the desktop
-workflow is untouched. The variant installs its own dependencies, so a
-desktop build and a variant build can run at the same time.
-
-`pnpm run verify:web:baseline` builds the official variant and the mobile
-variant and compares the two dists file by file: with an empty mobile patch
-set they must be byte-identical. The mobile patch set's placement convention
-lives in [scripts/plus/hooks-mobile/README.md](scripts/plus/hooks-mobile/README.md);
-the mechanism is documented in [scripts/plus/README.md](scripts/plus/README.md).
 
 ## Syncing upstream
 

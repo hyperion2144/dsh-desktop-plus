@@ -38,9 +38,26 @@ export function saveDesktopSettings(dshHome: string, patch: Record<string, unkno
   return merged
 }
 
-/** 远程地址列表（desktop-settings 的 remote_list 键，唯一事实源）：缺键、形状不对或元素非法时丢弃。 */
+/** 旧版远程地址列表（desktop-settings 的 remote_list 键）：#93 起远程 profile 改由 loadRemoteOrigins 决定，这里只保留读取；缺键、形状不对或元素非法时丢弃。 */
 export function loadRemoteAddressList(dshHome: string): string[] {
 	const list = loadDesktopSettings(dshHome)['remote_list']
 	if (!Array.isArray(list)) return []
 	return list.filter((addr): addr is string => typeof addr === 'string' && /^https?:\/\//.test(addr))
+}
+
+/**
+ * 远程 profile 的地址：远程访问插件已配对的主机（`<dshHome>/storages/remote-access/remote-hosts.json`）。
+ * 自 #93 起它是唯一事实源，桌面设置的 remote_list 不再决定远程 profile；文件缺失或形状不对时视为没有远程 profile。
+ */
+export function loadRemoteOrigins(dshHome: string): string[] {
+  try {
+    const raw: unknown = JSON.parse(readFileSync(join(dshHome, 'storages', 'remote-access', 'remote-hosts.json'), 'utf8'))
+    const hosts = (raw as { hosts?: unknown }).hosts
+    if (!Array.isArray(hosts)) return []
+    return hosts
+      .map((host) => (host !== null && typeof host === 'object' ? (host as { origin?: unknown }).origin : undefined))
+      .filter((origin): origin is string => typeof origin === 'string' && origin !== '')
+  } catch {
+    return []
+  }
 }

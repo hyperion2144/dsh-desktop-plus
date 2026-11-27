@@ -144,7 +144,12 @@ function noDelay(sock: Socket | undefined): void { try { sock?.setNoDelay?.(true
 /** 逐跳头（RFC 9110）：不得在代理两侧原样转发——由本次连接自己决定。 */
 const HOP_BY_HOP = ['connection', 'keep-alive', 'proxy-connection', 'transfer-encoding', 'te', 'trailer', 'upgrade']
 function stripHopByHop(headers: HeaderBag): HeaderBag { for (const k of HOP_BY_HOP) delete headers[k]; return headers }
-function accessLog(parts: (string | number | undefined)[]): void {
+/**
+ * 写一行访问审计（按 profile 落盘，同时进进程输出）。
+ * lane 自有路由不经过反代，要留审计就调它；只记「谁、做了什么、结果」，不记可能带凭据的 URL 全文。
+ * @param parts 一行里的各个字段。
+ */
+export function accessLog(parts: (string | number | undefined)[]): void {
   const line = `[${new Date().toISOString()}] ${parts.join(' ')}\n`
   try { accessLogStream()?.write(line); } catch { /* noop */ }
   try { process.stdout.write(line); } catch { /* noop */ }

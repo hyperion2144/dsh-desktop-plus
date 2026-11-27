@@ -245,9 +245,9 @@ describe('createElectronProfileRuntime', () => {
 	})
 
 	it('loads a remote profile from its origin as-is and never opens a local host (#140)', async () => {
-		// 远程地址由 plus 自己从 dsh home 的设置里解析（Host 不在本机）。
-		mkdirSync(dshHome, { recursive: true })
-		writeFileSync(join(dshHome, 'desktop-settings.json'), JSON.stringify({ remote_list: ['https://remote.example/?token=one'] }), 'utf8')
+		// 远程 profile 的地址来自远程访问插件已配对的主机（Host 不在本机）。
+		mkdirSync(join(dshHome, 'storages', 'remote-access'), { recursive: true })
+		writeFileSync(join(dshHome, 'storages', 'remote-access', 'remote-hosts.json'), JSON.stringify({ hosts: [{ origin: 'https://remote.example' }] }), 'utf8')
 		const { created, opened, unbound } = runtime()
 		await created.manager.open('remote-remote-example')
 		const window = native.windows[0]!
